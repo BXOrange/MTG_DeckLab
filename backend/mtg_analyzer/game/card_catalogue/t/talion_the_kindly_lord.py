@@ -13,10 +13,8 @@ def _talion_the_kindly_lord() -> list[AbilitySpec]:
     you draw a card.
 
     — MEC-43 round 4B. Flying folds in via the ordinary keyword catalogue.
-    The ETB choice is the shipped `ChooseNumberReplacement` (Sanctum
-    Prelate's own free-text-numeric RULE 601.2b primitive — no "between 1
-    and 10" range validation, the same accepted UI-level simplification
-    Sanctum Prelate's own unranged pick already carries). The trigger
+    The entry choice uses `ChooseNumberReplacement` with the printed
+    range 1 through 10 (RULE 614.12). The trigger
     needed one new predicate (``spell_characteristic_equals_chosen_
     number``, `effect_binder._trigger_condition`) comparing `SPELL_CAST`'s
     ``mana_value``/``power``/``toughness`` (the latter two newly stamped
@@ -28,7 +26,7 @@ def _talion_the_kindly_lord() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "enter_replacement",
-            [EffectSpec("choose_number_on_enter", {})],
+            [EffectSpec("choose_number_on_enter", {"minimum": 1, "maximum": 10})],
         ),
         AbilitySpec(
             "triggered",

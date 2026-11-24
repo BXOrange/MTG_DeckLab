@@ -24,10 +24,10 @@ def _dancer_s_chakrams() -> list[AbilitySpec]:
                     "affects": "attached_permanent",
                     "static_specs": [
                         {"type": "anthem", "params": {
-                            "affects": "permanents_you_control", "object_filter": {"is_commander": True}, "power": 2, "toughness": 2, "exclude_self": True,
+                            "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'not_reference': True, 'is_commander': True}}, "power": 2, "toughness": 2,
                         }},
                         {"type": "grant_keyword", "params": {
-                            "affects": "permanents_you_control", "object_filter": {"is_commander": True}, "keywords": ["lifelink"], "exclude_self": True,
+                            "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'not_reference': True, 'is_commander': True}}, "keywords": ["lifelink"],
                         }},
                     ],
                 }),

@@ -104,6 +104,8 @@ def _matches_permanent_type(obj: GameObject, what: str) -> bool:
         return True
     if what == "creature":
         return obj.is_creature
+    if what == "non_gorgon_creature":
+        return obj.is_creature and not continuous.has_subtype(obj, "Gorgon")
     if what == "artifact":
         return obj.is_artifact
     if what == "enchantment":
@@ -372,6 +374,9 @@ class DamageDeathMixin:
             # (as opposed to Furnace of Rath's unscoped "a source") needs
             # this to tell the two apart — see `_double_damage_replacement`.
             source_is_creature=bool(getattr(source, "is_creature", False)),
+            # RULE 506.4: "dealt damage by an attacking creature" (Glyph of Life) -- the source's combat status as the
+            # damage is dealt.
+            source_is_attacking=bool(getattr(source, "attacking", False)),
             source_is_legendary=bool(getattr(source, "is_legendary", False)),
             combat=combat,
             damage_batch_id=(self.state.combat_damage_batch or {}).get("id") or self.state.next_timestamp(),
@@ -596,6 +601,10 @@ class DamageDeathMixin:
         if not final_is_player and getattr(final_target, "counters", {}).get("shield", 0) > 0:
             self.add_counters(final_target, -1, "shield")
             return
+        if (isinstance(source, GameObject) and
+                source.zone_incarnation == resolved.get("source_zone_incarnation")):
+            # RULE 120 / 400.7: actual damage and only this object's visit.
+            source.has_dealt_damage = True
         # RULE 702.90b/c: damage from an infect source is never marked/
         # doesn't cause life loss at all — it is dealt as -1/-1 counters
         # (creature) or poison counters (player) instead. RULE 702.91a's
@@ -814,49 +823,40 @@ class DamageDeathMixin:
                 return True
         return False
 
-    def regenerate(self, obj: GameObject) -> None:
-        """RULE 701.16: give ``obj`` a regeneration shield.
+    def regenerate(
+        self, obj: GameObject, *, controller_id=None, counter=None,
+        take_control=False, drawer_id=None,
+    ) -> None:
+        """RULE 701.19a: replace the next destruction of this visit this turn."""
+        from ..effects.replacements import RegenerationShield
 
-        The next time this turn ``obj`` would be destroyed (`destroy`, e.g.
-        via RULE 704.5g lethal damage), the shield replaces that event with:
-        remove it from combat, tap it, and remove all damage marked on it —
-        instead of moving it to the graveyard. RULE 701.16c: this never
-        applies to sacrifice, 0 toughness, or any other non-destruction move
-        to the graveyard.
+        if obj in self.state.permanents():
+            obj.replacement_effects.append(RegenerationShield(
+                obj, controller_id=controller_id, counter=counter,
+                take_control=take_control, drawer_id=drawer_id,
+            ))
 
-        Consumed on first use; each call adds its own independent shield
-        (RULE 701.16a — several activations stack several shields). Any
-        shield still unused simply sits in ``replacement_effects`` until
-        `GameEngine._step_cleanup` sweeps it at end of turn (RULE 514.2),
-        identified by the ``regeneration_shield`` marker so cleanup doesn't
-        touch a card's own bind-time replacement effects living in the same
-        list.
-        """
-        effect = ReplacementEffect(
-            event_type=EventType.DESTROY,
-            replacement_fn=lambda e, c: e,  # replaced below once `effect` exists
-            condition=lambda e, c: e.get("target_id") == obj.instance_id,
-            source=obj,
-            description=f"{obj.name}: Regenerationsschild",
-        )
-        effect.regeneration_shield = True
+    def regenerate_instead(self, obj: GameObject) -> None:
+        """RULE 701.19: perform the actual destruction replacement, not a shield grant."""
+        for other in self.state.permanents():
+            other.blocked_by = [iid for iid in other.blocked_by if iid != obj.instance_id]
+            if other.blocking == obj.instance_id:
+                other.blocking = None
+            other.additional_blocking = [iid for iid in other.additional_blocking if iid != obj.instance_id]
+        obj.attacking = False
+        obj.combat_defender = None
+        obj.blocking = None
+        obj.additional_blocking = []
+        obj.blocked_by = []
+        obj.is_blocked = False
+        obj.dealt_deathtouch_damage = False
+        obj.damage_marked = 0
+        self.set_tapped(obj, True)
+        self.state.fire_event(GameEvent(
+            EventType.REGENERATED, instance_id=obj.instance_id, controller_id=obj.controller_id,
+            zone_incarnation=obj.zone_incarnation,
+        ))
 
-        def _replace(event: GameEvent, _context: GameContext) -> Optional[GameEvent]:
-            if effect in obj.replacement_effects:
-                obj.replacement_effects.remove(effect)
-            obj.attacking = False
-            obj.combat_defender = None
-            obj.blocking = None
-            obj.additional_blocking = []
-            obj.blocked_by = []
-            obj.is_blocked = False
-            obj.dealt_deathtouch_damage = False
-            obj.tapped = True
-            obj.damage_marked = 0
-            return None
-
-        effect.replacement_fn = _replace
-        obj.replacement_effects.append(effect)
     def heal(self, obj: GameObject) -> int:
         """RULE 701.69a: heal the damage already dealt to ``obj`` — remove
         all marked damage from it. Returns how much was removed (0 if there
@@ -883,6 +883,8 @@ class DamageDeathMixin:
         sacrifice path). `sacrifice`'s own auto-picked effect-driven
         sacrifice (RULE 701.17) uses this too, for the same reason.
         """
+        if obj.cant_be_sacrificed_this_turn:
+            return
         self._move_to_graveyard(obj, cause="sacrifice")
     def _sacrifice_simultaneously(self, objects: list[GameObject]) -> None:
         """Retain each departing permanent's trigger sources for the batch."""
@@ -928,6 +930,7 @@ class DamageDeathMixin:
         source.sacrificed_cost_mana_value = victim.mana_value
         source.sacrificed_cost_card_types = sorted(victim.type_words & card_query.PERMANENT_CARD_TYPES)  # RULE 110.4
         source.sacrificed_cost_was_suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h
         source.sacrificed_cost_power = victim.power
         source.sacrificed_cost_instance_id = victim.instance_id  # RULE 109.1: "all other ... cards" excludes it
         source.sacrificed_cost_toughness = victim.toughness
@@ -935,10 +938,27 @@ class DamageDeathMixin:
         # must outlive a token victim that ceases to exist (RULE 704.5d) -- keep the Card itself, not a zone lookup.
         source.sacrificed_cost_copiable_card = getattr(victim, "_front_card", victim.card)
 
+    def _sacrifice_candidates(
+        self, player: Player, what: str = "permanent", object_filter: Optional[dict] = None,
+        exclude: Optional[GameObject] = None,
+    ) -> list[GameObject]:
+        """The permanents ``player`` could sacrifice to a ``what`` / ``object_filter`` instruction (RULE 701.17a)."""
+        return [
+            obj
+            for obj in self.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(obj, what)
+            # PAR-281: "a creature of their choice with flying" -- the printed quality narrows the candidates too.
+            and (not object_filter or combat.matches_object_filter(obj, object_filter, state=self.state))
+            # "You can't sacrifice those creatures this turn." (Call for Aid)
+            and not obj.cant_be_sacrificed_this_turn
+            # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.
+            and obj is not exclude
+        ]
+
     def sacrifice(
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
-        source: Optional[GameObject] = None,
+        source: Optional[GameObject] = None, object_filter: Optional[dict] = None,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -961,15 +981,7 @@ class DamageDeathMixin:
         shape as a literal int, just always leaving exactly one behind
         (0 candidates → nothing to do, 1 → nothing to choose, forced).
         """
-        candidates = [
-            obj
-            for obj in self.state.permanents_controlled_by(player.id)
-            if _matches_permanent_type(obj, what)
-            # "You can't sacrifice those creatures this turn." (Call for Aid)
-            and not obj.cant_be_sacrificed_this_turn
-            # "sacrifice **another** creature" (RULE 109.5): the ability's own source cannot pay it.
-            and obj is not exclude
-        ]
+        candidates = self._sacrifice_candidates(player, what, object_filter, exclude)
         if count == "all":
             count = len(candidates)  # "sacrifices all permanents they control that …": nothing to choose
         if isinstance(count, str) and count.startswith(ALL_BUT_PREFIX):
@@ -986,6 +998,39 @@ class DamageDeathMixin:
             # creature's power") is remembered on that ability's source (`note_sacrificed`, RULE 608.2h).
             source=source,
         )
+    def _phase_in_after_source_leaves(self, event: GameEvent) -> None:
+        # RULE 610.4 / 702.26g: phase in all affected visits and their
+        # indirect attachments together, after the actual departures.
+        if event.type != EventType.EVENT_BATCH or event.get("batch_of") != EventType.BATTLEFIELD_DEPARTED:
+            return
+        departed = {(entry.get("instance_id"), entry.get("zone_incarnation"))
+                    for entry in event.get("members", [])}
+        attached_roots = {
+            obj.instance_id for obj in self.state.battlefield
+            if obj.phased_out and obj.phase_in_source_visit in departed
+            and obj.phased_out_with is None
+        }
+        if not attached_roots or continuous.phase_in_prohibited(self.state):
+            return
+        returning = [
+            obj for obj in self.state.battlefield if obj.phased_out
+            and (obj.instance_id in attached_roots or obj.phased_out_with in attached_roots)
+        ]
+        for obj in returning:
+            obj.phased_out = False
+            obj.phased_out_with = None
+            obj.phase_in_source_visit = None
+        with self.state.simultaneous():
+            for obj in returning:
+                if obj.tap_as_phases_in:
+                    self.set_tapped(obj, True)
+                obj.tap_as_phases_in = False
+            for obj in returning:
+                self.state.fire_event(GameEvent(
+                    EventType.PHASED_IN, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                    object_types=sorted(obj.type_words),
+                ))
+
     def _return_until_source_leaves_exiles(self, event: GameEvent) -> None:
         """RULE 610.3c/d: return immediately after actual (possibly simultaneous) departures."""
         if event.type != EventType.EVENT_BATCH or event.get("batch_of") != EventType.BATTLEFIELD_DEPARTED:
@@ -1022,7 +1067,8 @@ class DamageDeathMixin:
             if own_batch:
                 self.state._deferred_entry_events = None
 
-    def exile(self, obj: GameObject, *, warped: bool = False, face_down: bool = False) -> None:
+    def exile(self, obj: GameObject, *, warped: bool = False, face_down: bool = False,
+              face_down_viewers: Optional[set[str]] = None) -> None:
         """Move ``obj`` to its owner's exile zone (RULE 406), from anywhere.
 
         Fires `LEAVES_BATTLEFIELD` when it was in play, then `EXILE`. RULE
@@ -1041,6 +1087,7 @@ class DamageDeathMixin:
         # RULE 603.10a: retain characteristics from the battlefield visit.
         departed_types = sorted(obj.type_words)
         departed_controller_id = obj.controller_id
+        departed_incarnation = obj.zone_incarnation
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
             # RULE 603.6a "look back in time" — fire before removal, see
@@ -1083,10 +1130,26 @@ class DamageDeathMixin:
             # is not a counter-removal event. Departing LKI is captured above.
             obj.counters = {}
         owner.add_to_zone(obj, Zone.EXILE)
+        if was_on_battlefield and obj._copy_zone_base is not None:
+            # RULE 400.7/707.2: a cost's newly exiled card has its own copiable values.
+            from ..copy_mechanics import restore_face
+
+            restore_face(obj, obj._copy_zone_base)
+            obj._copy_zone_base = None
+            obj._duration_copy_layers = []
+            obj._copy_until_eot_base = None
+            obj._copy_base = None
+            obj._copy_applied_target_id = None
+            obj.copy_target_id = None
+            previous_card = obj.card
+            obj.present_front_face()
+            if obj.card is not previous_card:
+                self.switch_to_face(obj, obj.card)
+            obj.reset_derived()
         if face_down:
             # RULE 406.3: the card is already hidden when its exile is announced.
             obj.face_down_in_exile = True
-            obj.face_down_exile_viewers.clear()
+            obj.face_down_exile_viewers = set(face_down_viewers or ())
             obj.face_down_exile_viewers_explicit = True
         if warped:
             # RULE 702.185b: observers of EXILE see this designation already.
@@ -1099,6 +1162,7 @@ class DamageDeathMixin:
             GameEvent(
                 EventType.EXILE, object=obj.name, owner_id=obj.owner_id,
                 instance_id=obj.instance_id, from_zone=_from_zone, warped=warped, face_down=face_down,
+                zone_incarnation=obj.zone_incarnation, from_zone_incarnation=departed_incarnation,
                 object_types=departed_types, controller_id=departed_controller_id,
                 # RULE 111.1: a token is never a card, so "cards are put into exile" skips it.
                 is_token=bool(obj.is_token),
@@ -1240,6 +1304,11 @@ class DamageDeathMixin:
         the default "goes to the graveyard" routing, the same way a trailing
         "Exile ~." self-exile clause does — no special-casing needed here).
         """
+        self._move_for_library_shuffle(obj, Zone.LIBRARY)
+        self.shuffle_library(self.state.player_by_id(obj.owner_id))
+
+    def _move_for_library_shuffle(self, obj: GameObject, destination: Zone) -> None:
+        """Move one member of a shuffle, honoring any chosen command-zone replacement."""
         was_on_battlefield = obj in self.state.battlefield
         owner = self.state.player_by_id(obj.owner_id)
         if was_on_battlefield:
@@ -1247,7 +1316,7 @@ class DamageDeathMixin:
                 GameEvent(
                     EventType.LEAVES_BATTLEFIELD,
                     # Where it went — "leaves the battlefield without dying" (PAR-119).
-                    to_zone="library",
+                    to_zone=destination.value,
                     object=obj.name,
                     owner_id=obj.owner_id,
                     controller_id=obj.controller_id,
@@ -1259,15 +1328,14 @@ class DamageDeathMixin:
                 )
             )
             # RULE 603.10a (ENG-54): announce the arrival while the permanent is still in play.
-            self.state.announce_battlefield_departure(obj, Zone.LIBRARY)
+            self.state.announce_battlefield_departure(obj, destination)
             self.state.remove_from_battlefield(obj)
         else:
             self._remove_from_current_zone(owner, obj)
         obj.tapped = False
         obj.damage_marked = 0
-        owner.add_to_zone(obj, Zone.LIBRARY)
-        self._split_melded_after_move(obj, Zone.LIBRARY)  # RULE 713.8
-        self.shuffle_library(owner)
+        owner.add_to_zone(obj, destination)
+        self._split_melded_after_move(obj, destination)  # RULE 713.8
     def return_from_exile(
         self, obj: GameObject, expected_incarnation: int,
         controller_id: Optional[str] = None, tapped: bool = False,
@@ -1350,6 +1418,7 @@ class DamageDeathMixin:
         face_down_kind: Optional[str] = None,
         entry_counters: Optional[dict[str, Any]] = None,
         typed_entry_counters: Optional[list[dict[str, Any]]] = None,
+        put_by_player_id: Optional[str] = None,
     ) -> None:
         """Return ``obj`` from a graveyard to ``destination`` (RULE 701.3,
         the Regrowth/Reanimate-shaped recursion family).
@@ -1397,7 +1466,7 @@ class DamageDeathMixin:
                     entry_options={"tapped": destination != "battlefield",
                         "attacking": destination == "battlefield_attacking", "transformed": transformed,
                         "face_down_kind": face_down_kind, "entry_counters": entry_counters,
-                        "typed_entry_counters": typed_entry_counters,
+                        "typed_entry_counters": typed_entry_counters, "put_by_player_id": put_by_player_id,
                         **({"attach_to": (attach_to.instance_id, attach_to.zone_incarnation)} if attach_to else {})})
                 return
         # An explicit attachment is established before the entry event.
@@ -1427,7 +1496,7 @@ class DamageDeathMixin:
                 obj.entry_bonus_counters[str(kind)] = max(0, int(count))
         if controller_id is not None and destination in ("battlefield", "battlefield_tapped", "battlefield_attacking"):
             obj.controller_id = controller_id
-            self._put_searched_card(self.state.player_by_id(controller_id), obj, destination)
+            self._put_searched_card(self.state.player_by_id(controller_id), obj, destination, put_by_player_id=put_by_player_id)
         else:
             # RULE 108.4: absent an explicit new controller, a new object
             # defaults to its owner's control — ``obj.controller_id`` could
@@ -1436,7 +1505,7 @@ class DamageDeathMixin:
             # never resets this field, since most graveyard visits aren't
             # followed by a return at all).
             obj.controller_id = owner.id
-            self._put_searched_card(owner, obj, destination)
+            self._put_searched_card(owner, obj, destination, put_by_player_id=put_by_player_id)
     def _request_return_face_choice(self, obj: GameObject, destination: str = "battlefield") -> None:
         """"…return this card from your graveyard to the battlefield face up or face down." (Deathmist Raptor, RULE
         708.4) — ask ``obj``'s owner which; `_resume_return_face_choice` does the return."""

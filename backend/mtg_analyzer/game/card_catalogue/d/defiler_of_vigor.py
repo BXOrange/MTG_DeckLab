@@ -32,7 +32,7 @@ def _defiler_of_vigor() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("add_counters", {"kind": "+1/+1", "selector": "each_creature_you_control", "count": 1})],
+            [EffectSpec("add_counters", {"kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "count": 1})],
             trigger={
                 "event": EventType.SPELL_CAST,
                 "condition": {"subject": "you"},

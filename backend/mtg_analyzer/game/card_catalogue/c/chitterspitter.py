@@ -37,8 +37,7 @@ def _chitterspitter() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('anthem', {'affects': 'creatures_you_control',
-                            'subtype': 'Squirrel',
+                EffectSpec('anthem', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'subtype': 'Squirrel'}},
                             'power': 1,
                             'toughness': 1,
                             'power_count': {'counters_on': 'source', 'kind': 'acorn'},

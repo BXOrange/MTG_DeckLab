@@ -26,11 +26,11 @@ def _legion_loyalist() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("pump", {
-                    "selector": "creatures_you_control", "power": 0, "toughness": 0,
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 0, "toughness": 0,
                     "keywords": ["first_strike", "trample"],
                 }),
                 EffectSpec("combat_restriction_this_turn", {
-                    "selector": "creatures_you_control",
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                     "restriction": {"kind": "cant_be_blocked_by", "filter": {"token": True}},
                 }),
             ],

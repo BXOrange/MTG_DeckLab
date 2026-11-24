@@ -78,10 +78,18 @@ class LandsMixin:
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
+        if continuous.land_play_prohibited(self.state, player, card):
+            return False  # RULE 305.1 / 101.2: a prohibition beats every permission to play a land.
+        from ..sideboard import outside_play_grant_for
+        resolution = self.state.resolution_play_choice
+        if (self._has_resolution_play_permission(player, obj) and resolution
+                and (resolution.get("only_spells") or resolution.get("allowed_spell_types"))):
+            return False  # RULE 608.2g: permission to cast a spell does not permit a land play.
         # RULE 505.5b: from hand, always — or from the top of the library
         # (Oracle of Mul Daya-shaped) when some permanent grants that.
         in_playable_zone = (
             obj in player.hand
+            or outside_play_grant_for(self.state, player, obj, card) is not None
             or self._has_resolution_play_permission(player, obj)
             or (obj.zone in (Zone.EXILE, Zone.GRAVEYARD, Zone.LIBRARY)
                 and obj.instance_id not in self.state.temp_play_spells_only
@@ -143,20 +151,23 @@ class LandsMixin:
         """
         if not self.can_play_land(player, obj, face=face):
             raise ValueError(f"{player.id} cannot play {obj.name} now")
+        chosen_card = self._face_card(obj, face)
         graveyard_grant = (
-            graveyard_land_play_grant_for(player, self.state, obj.card)
+            graveyard_land_play_grant_for(player, self.state, chosen_card)
             if obj.zone == Zone.GRAVEYARD else None
         )
-        chosen_card = self._face_card(obj, face)
+        if obj.zone is None:
+            from ..sideboard import outside_play_grant_for
+            graveyard_grant = outside_play_grant_for(self.state, player, obj, chosen_card)
         # Zone-agnostic (not just hand) so a land can be played from the top
         # of the library (Oracle of Mul Daya-shaped, `can_play_land` above) —
         # ``obj.zone`` is always accurate (set on creation/every zone move),
         # the same "read the object's own zone" idiom
         # `RulesEngine._remove_from_current_zone` uses for casting.
-        from_zone = obj.zone.value
+        from_zone = obj.zone.value if obj.zone is not None else 'outside_game'
         if from_zone == "library":
             record_top_library_use(player, self.state, chosen_card, land=True)
-        self.state.player_by_id(obj.owner_id).remove_from_zone(obj, obj.zone)
+        self.rules._remove_from_current_zone(self.state.player_by_id(obj.owner_id), obj)
         obj.reset_as_new_object()
         if face == "back":
             self.rules.switch_to_face(obj, chosen_card)
@@ -309,6 +320,9 @@ class LandsMixin:
         # (`effective_cast_cost`'s default `alt_cost=None` branch) plus a
         # fixed "discard a land card" additional cost, and is not exiled on
         # resolution (MEC-53).
+        if obj.is_instant or obj.is_sorcery:
+            if ("jump_start" in obj.intrinsic_keywords or continuous.zone_keyword_cost(self.state, obj, "jump_start") is not None):
+                return "jump_start"
         if "Retrace" in (getattr(obj.card, "keywords", None) or []):
             return "retrace"
         if continuous.granted_retrace_for(self.state, obj) is not None:
@@ -372,7 +386,7 @@ class LandsMixin:
         one-shot grant from some other effect.
         """
         return self._graveyard_cast_keyword(obj) is not None
-    def _graveyard_cast_permission(self, player: Player, obj: GameObject) -> bool:
+    def _graveyard_cast_permission(self, player: Player, obj: GameObject, card=None) -> bool:
         """Whether ``obj`` — sitting in ``player``'s own graveyard — is
         castable from there via a standing permission some other permanent
         grants (Lurrus of the Dream-Den-shaped, `game/graveyard_cast.py`) —
@@ -386,7 +400,7 @@ class LandsMixin:
         every card rather than one permanent's own filtered set.
         """
         return (
-            graveyard_cast_grant_for(player, self.state, obj.card) is not None
+            graveyard_cast_grant_for(player, self.state, card or obj.card) is not None
             or has_temporary_graveyard_play_permission(player, self.state)
             or has_targeted_graveyard_permission(player, self.state, obj)
         )

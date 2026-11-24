@@ -11,7 +11,7 @@ the parser side: every keyword-list regex in this family
 (``[a-z][a-z, ]*``) that couldn't even capture "ward {2}"'s braces/digits,
 and `_flag_keywords` itself fails closed on any parametric keyword by
 design (its own docstring named Ward as the example). Fixed by widening
-each regex's keyword-list capture and adding `_flag_keywords_and_ward`, a
+each regex's keyword-list capture and adding `flag_keywords_and_ward`, a
 sibling that peels "ward `<cost>`" entries out of the list first (so a
 mixed list — Ward plus an ordinary flag keyword — still works) and hands
 the rest to the unmodified `_flag_keywords`.
@@ -32,7 +32,7 @@ from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.game_state import GameState
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.catalogue.static_handlers import (
-    _flag_keywords_and_ward,
+    flag_keywords_and_ward,
     static_effect_specs,
 )
 from mtg_analyzer.parser.oracle.gate import UNMODELED, parse_oracle
@@ -59,29 +59,29 @@ def _bf(state, card, controller="p1"):
 
 
 # ---------------------------------------------------------------------------
-# _flag_keywords_and_ward — the shared extraction helper
+# flag_keywords_and_ward — the shared extraction helper
 # ---------------------------------------------------------------------------
 
 
 def test_bare_ward_extracted():
-    assert _flag_keywords_and_ward("ward {2}") == ([], "{2}")
+    assert flag_keywords_and_ward("ward {2}") == ([], "{2}")
 
 
 def test_ward_mixed_with_a_flag_keyword():
     # Brotherhood Regalia mixes ward into a list with ordinary flag keywords.
-    assert _flag_keywords_and_ward("ward {2} and flying") == (["flying"], "{2}")
+    assert flag_keywords_and_ward("ward {2} and flying") == (["flying"], "{2}")
 
 
 def test_plain_keyword_list_unaffected():
-    assert _flag_keywords_and_ward("flying, trample") == (["flying", "trample"], None)
+    assert flag_keywords_and_ward("flying, trample") == (["flying", "trample"], None)
 
 
 def test_two_wards_fail_closed():
-    assert _flag_keywords_and_ward("ward {1}, ward {2}") is None
+    assert flag_keywords_and_ward("ward {1}, ward {2}") is None
 
 
 def test_unrecognised_keyword_alongside_ward_fails_closed():
-    assert _flag_keywords_and_ward("ward {1}, some made up ability") is None
+    assert flag_keywords_and_ward("ward {1}, some made up ability") is None
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +108,8 @@ def test_group_bare_ward_grant():
     assert len(specs) == 1
     assert specs[0].type == "grant_keyword"
     assert specs[0].params["ward_cost"] == "{1}"
-    assert specs[0].params["affects"] == "artifacts_you_control"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}
 
 
 def test_group_anthem_plus_ward():
@@ -121,7 +122,7 @@ def test_multi_permanent_type_ward_grant():
     specs = static_effect_specs("artifacts and creatures you control have ward {1}.")
     assert len(specs) == 1
     assert specs[0].params["ward_cost"] == "{1}"
-    assert set(specs[0].params["card_type"]) == {"artifact", "creature"}
+    assert set(specs[0].params["affects"]["filter"]["card_type_any"]) == {"artifact", "creature"}
 
 
 def test_ordinary_flag_grant_unaffected_by_widened_regex():

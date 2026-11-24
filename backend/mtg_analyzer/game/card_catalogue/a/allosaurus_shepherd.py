@@ -41,7 +41,7 @@ def _allosaurus_shepherd() -> list[AbilitySpec]:
                             "type": "type_change",
                             "params": {
                                 "power": 5, "toughness": 5, "add_subtypes": ["Dinosaur"],
-                                "affects": "creatures_you_control_of_type_elf",
+                                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "elf"}},
                             },
                         },
                         "duration": "end_of_turn",

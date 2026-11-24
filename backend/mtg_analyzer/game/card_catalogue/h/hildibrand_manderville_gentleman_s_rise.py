@@ -16,7 +16,7 @@ def _hildibrand_manderville_gentleman_s_rise() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": "creatures_you_control", "tokens": True})],
+            [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "token": True}}})],
         ),
         AbilitySpec(
             "triggered",

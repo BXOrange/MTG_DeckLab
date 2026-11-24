@@ -23,7 +23,7 @@ from ...models.cards.card import Card
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
-from ...models.mana.mana_cost import ManaCost
+from ...models.mana.mana_cost import VARIABLE, ManaCost
 from ...models.mana.mana_pool import kept_mana_expiring_at
 from ...models.game.player import Player
 from .. import combat, condition_query, continuous, durations, face_down, variants
@@ -126,21 +126,24 @@ class MiscMixin:
         actions: list[dict[str, Any]] = []
         for index, option in enumerate(face_down.turn_face_up_options(obj)):
             if not player.mana_pool.can_pay(
-                option["cost"], life_available=player.life, allows_restriction=restriction_predicate_for_turn_face_up(),
+                option["cost"].with_x(0), life_available=player.life, allows_restriction=restriction_predicate_for_turn_face_up(),
             ):
                 continue
-            actions.append(
-                {
-                    "type": "turn_face_up",
-                    "instance_id": obj.instance_id,
-                    "name": obj.name,
-                    "option_index": index,
-                    "kind": option["kind"],
-                    "cost_label": option["label"],
-                }
-            )
+            action = {
+                "type": "turn_face_up",
+                "instance_id": obj.instance_id,
+                "name": obj.name,
+                "option_index": index,
+                "kind": option["kind"],
+                "cost_label": option["label"],
+            }
+            if any(symbol.kind == VARIABLE for symbol in option["cost"].symbols):
+                # RULE 107.3 / 702.168a: a {X} in the turn-face-up cost (Aurelia's Vindicator's disguise) is chosen
+                # when the action is taken; the action may carry it as ``x`` (default 0).
+                action["x_cost"] = True
+            actions.append(action)
         return actions
-    def turn_face_up(self, player: Player, obj: GameObject, option_index: int = 0) -> bool:
+    def turn_face_up(self, player: Player, obj: GameObject, option_index: int = 0, x: int = 0) -> bool:
         """Take the RULE 116.2b special action of turning ``obj`` face up.
 
         Pays the chosen route's cost (morph/disguise's printed cost, or a
@@ -156,11 +159,15 @@ class MiscMixin:
         if option_index < 0 or option_index >= len(options):
             raise ValueError("no such turn-face-up option")
         option = options[option_index]
+        # RULE 107.3 / 702.168a: the announced X resolves the {X} in a disguise/morph cost; a cost without {X} ignores it.
+        cost = option["cost"].with_x(x)
         allows_restriction = restriction_predicate_for_turn_face_up()  # Creeping Peeper's mana may pay for this
-        if not player.mana_pool.can_pay(option["cost"], life_available=player.life, allows_restriction=allows_restriction):
+        if not player.mana_pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
             raise ValueError(f"cannot pay {option['label']} to turn {obj.name} face up")
-        life_spent = player.mana_pool.pay(option["cost"], life_available=player.life, allows_restriction=allows_restriction)
+        life_spent = player.mana_pool.pay(cost, life_available=player.life, allows_restriction=allows_restriction)
         self.rules.lose_life(player, life_spent, cause="cost")
+        if any(symbol.kind == VARIABLE for symbol in cost.symbols):
+            obj.x_paid = x  # read by the "when ~ is turned face up" trigger's X (Aurelia's Vindicator)
         turned = self.rules.turn_face_up(obj, megamorph=bool(option.get("megamorph")))
         self.recompute_continuous_effects()
         # RULE 117.3c: taking an action reclaims priority for its taker, the

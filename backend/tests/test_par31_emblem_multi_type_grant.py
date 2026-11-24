@@ -38,34 +38,33 @@ def test_multi_type_grant_parses_as_card_type_list():
     ) == [
         EffectSpec("grant_keyword", {
             "keywords": ["indestructible"],
-            "affects": "permanents_you_control",
-            "card_type": ["artifact", "creature", "enchantment", "land"],
+            "affects": {"zone": "battlefield", "of": "you", "filter": {
+                "card_type_any": ["artifact", "creature", "enchantment", "land"]}},
         })
     ]
     # two-word list, "X and Y" with no comma
     assert static_effect_specs(
         "artifacts and enchantments you control have shroud"
-    )[0].params["card_type"] == ["artifact", "enchantment"]
+    )[0].params["affects"]["filter"]["card_type_any"] == ["artifact", "enchantment"]
 
 
 def test_single_type_grant_untouched():
     # A one-word scope still routes through the PAR-3 permanent-type path
     # (a bare `card_type` string / dedicated selector), never this handler.
     specs = static_effect_specs("artifacts you control have hexproof")
-    assert specs[0].params["affects"] == "artifacts_you_control"
-    assert "card_type" not in specs[0].params or isinstance(
-        specs[0].params.get("card_type"), str
-    )
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}
     # A creature scope stays a creature scope.
-    assert static_effect_specs("creatures you control have flying")[0].params[
-        "affects"
-    ] == "creatures_you_control"
+    assert static_effect_specs("creatures you control have flying")[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
 
 
 def test_unrecognised_word_in_list_fails_closed():
-    assert static_effect_specs(
-        "artifacts and goblins you control have haste"
-    ) in (None, [])
+    assert static_effect_specs("artifacts and zzzzzs you control have haste") in (None, [])
+    # PAR-289 M4: a recognised creature type beside a permanent type is an OR group the selector reads (Great Divide
+    # Guide runs it on an engine), no longer an unrecognised word.
+    [spec] = static_effect_specs("artifacts and goblins you control have haste")
+    assert spec.params["affects"]["filter"] == {"any_of": [{"card_type": "artifact"}, {"subtype": "goblin"}]}
 
 
 # --- execute ---------------------------------------------------------

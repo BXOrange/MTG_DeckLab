@@ -9,7 +9,7 @@ def _card() -> list[AbilitySpec]:
         AbilitySpec('static', [EffectSpec('cant_lose_game', {})]),
         AbilitySpec('static', [EffectSpec('opponents_cant_win', {})]),
         AbilitySpec('static', [EffectSpec('counter_placement_prohibition', {
-            'affects': 'creatures_you_control', 'counter_kind': '-1/-1',
+            'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, 'counter_kind': '-1/-1',
         })]),
     ]
 

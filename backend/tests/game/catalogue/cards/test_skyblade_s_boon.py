@@ -62,7 +62,12 @@ def test_opponent_cannot_activate_a_graveyard_card_they_do_not_own():
     assert not engine.can_activate(opponent, source, source.activated_abilities[0])
 
 
-@pytest.mark.parametrize('zones', [[], ['exile'], ['graveyard', 'unknown'], 'graveyard', [None], [{}]])
+@pytest.mark.parametrize('zones', [[], ['graveyard', 'unknown'], 'graveyard', [None], [{}]])
 def test_activation_zone_vocabulary_fails_closed(zones):
     with pytest.raises(ValueError, match='activation zone'):
         parse_activation_cost({'activation_zones': zones})
+
+
+def test_exile_is_a_known_activation_zone():
+    # Exile is part of the activation-zone vocabulary (cards activated from exile); only unknown words fail closed.
+    assert parse_activation_cost({'activation_zones': ['exile']}) is not None

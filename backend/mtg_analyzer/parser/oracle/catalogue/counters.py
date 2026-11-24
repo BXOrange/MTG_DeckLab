@@ -147,7 +147,17 @@ _GRANT_KEYWORD_WORDS: dict[str, str] = {
 }
 #: The optional trailing "...and with <keyword>." clause shared by both
 #: kicked-counters regexes below.
-_GRANT_KEYWORD_SUFFIX = rf"(?: and with (?P<kw>{'|'.join(_GRANT_KEYWORD_WORDS)}))?"
+#: ENG-62: the quoted abilities a kicked permanent may "enter with" (the Volver cycle's "...and with \"Pay 3 life:
+#: Regenerate this creature.\""). A closed list on purpose -- each line is known to parse and bind as an ordinary
+#: ability (`card_registry.granted_line_specs`), so the clause never claims a grant the engine could not make.
+_GRANT_ABILITY_LINES = (
+    "pay 3 life: regenerate ~.",
+    "whenever ~ deals damage, you gain that much life.",
+)
+_GRANT_ABILITY_QUOTED = "|".join(re.escape(line) for line in _GRANT_ABILITY_LINES)
+_GRANT_KEYWORD_SUFFIX = (
+    rf"(?: and with (?:(?P<kw>{'|'.join(_GRANT_KEYWORD_WORDS)})|\"(?P<line>{_GRANT_ABILITY_QUOTED})\"))?"
+)
 
 #: RULE 702.33b: "If ~ was kicked, it enters with N counters on it." — the
 #: same RULE 614.1 entry-counters replacement, gated on whether Kicker
@@ -159,7 +169,8 @@ _GRANT_KEYWORD_SUFFIX = rf"(?: and with (?P<kw>{'|'.join(_GRANT_KEYWORD_WORDS)})
 #: "...and with <keyword>." (`_GRANT_KEYWORD_SUFFIX`) is the same kicked
 #: gate applied to a granted keyword instead of/alongside the counters.
 _KICKED_ENTRY_COUNTERS_RE = re.compile(
-    rf"^if {_SUBJECT} was kicked, it {_ENTERS} with {_KICKED_GATE_AMOUNT} {_COUNTER_TYPE} counters? on it"
+    rf"^if {_SUBJECT} was kicked(?: with its (?P<kcost>(?:\{{[^}}]+\}})+) kicker)?, "
+    rf"it {_ENTERS} with {_KICKED_GATE_AMOUNT} {_COUNTER_TYPE} counters? on it"
     rf"{_GRANT_KEYWORD_SUFFIX}\.?$",
     re.IGNORECASE,
 )
@@ -339,6 +350,9 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
       Golem's own ``GameObject.kicker_x_paid``, not the count-of-times-paid
       the other two kicked shapes use, and not the *spell's* own X the
       unconditional ``is_x`` shape above uses); 0 unless Kicker was paid.
+    - a ``kicked_gate`` shape may add ``"kicked_cost": "{1}{U}"`` (RULE 702.33f, "if it was kicked with its {1}{U}
+      kicker": the gate is that one cost) and ``"grant_ability_line": "<line>"`` (a quoted ability it also enters
+      with, from the closed `_GRANT_ABILITY_LINES`).
 
     - ``{"is_x": False, "count": N, "counter_type": T, "extra_counters":
       [{"counter_type": T2, "count": N2}, …]}`` — a compound ("~ enters with
@@ -361,8 +375,9 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
                 "counter_type": match.group(2).lower(), "cast_from_hand_gate": True}
     match = _KICKED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
-        amount_raw = match.group(1).lower()
-        counter_type = match.group(2).lower()
+        # Groups 2/3: group 1 is the optional "with its {cost} kicker" (``kcost``) ahead of the amount.
+        amount_raw = match.group(2).lower()
+        counter_type = match.group(3).lower()
         result: dict[str, Any] = {
             "is_x": False, "counter_type": counter_type, "kicked_gate": True,
         }
@@ -372,6 +387,11 @@ def entry_counters_condition(line: str) -> Optional[dict[str, Any]]:
             result["count"] = _fixed_count(amount_raw)
         if match.group("kw"):
             result["grant_keyword"] = _GRANT_KEYWORD_WORDS[match.group("kw")]
+        if match.group("line"):
+            result["grant_ability_line"] = match.group("line")
+        if match.group("kcost"):
+            # RULE 702.33f: gated on one specific kicker cost having been paid, not on any kicker payment.
+            result["kicked_cost"] = match.group("kcost").upper()
         return result
     match = _KICKED_SCALED_ENTRY_COUNTERS_RE.match(line)
     if match is not None:
@@ -502,6 +522,7 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     `entry_counters_condition`, so the shapes recognised here can never
     drift from the shapes the coverage gate (`gate.py`) claims.
     """
+    first: Optional[dict[str, Any]] = None
     text = getattr(card, "oracle_text", "") or ""
     # Pass ``keywords`` so an unregistered ability-word label ("Revolt —",
     # "Disappear —") is stripped exactly as the front-end pipeline strips it
@@ -521,6 +542,13 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
         if compound is not None:
             line = compound.group("tail")
         condition = entry_counters_condition(line)
-        if condition is not None:
-            return condition
-    return None
+        if condition is None:
+            continue
+        if first is None:
+            first = condition
+        elif condition.get("kicked_cost") and first.get("kicked_cost"):
+            # ENG-62: one clause per kicker cost; the engine applies each ("also" -- RULE 702.33f).
+            first.setdefault("also", []).append(condition)
+        else:
+            return first
+    return first

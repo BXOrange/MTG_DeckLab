@@ -127,6 +127,14 @@ def _my_card_effect() -> list[AbilitySpec]:
 register("Elvish Visionary", _my_card_effect)
 ```
 
+When a compound printed entry-counter clause is not recognized, `register(...,
+entry_counters={"is_x": False, "count": 2, "counter_type": "+1/+1",
+"escape_gate": True})` supplies its replacement metadata to the shared entry
+pipeline. The registry returns fresh copies. Use this for counters present as
+the creature enters (RULE 614.1c), rather than an ETB trigger that adds them later.
+An `escape_count` value replaces `count` on escaped entry; it does not add to it
+(Polukranos, Unchained).
+
 Rules to follow (all enforced by existing tests, see §13):
 
 - **One factory function per distinct ability set**, one `register()` call
@@ -242,6 +250,15 @@ needs either two separate `AbilitySpec`s (if the rules genuinely allow that
 split) or an engine change, not a catalogue workaround.
 
 ---
+
+For a token with an otherwise unmodeled printed ability, pass its complete
+`oracle_text` to `create_token` and register its definition with
+`card_registry.core.register_token(name, oracle_text, factory)`. The pair
+distinguishes same-named tokens with different rules text; its fresh specs bind
+on creation and on copying, so the intrinsic ability survives rebinding.
+Keep that definition beside the card that creates it (for example,
+`the_city_on_the_edge_of_forever.py`), rather than registering every Human under
+the same name.
 
 ## 6. Static abilities (RULE 613 layers)
 

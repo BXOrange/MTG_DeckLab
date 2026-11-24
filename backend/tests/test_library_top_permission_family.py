@@ -119,10 +119,11 @@ def test_future_sight_is_modeled():
     )
     result = parse_oracle(card)
     assert result.coverage == MODELED
-    static = next(s for s in result.specs if s.ability_kind == "static")
-    assert static.effects[0] == EffectSpec(
-        "top_library_permission", {"look": True, "play_lands": True, "cast_spells": True}
-    )
+    effects = [e for spec in result.specs if spec.ability_kind == "static" for e in spec.effects]
+    assert effects == [
+        EffectSpec("reveal_top_library", {}),
+        EffectSpec("top_library_permission", {"look": True, "play_lands": True, "cast_spells": True}),
+    ]
 
 
 def test_sphinx_of_jwar_isle_is_modeled():

@@ -16,7 +16,7 @@ def _forsaken_monument() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("anthem", {
-            "power": 2, "toughness": 2, "affects": "creatures_you_control", "color": ["C"],
+            "power": 2, "toughness": 2, "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'colorless': True}}, 
         })]),
         AbilitySpec(
             "triggered", [EffectSpec("add_mana", {"colors": ["C"]})],

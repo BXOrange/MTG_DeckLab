@@ -20,7 +20,7 @@ def _echoing_assault() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "creatures_you_control", "tokens": True, "keywords": ["menace"],
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "token": True}}, "keywords": ["menace"],
         })]),
         AbilitySpec(
             "triggered",

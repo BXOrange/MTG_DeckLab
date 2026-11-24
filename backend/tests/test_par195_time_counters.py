@@ -201,7 +201,7 @@ def test_actual_alaundo_grants_only_last_counter_cast_not_suspend_and_clones():
     assert eng.state.pending_choice is None
 
 
-@pytest.mark.parametrize('name', ('Cursed Recording','Out of Time','Pardic Dragon','Rose Tyler','The War Doctor'))
+@pytest.mark.parametrize('name', ('Cursed Recording','Pardic Dragon','Rose Tyler','The War Doctor'))
 def test_independent_compound_family_gaps_stay_fail_closed(name):
     assert not parse_oracle(_db_card(name)).modeled
 

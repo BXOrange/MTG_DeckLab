@@ -54,6 +54,16 @@ class GameContext:
     trigger machinery as a draw-step draw.
     """
 
+    @property
+    def revealed_card(self):
+        return self._revealed_card
+
+    @revealed_card.setter
+    def revealed_card(self, card):
+        # RULE 400.7: remember which visit was revealed, not just the object ID.
+        self._revealed_card = card
+        self.revealed_card_incarnation = getattr(card, "zone_incarnation", None)
+
     def __init__(self, state: "GameState", engine: "RulesEngine") -> None:
         self.state = state
         self.engine = engine
@@ -137,6 +147,8 @@ class GameContext:
         #: The objects `exile` moved into exile during this resolution — what "exiled this way" names for a following
         #: clause ("…you may cast the exiled card for {3}", Blue Mage's Cane); unlike `moved_objects` it is only exile.
         self.exiled_objects: list[Any] = []
+        #: MEC-145: the cards a `return_from_graveyard` of this resolution put into a hand ("the card returned this way").
+        self.returned_card_objects: list[Any] = []
         # RULE 400.7: exact visits exiled by the latest paired exile instruction.
         self.latest_exiled_visits: list[tuple[Any, int]] = []
         self.latest_milled_visits: list[tuple[Any, int]] = []
@@ -275,6 +287,11 @@ class GameContext:
         #: no control change happened, so an "if they do" rider is skipped. Same save/reset/restore idiom as
         #: `clash_won`; a rider reads it immediately, so it is not carried across a suspension.
         self.former_controller_ids: list[str] = []
+        #: RULE 608.2h last-known information: who controlled each object this resolution's clause targeted, read just
+        #: before the clause applied ("Return target permanent to its owner's hand. If **you controlled that permanent**,
+        #: draw a card."). ``instance_id`` -> controller id; the first reading wins, so a later clause cannot overwrite it
+        #: with what the first one did. Same save/reset/restore idiom as `former_controller_ids`.
+        self.target_controllers_before: dict[int, str] = {}
         #: RULE 706.3a: the total of this resolution's most recent
         #: `RollDieEffect` roll (the sum of the kept dice — "the result" a
         #: results table is read against), or ``None`` if nothing has rolled
@@ -392,10 +409,12 @@ class GameContext:
         zone: str = "hand",
         nonland: bool = False,
         else_specs: Optional[list[dict]] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         self.engine.exile_hand_choice(
             player, count, source=source, then_specs=then_specs, optional=optional, zone=zone,
             nonland=nonland, else_specs=else_specs,
+            track_exiled_with=track_exiled_with,
         )
 
     def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
@@ -504,8 +523,14 @@ class GameContext:
         # current one (`GameEngine.begin_turn` consumes `state.extra_turns`).
         self.state.extra_turns.insert(0, player.id)
 
-    def set_tapped(self, target: "GameObject", tapped: bool = True) -> None:
-        self.engine.set_tapped(target, tapped)
+    def set_tapped(self, target: "GameObject", tapped: bool = True, *, by_effect: bool = False) -> None:
+        # RULE 701.26a (ENG-63): an effect that taps records its resolving controller as the tapper;
+        # only callers that mean "this effect taps it" opt in, everything else leaves the tapper unknown.
+        tapper_id = None
+        if by_effect and tapped:
+            tapper_id = (getattr(self, "acting_player_id", None)
+                         or getattr(self, "resolving_controller_id", None))
+        self.engine.set_tapped(target, tapped, tapper_id=tapper_id)
 
     def attach_to_target(
         self, source: "GameObject", target: "GameObject", check_control: bool = True
@@ -583,13 +608,17 @@ class GameContext:
         add_colors: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         on_created: Optional[dict] = None,
+        add_ability_lines: Optional[list[str]] = None,
+        remove_keywords: Optional[list[str]] = None,
+        only_types: Optional[list[str]] = None,
     ) -> list[Any]:
         # Returns what it made, same as `create_token` — see `created_objects`.
         return self.engine.copy_permanent(
             controller_id, source, count,
             add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
             set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
-            add_colors=add_colors, on_created=on_created,
+            add_colors=add_colors, on_created=on_created, add_ability_lines=add_ability_lines,
+            remove_keywords=remove_keywords, only_types=only_types,
         )
 
     def copy_spell(self, target: Any, controller_id: str, count: int = 1,
@@ -745,6 +774,10 @@ class GameContext:
         untap_if_lands_at_least: Optional[int] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
+        criteria_each: Optional[list[Any]] = None,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -762,6 +795,10 @@ class GameContext:
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs=then_specs,
             reveal=reveal,
+            criteria_each=criteria_each,
+            distinct_keys=distinct_keys,
+            opponent_split=opponent_split,
+            exact_count=exact_count,
         )
 
     def _request_intuition(
@@ -848,8 +885,8 @@ class GameContext:
     def shuffle_library(self, player: "Player") -> None:
         self.engine.shuffle_library(player)
 
-    def shuffle_hand_and_graveyard_into_library(self, player: "Player") -> None:
-        self.engine.shuffle_hand_and_graveyard_into_library(player)
+    def shuffle_hand_and_graveyard_into_library(self, player: "Player", include_graveyard: bool = True) -> int:
+        return self.engine.shuffle_hand_and_graveyard_into_library(player, include_graveyard)
 
     def cascade(self, player: "Player", max_mana_value: int) -> None:
         self.engine._request_cascade(player, max_mana_value)
@@ -920,15 +957,19 @@ class GameContext:
         self, effect_specs: list[dict[str, Any]], source: Optional["GameObject"],
         event: Optional[GameEvent] = None,
         condition: Optional[dict[str, Any]] = None,
+        modes: Optional[dict[str, Any]] = None,
+        carried_objects: Optional[list[Any]] = None,
     ) -> None:
         """RULE 603.12's "When you do, `<targeted payoff>`." — see
-        `RulesEngine.enqueue_reflexive_trigger`."""
+        `RulesEngine.enqueue_reflexive_trigger`. ``modes`` is a modal payoff's block (RULE 700.2b);
+        ``carried_objects`` are the antecedent's objects the payoff's "it" names (PAR-286)."""
         # RULE 603.12 / 603.7e: the resolving ability controls its new trigger,
         # including after its permanent changes controller or leaves play.
         self.engine.enqueue_reflexive_trigger(
             effect_specs, source, event or self.trigger_event,
             controller_id=getattr(self, "resolving_controller_id", None),
             condition=condition, source_incarnation=getattr(self, "resolving_source_incarnation", None),
+            modes=modes, carried_objects=carried_objects,
         )
 
     def end_the_turn(self) -> None:
@@ -953,6 +994,7 @@ class GameContext:
         self.engine.return_from_graveyard(
             target, destination, controller_id=controller_id, transformed=transformed, attach_to=attach_to,
             face_down_kind=face_down_kind, entry_counters=entry_counters,
+            put_by_player_id=self.acting_player_id or self.resolving_controller_id,
         )
 
     def blink(
@@ -988,6 +1030,20 @@ class GameContext:
         self.engine.add_mana_any_color(player, colors, amount=amount, keep_until=keep_until, restriction=restriction)
 
 
+def entry_counter_amounts(spec: Optional[dict[str, Any]], default_kind: str) -> dict[str, int]:
+    """The ``{kind: count}`` mapping an ``extra_counters`` / ``entry_counters`` param means.
+
+    Two spellings exist: ``{"kind": "+1/+1", "count": 2}`` (one kind; a missing ``kind`` reads ``default_kind``)
+    and a plain ``{kind: count, ...}`` mapping (several kinds, "a hexproof counter and an indestructible counter",
+    RULE 122.6). Every reader goes through here so a multi-kind mapping is never read as a single default counter.
+    """
+    if not spec:
+        return {}
+    if "kind" in spec or "count" in spec:
+        return {str(spec.get("kind", default_kind)): int(spec.get("count", 1) or 0)}
+    return {str(kind): int(count) for kind, count in spec.items()}
+
+
 def _event_player(context: GameContext, key: str = "controller_id") -> Optional["Player"]:
     """The `Player` named by the currently-resolving trigger's own event
     (`GameContext.trigger_event`), or ``None`` outside a trigger resolution
@@ -1009,6 +1065,34 @@ def _event_player(context: GameContext, key: str = "controller_id") -> Optional[
         return None
 
 
+#: Combat events whose own player is the attacker's controller but whose "that player" / "defending player" is the
+#: attacked one (RULE 508.1b / 506.2): the attack declaration, "attacks alone", the unblocked-attacker step (RULE
+#: 509.1h) and "becomes blocked". Each stamps ``defending_player_id``.
+DEFENDING_PLAYER_COMBAT_EVENT_TYPES = frozenset({"ATTACKS", "ATTACKS_ALONE", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"})
+
+
+def _is_defending_combat_event(context: GameContext) -> bool:
+    """Whether the resolving trigger fired off one of `DEFENDING_PLAYER_COMBAT_EVENT_TYPES`."""
+    event = context.trigger_event
+    if event is None:
+        return False
+    kind = getattr(event, "type", None) or event.get("type")
+    return str(getattr(kind, "value", kind)) in DEFENDING_PLAYER_COMBAT_EVENT_TYPES
+
+
+def _combat_defending_player(context: GameContext) -> Optional["Player"]:
+    """The attacked player a combat trigger's event names, else ``None`` -- including a combat event that named
+    nobody (RULE 506.2: nobody to defend), which must not fall back to the event's ``player_id`` (that is the
+    attacker's controller, "you")."""
+    return _event_player(context, key="defending_player_id") if _is_defending_combat_event(context) else None
+
+
+def _event_scope_player(context: GameContext) -> Optional["Player"]:
+    """"That player" for a mass group: the player a damage event hurt (``target_id``), else the defending player an
+    ATTACKS event names (RULE 508.1b; "whenever ~ attacks, ... each creature that player controls" -- PAR-313)."""
+    return _event_player(context, key="target_id") or _event_player(context, key="defending_player_id")
+
+
 #: The players a mass group can be scoped to (PAR-128): "… all lands **target player** controls",
 #: "… **defending player** controls" (RULE 506.4), "… **that player** controls" (the trigger's
 #: damaged player). The group is written `of: "you"` and evaluated for that player.
@@ -1023,10 +1107,37 @@ def _group_scope_player(
     if scope == "defending":
         player = _defending_player_of(source, context)
     elif scope == "event_player":
-        player = _event_player(context, key="target_id")
+        player = _event_scope_player(context)
     else:
         player = chosen
     return player if getattr(player, "id", None) is not None and hasattr(player, "life") else None
+
+
+#: The ``reference`` a structured group may carry (ENG-64): the effect's "it" / "that creature" is the object the
+#: firing trigger names. Only the trigger subject exists today; an unlisted word makes the group select nothing.
+GROUP_REFERENCES: frozenset[str] = frozenset({"trigger_subject"})
+
+
+def group_reference_object(
+    context: GameContext, group: dict[str, Any], source: Optional["GameObject"],
+) -> tuple[Optional[Any], bool]:
+    """``(reference object, ok)`` for a structured group's optional ``reference`` (ENG-64).
+
+    RULE 603.2 / 608.2c: "destroy all other creatures that share a color with **it**" under "whenever a creature
+    enters" compares with the creature that triggered the ability, never with the ability's source. RULE 608.2h: a
+    subject that already left the battlefield is read as it last existed (`effect_conditions.last_known_subject`).
+    ``ok`` is False when a reference was asked for but cannot be found or is not understood, so the caller selects
+    nothing (fail closed) rather than silently comparing with the source.
+    """
+    name = group.get("reference")
+    if name is None:
+        return None, True
+    if name not in GROUP_REFERENCES:
+        return None, False
+    from .. import effect_conditions  # function-scoped: effects<->conditions cycle
+
+    subject = effect_conditions.last_known_subject(name, context, source)
+    return subject, subject is not None
 
 
 def _group_objects(
@@ -1035,9 +1146,13 @@ def _group_objects(
 ) -> Optional[list[Any]]:
     """A structured mass ``group`` (`{"zone","of","filter"}`) resolved for a one-shot effect —
     for the source's controller, or for the scoped player. ``None`` when a scoped player can't
-    be found (the effect then does nothing)."""
+    be found (the effect then does nothing). ``group["reference"]`` (ENG-64) re-points the filter's
+    "it" at the trigger subject (`group_reference_object`)."""
     from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
+    reference, ok = group_reference_object(context, group, source)
+    if not ok:
+        return None
     controller = _controller_of(source, context)
     controller_id = controller.id if controller is not None else None
     if group_player is not None:
@@ -1045,7 +1160,7 @@ def _group_objects(
         if player is None:
             return None
         controller_id = player.id
-    return list(group_selector_objects(context.state, controller_id, group, src=source))
+    return list(group_selector_objects(context.state, controller_id, group, src=source, reference=reference))
 
 
 def _controller_of(source: Optional["GameObject"], context: GameContext) -> Optional["Player"]:
@@ -1171,6 +1286,12 @@ def _defending_player_of(source: Optional["GameObject"], context: GameContext) -
 # ---------------------------------------------------------------------------
 # Base class
 # ---------------------------------------------------------------------------
+
+
+#: Structured battlefield groups the engine itself names when it builds an effect (ENG-61: the named strings are
+#: retired; `continuous.group_selector_objects` reads these dicts). Copy before mutating.
+YOUR_CREATURES_GROUP: dict = {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}
+ALL_CREATURES_GROUP: dict = {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}
 
 
 class GameEffect(ABC):
@@ -1385,6 +1506,15 @@ def _effect_target_slots(effect, specs, targets):
     return targets
 
 
+def _note_target_controllers(context: GameContext, chosen: list[Any]) -> None:
+    """RULE 608.2h: remember who controlled each chosen object before the clause moves or changes it (first reading wins)."""
+    for obj in chosen:
+        instance_id = getattr(obj, "instance_id", None)
+        controller = getattr(obj, "controller_id", None)
+        if instance_id is not None and controller is not None:
+            context.target_controllers_before.setdefault(instance_id, controller)
+
+
 def _apply_effects_partitioned(
     effects: list["GameEffect"],
     context: GameContext,
@@ -1404,14 +1534,17 @@ def _apply_effects_partitioned(
     proliferated_objects: Optional[list[Any]] = None,
     previous_selector: Optional[str] = None,
     revealed_card: Optional[Any] = None,
+    revealed_card_incarnation: Optional[int] = None,
     clash_won: Optional[bool] = None,
     clashed_opponent: Optional[Any] = None,
     coin_outcome: Optional[dict[str, Any]] = None,
     stack_item: Optional[Any] = None,
     die_state: Optional[dict[str, Any]] = None,
     created_sink: Optional[list[Any]] = None,
+    damaged_sink: Optional[list[Any]] = None,
     latest_exiled_visits: Optional[list[tuple[Any, int]]] = None,
     latest_milled_visits: Optional[list[tuple[Any, int]]] = None,
+    milled_objects: Optional[list[Any]] = None,
 ) -> bool:
     """Apply each of ``effects`` against its own share of ``targets``.
 
@@ -1500,10 +1633,12 @@ def _apply_effects_partitioned(
     outer_previous_selector = getattr(context, "previous_selector", None)
     outer_revealed_objects = context.revealed_objects
     outer_revealed_card = getattr(context, "revealed_card", None)
+    outer_revealed_card_incarnation = context.revealed_card_incarnation
     outer_clash_won = getattr(context, "clash_won", None)
     outer_clashed_opponent = getattr(context, "clashed_opponent", None)
     outer_coin_outcome = getattr(context, "coin_outcome", None)
     outer_former_controllers = list(getattr(context, "former_controller_ids", []) or [])
+    outer_target_controllers = dict(getattr(context, "target_controllers_before", {}) or {})
     outer_die_result = getattr(context, "die_result", None)
     outer_die_results = getattr(context, "die_results", [])
     outer_rolled_doubles = getattr(context, "rolled_doubles", False)
@@ -1512,7 +1647,9 @@ def _apply_effects_partitioned(
     outer_target_groups = getattr(context, "resolution_target_groups", None)
     context.previous_targets = list(previous_targets or [])
     context.moved_objects = list(outer_moved or [])
-    context.milled_objects = None
+    # RULE 701.17 / 608.2c: a nested body ("mill 3 cards. <seq: put a land card from among the milled cards into your
+    # hand. If you can't, ...>") still reads the cards its parent's mill moved; every other nested body starts empty.
+    context.milled_objects = list(milled_objects) if milled_objects is not None else None
     context.attachment_hosts = dict(outer_attachment_hosts or {})
     context.created_objects = list(created_objects or [])
     context.latest_exiled_visits = list(latest_exiled_visits or [])
@@ -1540,10 +1677,13 @@ def _apply_effects_partitioned(
     context.previous_selector = previous_selector
     context.revealed_objects = []
     context.revealed_card = revealed_card
+    if revealed_card_incarnation is not None:
+        context.revealed_card_incarnation = revealed_card_incarnation
     context.clash_won = clash_won
     context.clashed_opponent = clashed_opponent
     context.coin_outcome = coin_outcome
     context.former_controller_ids = []
+    context.target_controllers_before = {}
     # RULE 706: a resumed remainder keeps the roll its paused predecessor made (see the deferred entry's ``die_state``).
     die_state = die_state or {}
     context.die_result = die_state.get("die_result")
@@ -1584,10 +1724,13 @@ def _apply_effects_partitioned(
                     if group_index < len(target_groups):
                         group.extend(target_groups[group_index])
                     group_index += 1
+                _note_target_controllers(context, group)
                 with _simultaneous(state):
                     effect.apply(context, _effect_target_slots(effect, specs, group))
                 used = group
             else:
+                if specs:
+                    _note_target_controllers(context, targets or [])
                 with _simultaneous(state):
                     effect.apply(context, _effect_target_slots(effect, specs, targets))
                 used = list(targets or [])
@@ -1605,51 +1748,42 @@ def _apply_effects_partitioned(
             # `ConditionalEffect` around the selector effect; "they" still
             # names the inner selector.
             selecting = effect
+            gate_held = True
             while not isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES) and isinstance(
                 getattr(selecting, "condition", None), dict
             ) and isinstance(getattr(selecting, "inner", None), GameEffect):
+                # RULE 608.2c: a gate that did not hold selected nothing for "those creatures" to name.
+                gate_held = gate_held and getattr(selecting, "applied", True)
                 selecting = selecting.inner
-            if isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES):
+            if not gate_held:
+                pass
+            elif isinstance(selecting, _PREVIOUS_SELECTOR_EFFECT_TYPES):
                 selector = getattr(selecting, "selector", None)
                 if selector is None:
                     selector = (getattr(selecting, "static", {}) or {}).get("params", {}).get("affects")
-                if selector and not getattr(selecting, "selector_player", None):
+                if selector and not getattr(selecting, "selector_player", None) and not getattr(selecting, "group_player", None):
                     context.previous_selector = selector  # a player-scoped one set its own
             elif isinstance(getattr(selecting, "over", None), dict) and selecting.over.get("remember"):
                 context.previous_selector = selecting.over["selector"]
             elif (
                 isinstance(selecting, AddCountersEffect)
-                and selecting.selector in ADD_COUNTERS_GROUP_AFFECTS
-                and selecting.subtypes is None and not selecting.creature_filter
-            ):
-                # PAR-128: "put a +1/+1 counter on each creature you control.
-                # Untap those creatures." (Virtue of Loyalty) — an unnarrowed
-                # mass group is replayable by name.
-                context.previous_selector = ADD_COUNTERS_GROUP_AFFECTS[selecting.selector]
-            elif (
-                isinstance(selecting, AddCountersEffect)
                 and isinstance(selecting.group, dict) and selecting.group_player is None
                 and selecting.group.get("filter") in (
                     {"card_type": "creature"}, {"card_type": "creature", "not_reference": True})
-                and selecting.subtypes is None and not selecting.creature_filter
+                and not selecting.creature_filter
             ):
-                # PAR-169: the structured spelling of the same unnarrowed creature group
-                # (`add_pt_counter_group`) — replayable as the group dict itself.
+                # PAR-128/169: "put a +1/+1 counter on each creature you control. Untap those creatures."
+                # (Virtue of Loyalty) — an unnarrowed creature group is replayable as the group dict itself.
                 context.previous_selector = (
                     {**selecting.group, "filter": {**selecting.group["filter"], "not_reference": True}}
                     if selecting.group_other else dict(selecting.group)
                 )
             elif (
                 isinstance(selecting, DealDamageEffect)
-                and (
-                    getattr(selecting, "selector", None) in PREVIOUS_GROUP_DAMAGE_SELECTORS
-                    # PAR-169: a structured creature-only group (`damage_group`), creatures alone.
-                    or (
-                        selecting.group is not None and selecting.group_and_players is None
-                        and selecting.group_player is None
-                        and (selecting.group.get("filter") or {}).get("card_type") == "creature"
-                    )
-                )
+                # A structured creature-only group (`damage_group`), creatures alone (players it also hit stay out).
+                and selecting.group is not None and selecting.group_and_players is None
+                and selecting.group_player is None
+                and (selecting.group.get("filter") or {}).get("card_type") == "creature"
             ):
                 # PAR-128: "~ deals 1 damage to each creature with flying your
                 # opponents control. Tap those creatures." (Thundermaw
@@ -1670,6 +1804,9 @@ def _apply_effects_partitioned(
                         "source": source,
                         "source_incarnation": context.resolving_source_incarnation,
                         "trigger_event": context.trigger_event,
+                        # MEC-145 / RULE 608.2h: the resolving ability's own recorded cost referents, re-bound on resume.
+                        "cost_stamps": getattr(getattr(context, "resolving_stack_item", None), "cost_stamps", None),
+                        "cost_stamps_source": getattr(getattr(context, "resolving_stack_item", None), "source", None),
                         "previous_targets": list(context.previous_targets),
                         # Token replacements may complete after this frame parks.
                         # Keep its scope-local sink shared with their continuation.
@@ -1686,6 +1823,7 @@ def _apply_effects_partitioned(
                         "proliferated_objects": list(context.proliferated_objects),
                         "previous_selector": context.previous_selector,
                         "revealed_card": context.revealed_card,
+                        "revealed_card_incarnation": context.revealed_card_incarnation,
                         "clash_won": context.clash_won,
                         "clashed_opponent": context.clashed_opponent,
                         "coin_outcome": context.coin_outcome,
@@ -1704,6 +1842,10 @@ def _apply_effects_partitioned(
             # A loop body (`for_each`, ENG-35) hands what each pass made back to the instruction that ran the loop,
             # so a later "exile those tokens at end of combat" names them (Mirror-Style Master, Altaïr).
             created_sink.extend(context.created_objects[created_before_run:])
+        if damaged_sink is not None:
+            # MEC-145 / RULE 616: what a body's damage hit (a measured "where X is ..." `bind`) is still "dealt damage
+            # this way" for the rider after it.
+            damaged_sink.extend(o for o in context.damaged_this_way if o not in damaged_sink)
         context.previous_targets = outer_previous
         context.moved_objects = outer_moved
         context.milled_objects = outer_milled
@@ -1722,10 +1864,12 @@ def _apply_effects_partitioned(
         context.previous_selector = outer_previous_selector
         context.revealed_objects = outer_revealed_objects
         context.revealed_card = outer_revealed_card
+        context.revealed_card_incarnation = outer_revealed_card_incarnation
         context.clash_won = outer_clash_won
         context.clashed_opponent = outer_clashed_opponent
         context.coin_outcome = outer_coin_outcome
         context.former_controller_ids = outer_former_controllers
+        context.target_controllers_before = outer_target_controllers
         context.die_result = outer_die_result
         context.die_results = outer_die_results
         context.rolled_doubles = outer_rolled_doubles
@@ -1805,7 +1949,12 @@ class SkipNextStepEffect(GameEffect):
         elif self.selector == "event_player":
             # A damage event names the player it hurt as ``target_id`` ("that player" under "deals combat damage
             # to a player"); other player events name theirs ``player_id``.
-            event_player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
+            if _is_defending_combat_event(context):
+                # RULE 508.1b: under an attack / blocked head "that player" is the attacked one; the event's
+                # ``player_id`` is the attacker's controller (PAR-315).
+                event_player = _combat_defending_player(context)
+            else:
+                event_player = _event_player(context, key="target_id") or _event_player(context, key="player_id")
             players = [event_player] if event_player is not None else []
         elif self.target_spec is not None:
             chosen = targets[0] if targets else None
@@ -2001,10 +2150,12 @@ class TriggeredAbility(GameEffect):
         modes_exhaust_permanent: bool = False,
         modes_optional: bool = False,
         modes_random: bool = False,
+        haunt_linked: bool = False,
         modes_override: Optional[dict[str, Any]] = None,
         reflexive: bool = False,
         mana_ability: bool = False,
         functions_from_graveyard: bool = False,
+        functions_while_suspended: bool = False,
         functions_from_stack: bool = False,
         functions_from_hand: bool = False,
         controller_from_trigger_event: bool = False,
@@ -2026,6 +2177,7 @@ class TriggeredAbility(GameEffect):
         #: _collect_triggers`'s graveyard scan, which — unlike the ordinary
         #: `state.permanents()` scan — only fires abilities carrying this flag.
         self.functions_from_graveyard = functions_from_graveyard
+        self.functions_while_suspended = functions_while_suspended
         #: RULE 601.2i/603.2 (MEC-43): whether this ability belongs to the
         #: *spell itself* and only ever fires while its source sits on the
         #: **stack**, not the battlefield — "When you cast this spell,
@@ -2046,6 +2198,7 @@ class TriggeredAbility(GameEffect):
         self.functions_from_stack = functions_from_stack
         # RULE 113.6k: a self hand-arrival trigger functions in hand.
         self.functions_from_hand = functions_from_hand
+        self.saga_chapters: tuple[int, ...] = ()
         #: RULE 605.1b/605.4: this is a **triggered mana ability** — it
         #: triggers off activating a mana ability and itself only produces
         #: mana. Such an ability never uses the stack: it resolves
@@ -2101,6 +2254,10 @@ class TriggeredAbility(GameEffect):
         #: "choose one **at random**" (Umaro, Raging Yeti): the mode is picked by the engine as the trigger is put on
         #: the stack, not by its controller.
         self.modes_random = modes_random
+        #: RULE 702.55c: a modal "the creature it haunts dies" ability. It never triggers from the ordinary scan (it
+        #: has no event condition of its own, so every death would match); `_collect_haunt_triggers` queues it for
+        #: the one creature its exiled source haunts.
+        self.haunt_linked = bool(haunt_linked)
         self.modes_override = modes_override
         #: RULE 603.3d "that permanent/spell": the ability's single targeting
         #: effect acts on *the exact object that fired the triggering event*
@@ -2122,6 +2279,10 @@ class TriggeredAbility(GameEffect):
         #: the pass that would otherwise have rebuilt it from scratch.
         self.once_per_turn = once_per_turn
         self._last_triggered_turn: Optional[int] = None
+        #: The first of the per-event siblings one printed ability with a list-valued event is expanded into; its
+        #: once-per-turn state is the shared one (`check_trigger`). ``None`` for an ability that is not a sibling.
+        self.limit_group: Optional["TriggeredAbility"] = None
+        self._last_triggered_incarnation: Optional[int] = None
         #: "…, you may `<action>`. Do this only once each turn." (PAR-135 — Ondu Spiritdancer, Irreverent
         #: Gremlin): unlike ``once_per_turn`` the ability *does* trigger every time; it is the action that
         #: can be performed once a turn. The limit itself lives in the effect list (a gated ``seq`` and an
@@ -2139,15 +2300,20 @@ class TriggeredAbility(GameEffect):
 
     def check_trigger(self, event: GameEvent, context: GameContext) -> bool:
         """RULE 603.1: does this ability trigger for ``event``?"""
-        if event.type != self.trigger_event:
+        if event.type != self.trigger_event or self.haunt_linked:
             return False
         if self.condition is not None and not self.condition(event, context):
             return False
         if self.once_per_turn:
             turn = context.state.internal_turn.number
-            if self._last_triggered_turn == turn:
+            # RULE 400.7: re-entry is a new ability occurrence even when
+            # the engine reuses its bound Python object for the new visit.
+            incarnation = getattr(self.source, 'zone_incarnation', None)
+            tracker = self.limit_group or self
+            if tracker._last_triggered_turn == turn and tracker._last_triggered_incarnation == incarnation:
                 return False
-            self._last_triggered_turn = turn
+            tracker._last_triggered_turn = turn
+            tracker._last_triggered_incarnation = incarnation
         return True
 
     def apply(

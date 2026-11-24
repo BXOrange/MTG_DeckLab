@@ -56,6 +56,7 @@ def _demonic_consultation() -> list[AbilitySpec]:
                         "pre_exile": 6,
                         "hit_destination": "hand",
                         "rest_destination": "exile",
+                        "reveal": True,  # RULE 701.20a: only the cards the text exiles move to exile
                     },
                 }],
             })],

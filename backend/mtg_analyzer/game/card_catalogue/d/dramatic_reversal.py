@@ -14,7 +14,7 @@ def _dramatic_reversal() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("tap", {
-                "untap": True, "selector": "nonland_permanents_you_control",
+                "untap": True, "selector": {"zone": "battlefield", "of": "you", "filter": {"without_card_type": "land"}},
             })],
         )
     ]

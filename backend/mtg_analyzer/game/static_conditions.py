@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from . import kicker_costs
 from .phases import default_turn_sequence
 
 if TYPE_CHECKING:  # models must not be imported at runtime (module boundary)
@@ -83,6 +84,9 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # PAR-252: "if an opponent has more cards in hand than you" (Joined Researchers) -- some other living player
         # holds strictly more cards in hand than the controller (RULE 402).
         "opponent_has_more_cards_in_hand",
+        # PAR-283: "if you have more cards in hand than each opponent" (Akuta, Death of a Thousand Stings) -- strictly more
+        # cards in hand than every other living player (RULE 402).
+        "you_have_most_cards_in_hand",
         "you_have_fewest",
         "source_controlled_since_turn_begin",
         "source_untapped",  # "as long as ~ is untapped"
@@ -107,6 +111,10 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # source-only flag.
         "you_attacked_this_turn",
         "any_player_at_half_starting_life",
+        "at_half_starting_life",
+        "library_top_matches",
+        "most_common_permanent_color",
+        "subject_modified",
         # PAR-28: RULE 702.169b/720.3b Solved — "As long as this Case is
         # solved, …" (and its activate-/trigger-only siblings). A permanent
         # designation that persists until the Case leaves the battlefield.
@@ -125,8 +133,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "source_paired",  # RULE 702.94b soulbond
         "source_attached_to_affected",
         "source_attached",  # "as long as ~ is attached to a creature"
-        "source_equipped",  # "as long as ~ is equipped"
-        "source_enchanted",  # "as long as ~ is enchanted"
+        "source_equipped",  # "as long as ~ is equipped" (+ ``min`` / ``max`` attachment count)
+        "source_enchanted",  # "as long as ~ is enchanted" (+ ``min`` / ``max`` attachment count)
         "source_counters",  # + ``counter``/``min``/``max``
         # "As ~ enters, choose Khans or Dragons." (Siege cycle) — the source's own
         # stored ``chosen_mode`` label slug equals ``mode``.
@@ -199,6 +207,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "card_types_in_graveyard_at_least",  # Delirium; evaluated against distinct RULE 205.2a card types.
         "cards_in_hand_at_least",
         "cards_in_hand_at_most",
+        # "when a player has no cards in hand" (Veiled Crocodile, RULE 603.8): any player, the controller included. + ``amount``.
+        "any_player_cards_in_hand_at_most",
         # "at the beginning of each opponent's upkeep, if that player has N or
         # fewer cards in hand, …" (Davriel/Hellfire Mongrel/Shrieking
         # Affliction, PAR-120) — "that player" is whoever's step just began
@@ -207,6 +217,19 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # controller_id)`` read would answer the wrong player's hand size for
         # this per-opponent trigger shape.
         "active_player_cards_in_hand_at_most",
+        # PAR-283 / RULE 502.1: a per-player phase trigger's "if that player ..." -- the wrapped condition, read as if the
+        # player whose step it is were "you" (their hand, life, board, turn history).
+        "as_active_player",
+        # PAR-313 / RULE 506.2 + 508.5: "if defending player ..." -- the wrapped condition, read as if the player the
+        # source is attacking were "you". Fails closed while the source is not attacking anyone.
+        "as_defending_player",
+        # PAR-313: "defending player has more cards in hand / controls more lands than you" -- the defending player's
+        # count of a structured ``selector`` exceeds the controller's by at least ``margin`` (default 1).
+        "defending_player_has_more",
+        # PAR-313 / RULE 122.1f: "you are poisoned" / "you have N or more poison counters" (``amount`` default 1).
+        "poison_at_least",
+        # PAR-313: "you have a rad counter" (``amount`` default 1) -- `Player.counters["rad"]`.
+        "rad_counters_at_least",
         # "if you gained life this turn" (PAR-60) — reads
         # `GameState.life_gained_this_turn`; optional ``amount`` (default 1).
         "gained_life_this_turn",
@@ -313,6 +336,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         "captured_player_is_monarch",
         "is_monarch",  # "as long as you're the monarch"
         "no_monarch",  # "if there is no monarch" (RULE 726.1: the designation can be unheld)
+        "opponent_is_the_monarch",  # PAR-283: "if an opponent is the monarch" (RULE 726.1: some other player holds it)
+        "cards_in_library",  # PAR-283: + ``min`` / ``max``: the controller's library size ("you have 200 or more cards in your library")
         "has_initiative",  # "as long as you have the initiative"
         "has_city_blessing",  # "as long as you have the city's blessing"
         "has_enduring_story",  # "as long as you have an enduring story" (RULE 702.195b, PAR-51)
@@ -382,7 +407,8 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # read off the subject's own cast-time record. ``min``/``max``, so
         # "was it kicked at all", "was it kicked twice" and "was it *not*
         # kicked" are one row rather than three keys.
-        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`)
+        "devoured_creature",  # RULE 702.82b
+        "kicked",  # + ``min``/``max`` (`GameObject.kicker_count`), or ``cost`` (`kicker_costs_paid`, RULE 702.33f)
         "x_paid",  # + ``min``/``max`` (`GameObject.x_paid`)
         # -- Board/turn facts a *resolving* ability asks (ENG-36). They live
         # here rather than in `effect_conditions` because they need nothing
@@ -420,6 +446,13 @@ STATIC_CONDITION_KINDS: frozenset[str] = frozenset(
         # The "don't" is the ``not`` combinator below, not a second kind.
         "controls_subtype",  # + ``subtype``, ``min``/``max`` (``min`` 1)
         "opponent_cast_color_this_turn",  # + ``colors`` (WUBRG letters)
+        # PAR-283 (the Trap cycle, RULE 118.9 alternative costs gated on this turn's events): each reads the turn's event
+        # log (`GameState.events_this_turn`), so it answers for a card in hand like for a permanent.
+        "opponent_cast_matching_spell_this_turn",  # + optional ``colors`` (WUBRG) and ``spell_types`` (card-type words)
+        "opponent_permanents_entered_this_turn",  # + ``min`` (1), optional ``card_type`` / ``color``: one opponent's entries
+        "opponent_searched_library_this_turn",  # RULE 701.23: a LIBRARY_SEARCHED event by an opponent
+        "creatures_attacking_matching",  # + ``min`` / ``max``, optional ``colors`` / ``keyword`` (any controller's attackers)
+        "damaged_by_creatures_this_turn",  # + ``min`` (1): distinct creature sources that dealt this controller damage
         "another_spell_cast_this_turn",  # + ``color`` or ``spell_type``
         # -- Combinator (MEC-43 round 2, Conqueror's Flail's "As long as
         # this Equipment is attached to a creature, your opponents can't
@@ -475,7 +508,8 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         # RULE 601.3a (Necromancy) — was ``cast_outside_sorcery_speed``.
         "cast_outside_sorcery_speed",
         "cast_during_your_main_phase",  # Addendum (RULE 505.1)
-        "renowned",  # RULE 702.111b — was ``source_is_renowned``
+        "renowned",  # RULE 702.112b
+        "has_dealt_damage",  # RULE 120: tracks the current object across turns.
         "is_suspected",  # RULE 701.60c — was ``previous_target_is_suspected``
         # RULE 602.2b (an activated ability's sacrifice cost) — "if the sacrificed
         # creature was suspected, draw 2 cards instead" — stamped onto the
@@ -544,8 +578,9 @@ def _counter_count(source: Any, kind: Optional[str]) -> int:
         if kind == "+1/+1":
             return int(getattr(source, "plus_one_counters", 0) or 0)
         return int(counters.get(kind, 0) or 0)
-    total = sum(int(v or 0) for v in counters.values())
-    return total + int(getattr(source, "plus_one_counters", 0) or 0)
+    # RULE 122.1: every counter of every kind counts once. `plus_one_counters` is a *net view over* the "+1/+1" and
+    # "-1/-1" entries already summed here, so adding it again would count a +1/+1 counter twice.
+    return sum(int(v or 0) for v in counters.values())
 
 
 def _within(n: int, condition: dict[str, Any], default_min: Optional[int] = None) -> bool:
@@ -605,7 +640,8 @@ EVENT_SCOPE_COMBAT = "combat"
 
 
 def _events_this_turn_matching(
-    state: Any, trigger: dict[str, Any], source: Any, controller_id: str, scope: Optional[str] = None
+    state: Any, trigger: dict[str, Any], source: Any, controller_id: str, scope: Optional[str] = None,
+    sum_field: Optional[str] = None,
 ) -> int:
     """How many events of the current turn a trigger-shaped dict matches (ENG-47).
 
@@ -613,7 +649,9 @@ def _events_this_turn_matching(
     controlled died this turn" means exactly what "whenever a creature you control
     dies" means, including a departed object's last-known values — evaluated against
     the logged events, with ``source`` (or, for a condition with none, the asking
-    player) standing in for "you".
+    player) standing in for "you". With ``sum_field`` each matching event contributes
+    that integer field instead of 1 ("each +1/+1 counter you've put ...", the COUNTER
+    event's ``amount``).
     """
     from types import SimpleNamespace
 
@@ -623,7 +661,9 @@ def _events_this_turn_matching(
     asker = source if source is not None else SimpleNamespace(
         controller_id=controller_id, instance_id=None
     )
-    context = SimpleNamespace(state=state)
+    # RULE 109.5: the caller already resolved who "you" is (the resolving ability's controller); the predicate must
+    # not re-derive it from the source's current controller.
+    context = SimpleNamespace(state=state, controller_fixed=True)
     predicates = {
         name: _trigger_condition({**trigger, "event": name}, asker) for name in events
     }
@@ -635,7 +675,7 @@ def _events_this_turn_matching(
             continue
         predicate = predicates[name]
         if predicate is None or predicate(event, context):
-            count += 1
+            count += max(0, int(event.get(sum_field) or 0)) if sum_field else 1
     return count
 
 
@@ -651,6 +691,24 @@ def _selector_label(selector: Any) -> str:
         return str(selector)
     filt = ", ".join(str(v) if v is not True else str(k) for k, v in (selector.get("filter") or {}).items())
     return f"{selector.get('zone', 'battlefield')}/{selector.get('of', 'you')}" + (f" [{filt}]" if filt else "")
+
+
+def _defender_condition_holds(condition: dict[str, Any], state: "GameState", source: Any, controller_id: Optional[str],
+                              affected: Any, defender_id: str) -> bool:
+    """One ``as_defending_player`` / ``defending_player_has_more`` condition read for the given defending player."""
+    if condition.get("kind") == "defending_player_has_more":
+        from .continuous import count_selector  # local: continuous imports this module
+
+        selector = condition.get("selector")
+        if not selector or controller_id is None:
+            return False
+        margin = int(condition.get("margin", 1) or 1)
+        return (count_selector(state, defender_id, _selector_arg(selector), source=source)
+                >= count_selector(state, controller_id, _selector_arg(selector), source=source) + margin)
+    inner = condition.get("condition")
+    if not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+        return False
+    return condition_holds(inner, state, None, defender_id, affected)
 
 
 def condition_holds(
@@ -692,6 +750,36 @@ def condition_holds(
             condition_holds(sub, state, source, controller_id, affected)
             for sub in (condition.get("conditions") or [])
         )
+    if kind == "as_active_player":
+        inner = condition.get("condition")
+        active = getattr(state, "active_player", None)
+        if active is None or not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
+            return False  # unanswerable: neither polarity may fire
+        # No source: a player-state predicate asks about the *asking player* (`_events_this_turn_matching` would otherwise
+        # take "you" from the source's controller, which is the Aura/artifact's owner, not the player whose step it is).
+        return condition_holds(inner, state, None, active.id, affected)
+    if kind in ("as_defending_player", "defending_player_has_more"):
+        # RULE 506.2 / 508.5: the defending player is whoever the attacker (or, for an Aura/Equipment trigger, its host)
+        # attacks -- never "an opponent": in a multiplayer game the condition follows the attacked player alone.
+        from .attack_scope import defending_player_id  # function-scoped: keeps this module's import graph flat
+
+        attacker = source
+        if not getattr(attacker, "attacking", False):
+            attacker = state.find_object(getattr(source, "attached_to", None))
+        defender_ids = [defending_player_id(attacker, state)] if attacker is not None else []
+        if not defender_ids or defender_ids[0] is None:
+            # A non-attacking source (an activated ability's "only if defending player controls ...") may name any
+            # player being attacked this combat (RULE 506.2), the way `defending_player_permanent_count` does.
+            defender_ids = (sorted({defending_player_id(o, state) for o in state.battlefield if o.attacking} - {None})
+                            if condition.get("combat_wide") else [])
+        # No defending player known: neither polarity may fire.
+        return any(_defender_condition_holds(condition, state, source, controller_id, affected, d) for d in defender_ids)
+    if kind == "rad_counters_at_least":
+        player = _controller(state, controller_id)
+        return player is not None and int(player.counters.get("rad", 0) or 0) >= int(condition.get("amount", 1) or 1)
+    if kind == "poison_at_least":
+        player = _controller(state, controller_id)
+        return player is not None and int(getattr(player, "poison", 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "not":
         # A missing ``condition`` would make this trivially true, which is
         # the wrong direction for a fail-closed vocabulary — so an empty
@@ -830,6 +918,24 @@ def condition_holds(
         return bool(getattr(subject, "attacked_this_turn", False))
     if kind == "any_player_at_half_starting_life":
         return any(p.life * 2 <= p.starting_life for p in state.living_players())
+    if kind == "at_half_starting_life":
+        player = _controller(state, controller_id)
+        return player is not None and player.life * 2 <= player.starting_life
+    if kind == "library_top_matches":
+        from .combat import matches_object_filter
+
+        player = _controller(state, controller_id)
+        return bool(player and player.library and
+                    matches_object_filter(player.library[-1], condition.get("filter"), state=state))
+    if kind == "most_common_permanent_color":
+        from collections import Counter
+
+        colors = Counter(color for permanent in state.permanents() for color in permanent.colors)
+        return colors[condition["color"]] == max(colors.values(), default=0)
+    if kind == "subject_modified":
+        from .continuous import is_modified
+
+        return subject is not None and is_modified(state, subject)
     if kind == "you_attacked_this_turn":  # PAR-62 / RULE 508.1a (Raid)
         return controller_id in (getattr(state, "players_attacked_this_turn", None) or set())
     if kind == "source_solved":  # PAR-28 RULE 702.169b / 720.3b
@@ -875,10 +981,11 @@ def condition_holds(
         subtype = "Equipment" if kind == "source_equipped" else "Aura"
         # RULE 301.5 / 303.4: attachment alone is insufficient; an Aura
         # can also be an artifact, and a Fortification is not Equipment.
-        for attachment in _attached_to_source(state, subject):
-            if matches_object_filter(attachment, {"subtype": subtype}):
-                return True
-        return False
+        count = sum(matches_object_filter(attachment, {"subtype": subtype})
+                    for attachment in _attached_to_source(state, subject))
+        # PAR-289: "enchanted by exactly one Aura" (Timber Paladin) bounds the count from above as well.
+        maximum = condition.get("max")
+        return count >= int(condition.get("min", 1)) and (maximum is None or count <= int(maximum))
     if kind in ("source_on_battlefield", "source_controlled_by_you"):
         if subject is None:
             return False
@@ -1036,9 +1143,14 @@ def condition_holds(
         bearer_id = getattr(player, "ring_bearer_id", None)
         subject_id = getattr(subject, "instance_id", None)
         return bearer_id is not None and subject_id is not None and bearer_id == subject_id
+    if kind == "devoured_creature":
+        return bool(getattr(subject, "devoured_creature_visits", ()))
     if kind == "kicked":  # RULE 702.33b/702.34a
         if subject is None:
             return False
+        if "cost" in condition:
+            # RULE 702.33f: "kicked with its {A} kicker" -- fails closed on a cost the object does not print.
+            return kicker_costs.was_kicked_with(subject, condition["cost"])
         return _within(int(getattr(subject, "kicker_count", 0) or 0), condition)
     if kind == "x_paid":  # RULE 107.3c
         if subject is None:
@@ -1081,6 +1193,11 @@ def condition_holds(
         )
     if kind == "is_legendary":
         return subject is not None and bool(getattr(subject, "is_legendary", False))
+    if kind == "you_have_most_cards_in_hand":
+        mine = _controller(state, controller_id)
+        return mine is not None and all(
+            len(mine.hand) > len(p.hand) for p in state.living_players() if p.id != controller_id
+        )
     if kind == "is_basic":
         card = getattr(subject, "card", None)
         supertypes = str(getattr(card, "type_line", "") or "").split("—")[0].lower().split()
@@ -1100,6 +1217,12 @@ def condition_holds(
         return condition.get("player_id") is not None and state.monarch_id == condition["player_id"]
     if kind == "is_monarch":
         return controller_id is not None and getattr(state, "monarch_id", None) == controller_id
+    if kind == "opponent_is_the_monarch":
+        monarch = getattr(state, "monarch_id", None)
+        return monarch is not None and monarch != controller_id
+    if kind == "cards_in_library":
+        player = next((p for p in state.players if p.id == controller_id), None)
+        return player is not None and _within(len(player.library), condition)
     if kind == "no_monarch":
         # RULE 726.1: there is no monarch until some effect makes a player the monarch.
         return getattr(state, "monarch_id", None) is None
@@ -1324,6 +1447,8 @@ def condition_holds(
             for p in getattr(state, "players", [])
             if p.id not in (None, controller_id)
         )
+    if kind == "any_player_cards_in_hand_at_most":
+        return any(len(getattr(p, "hand", [])) <= int(condition.get("amount", 0)) for p in getattr(state, "players", []))
     if kind == "cards_in_hand_at_least":
         return len(getattr(player, "hand", [])) >= int(condition.get("amount", 0))
     if kind == "cards_in_hand_at_most":
@@ -1372,6 +1497,11 @@ def condition_holds(
         # per turn, so this is a read, not a new counter. Optional ``amount``
         # (default 1) for the rare "gained N or more life this turn" phrasing.
         gained = getattr(state, "life_gained_this_turn", None) or {}
+        if condition.get("scope") == "opponents":  # PAR-283 (Needlebite Trap): any one opponent
+            return any(
+                int(gained.get(p.id, 0) or 0) >= int(condition.get("amount", 1) or 1)
+                for p in state.living_players() if p.id != controller_id
+            )
         return int(gained.get(controller_id, 0) or 0) >= int(condition.get("amount", 1) or 1)
     if kind == "faced_dilemma_this_turn":
         # RULE 700.17: "has faced a dilemma this turn" means that player chose one or more modes for a spell or
@@ -1461,9 +1591,17 @@ def condition_holds(
         # Lasting Tarfire: "if you put a counter on a creature this turn" —
         # `GameState.counter_placed_on_creature_this_turn`, a set of the
         # COUNTER event's causer (``source_controller_id``) ids.
+        if counter := condition.get("counter"):
+            from .condition_query import counter_placement_this_turn
+
+            return counter_placement_this_turn(state, controller_id, counter, creature=True)
         seen = getattr(state, "counter_placed_on_creature_this_turn", None) or set()
         return controller_id in seen
     if kind == "counter_put_on_source_this_turn":
+        if counter := condition.get("counter"):
+            from .condition_query import counter_placement_this_turn
+
+            return source is not None and counter_placement_this_turn(state, controller_id, counter, recipient=source)
         source_id = getattr(source, "instance_id", None)
         return source_id is not None and any(
             e.type == "COUNTER" and e.get("target_id") == source_id and (e.get("amount") or 0) > 0
@@ -1644,6 +1782,74 @@ def condition_holds(
             and o.has_subtype(word)
         )
         return _within(n, condition, default_min=1)
+    if kind == "opponent_cast_matching_spell_this_turn":
+        # RULE 601.2i: a spell is cast once its cost is paid; the SPELL_CAST event snapshots its colours and types.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        wanted_colors = {str(c).upper() for c in (condition.get("colors") or [])}
+        wanted_types = {str(t).lower() for t in (condition.get("spell_types") or [])}
+        for e in state.events_this_turn():
+            who = e.get("player_id")
+            if e.type != EventType.SPELL_CAST or who is None or who == controller_id:
+                continue
+            if wanted_colors and not wanted_colors & {str(c).upper() for c in (e.get("colors") or [])}:
+                continue
+            if wanted_types and not wanted_types & {str(t).lower() for t in (e.get("object_types") or [])}:
+                continue
+            return True
+        return False
+    if kind == "opponent_permanents_entered_this_turn":
+        # "an opponent had two or more lands enter the battlefield under their control this turn" (RULE 603.6a): one
+        # opponent's entries are counted, filtered by the entered object's card type and (as it is now) colour.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        wanted_type = str(condition["card_type"]).lower() if condition.get("card_type") else None
+        wanted_color = str(condition["color"]).upper() if condition.get("color") else None
+        entered: dict[str, int] = {}
+        for e in state.events_this_turn():
+            who = e.get("controller_id")
+            if e.type != EventType.ENTERS_BATTLEFIELD or who is None or who == controller_id:
+                continue
+            if wanted_type is not None and wanted_type not in {str(t).lower() for t in (e.get("object_types") or [])}:
+                continue
+            if wanted_color is not None:
+                obj = state.find_object(e.get("instance_id"))
+                if obj is None or wanted_color not in obj.colors:
+                    continue  # unreadable colour never matches (fail closed)
+            entered[who] = entered.get(who, 0) + 1
+        return any(count >= int(condition.get("min", 1) or 1) for count in entered.values())
+    if kind == "opponent_searched_library_this_turn":
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        return any(
+            e.type == EventType.LIBRARY_SEARCHED and e.get("player_id") not in (None, controller_id)
+            for e in state.events_this_turn()
+        )
+    if kind == "creatures_attacking_matching":
+        # RULE 508.1k: attacking creatures; "a black creature with flying is attacking" / "exactly one creature is attacking".
+        from . import combat  # function-scoped: combat imports this module's neighbours at load
+
+        wanted_colors = {str(c).upper() for c in (condition.get("colors") or [])}
+        keyword = str(condition["keyword"]).lower() if condition.get("keyword") else None
+        count = sum(
+            1 for o in state.permanents()
+            if o.is_creature and getattr(o, "attacking", False)
+            and (not wanted_colors or wanted_colors & set(o.colors))
+            and (keyword is None or combat.has(o, keyword))
+        )
+        return _within(count, condition, default_min=1)
+    if kind == "damaged_by_creatures_this_turn":
+        # "if you've been dealt damage by two or more creatures this turn" (Inferno Trap): distinct creature sources.
+        from ..models.game.events import EventType  # function-scoped: models must not import game at load
+
+        sources: set[Any] = set()
+        for e in state.events_this_turn():
+            if e.type != EventType.DAMAGE or not e.get("is_player") or e.get("target_id") != controller_id:
+                continue
+            source_obj = state.find_object(e.get("source_id"))
+            if source_obj is not None and getattr(source_obj, "is_creature", False) and int(e.get("amount", 0) or 0) > 0:
+                sources.add(e.get("source_id"))
+        return len(sources) >= int(condition.get("min", 1) or 1)
     if kind == "opponent_cast_color_this_turn":
         # "…if an opponent has cast a blue or black spell this turn."
         # (Veil of Summer) — any opponent's `GameState.

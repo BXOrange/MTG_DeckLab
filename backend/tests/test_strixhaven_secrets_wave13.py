@@ -73,10 +73,15 @@ def test_subtype_cost_reduction_claimed(clause, sub):
 
 @pytest.mark.parametrize("clause", [
     "historic spells you cast cost {1} less to cast",
-    "commander spells you cast cost {1} less to cast",
 ])
 def test_grouping_words_stay_fail_closed(clause):
     assert static_effect_specs(clause) is None
+
+
+def test_commander_designation_is_its_own_filter():
+    # PAR-284 / RULE 903.3: "commander" is a designation, read as `spell_is_commander`, never a subtype
+    specs = static_effect_specs("commander spells you cast cost {1} less to cast")
+    assert specs[0].params == {"generic": 1, "increase": False, "spell_is_commander": True}
 
 
 def test_main_type_and_compound_unchanged():

@@ -33,6 +33,42 @@ it had lived in `BACKLOG.md`.
   Artist and Aesthetic Consultation (`as ~ enters, choose an artist` / `art by the chosen artist`) were
   removed from the singleton queue by owner decision (2026-11-05); they are not in the Commander Cube.
   Do not re-promote them from scans.
+- **Un-set cards without an operation family (from PAR-312).** Parked by owner decision
+  (2026-11-16): cards from Scryfall `set_type` `funny` (Un-sets, holiday and playtest joke
+  cards) whose open sentences fit no parser family, 250 sentences on 200 cards at
+  PARSER_VERSION 912 (68 cards have no other open sentence). Un-set cards with ordinary text
+  stay in their family tickets. `find_fragments.py --all-cards --axes` lists them as
+  `GEPARKT Un-Sets`; promote by moving this block back to `BACKLOG.md`. Their amount sentences over
+  non-rules quantities (words, letters, art, seats) stay parked here too (PAR-284, v961: Busted!,
+  Goblin Cruciverbalist, Mana Flair, Mistakes Were Made, Questionable Cuisine, Staff of the Letter
+  Magus, When Fluffy Bunnies Attack, capital offense, Pygmy Giant). Object filters over non-rules
+  properties (name, art, legs, watermark, original deck) stay parked too (PAR-285 close, v986): Bar
+  Entry, Decorated Knight // Present Arms, Duh, Framed!, Jermane Pride of the Circus, Oddly Uneven,
+  Orcish Paratroopers, The Collector, The Fearsome Flock, Very Cryptic Command, World-Bottling Kit,
+  Zzzyxas's Abyss. Trigger and cost heads over non-rules properties stay parked as well (PAR-286 close,
+  v997; `set_type` funny): Artful Looter, Assembled Ensemble, Bad Ass, Border Guardian, Fifth Stage of
+  Magic Design, Goblin Mime, Hammerfest Boomtacular, Hazmat Suit (Used), Moniker Mage, Out of Town, Seer
+  of the Bright Side, Stika Playtestress, T.A.P.P.E.R., The Karfell Rocker, The Secret Lair,
+  Treacherous Trapezist, Vile Bile; plus the playtest / memorabilia cards Creepy Crawler, Toofer Keeper
+  of the Full Grip (`masters`) and Dance of Flame (`memorabilia`), whose heads read non-game facts.
+  Cross-sentence referents on Un-set cards stay parked too (PAR-287 close, v1002; `set_type` funny):
+  The Roaring Toeclaws ("becomes untapped, put +1/+1 counters on it equal to its power").
+  Small modifiers on Un-set cards stay parked too (PAR-288 close, v1003): Squidnapper (`ransom` payment
+  alternative); Auntie Ant keeps its existing `singletons.md` row.
+- **Joke variant cards (BUG-69).** Silver-border planar cards ("That's Enough Slices", type line
+  Phenome-nom; "sAnS mERcY", pLAnE — sECreT LaIR) are excluded from the planar, scheme and Vanguard
+  catalogue by type line (`services/variant_card_database.py`), owner decision 2026-11-24. Parked, not planned.
+- **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
+  five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
+  Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.
+  Listed as `GEPARKT Horde-Challenge-Deck` by the axis scan.
+- **Other non-Commander special cards (PAR-312).** Owner decision (2026-11-16): text that
+  fits no parser family is supported only on Commander-legal cards. The residue on cards
+  that are not Commander-legal is parked: 70 sentences on 52 cards at PARSER_VERSION 912
+  (Mystery Booster 2 playtest cards, celebration and memorabilia one-offs, the My Little
+  Pony cards, Gleemox, and banned Nadu, Winged Wisdom). Listed as
+  `GEPARKT Nicht Commander-legale Sonderkarten`; a card that becomes Commander-legal
+  leaves this package on the next scan and must get a family ticket.
 
 
 
@@ -46,6 +82,10 @@ Never to be built — not gaps.
   excluded this card: whether an opponent is physically touching their hand
   cannot be inferred from game state. The shared support policy labels this
   condition `physical_action` / `NEVER_SUPPORTED`; it is not a parser backlog.
+
+- **Ante (RULE 407).** The owner excluded ante permanently (2026-11-16). Every card
+  whose text names the mechanic (nine cards, e.g. Contract from Below, Jeweled Bird)
+  gets the shared `ante` / `NEVER_SUPPORTED` verdict from `support_policy.py`.
 
 - **Alchemy-only cards and digital mechanics.** Permanently Unsupported (Specialize,
   perpetual effects, conjure/seek/spellbook); their parser and engine paths were

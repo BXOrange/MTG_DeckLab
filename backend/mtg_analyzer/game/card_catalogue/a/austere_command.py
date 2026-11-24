@@ -18,10 +18,10 @@ def _austere_command() -> list[AbilitySpec]:
             modes={
                 "choose": 2,
                 "options": [
-                    [EffectSpec("destroy", {"selector": "all_artifacts"})],
-                    [EffectSpec("destroy", {"selector": "all_enchantments"})],
-                    [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"max_mana_value": 3}})],
-                    [EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_mana_value": 4}})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "artifact"}}})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "enchantment"}}})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"max_mana_value": 3}})],
+                    [EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"min_mana_value": 4}})],
                 ],
                 "descriptions": [
                     "Zerstöre alle Artefakte.",

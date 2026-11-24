@@ -411,13 +411,17 @@ class StateBasedActionsMixin:
             # RULE 704.5b: only occurrences since this check count, even
             # when a standing cannot-lose effect currently prevents losing.
             player.attempted_draw_from_empty = False
-            reason = (
-                "life" if player.life <= 0 else
-                "poison" if player.poison >= 10 else
-                "draw_from_empty" if drew_empty else
-                "commander_damage" if any(e["amount"] >= 21 for e in player.commander_damage.values()) else None
+            # RULE 704.5a/b/c/u: a prevented life loss must not hide an
+            # independently applicable poison, draw or commander-damage loss.
+            reasons = (
+                ("life", player.life <= 0),
+                ("poison", player.poison >= 10),
+                ("draw_from_empty", drew_empty),
+                ("commander_damage", any(e["amount"] >= 21 for e in player.commander_damage.values())),
             )
-            if reason is not None and not self._loss_prevented(player):
+            reason = next((kind for kind, applies in reasons
+                           if applies and not self._loss_prevented(player, kind)), None)
+            if reason is not None:
                 losses.append((player.id, reason))
         return losses
 
@@ -692,7 +696,7 @@ class StateBasedActionsMixin:
             if not obj.is_legendary:
                 continue
             controller = self.state.player_by_id(obj.controller_id)
-            if controller is not None and continuous.player_ignores_legend_rule(self.state, controller):
+            if controller is not None and continuous.player_ignores_legend_rule(self.state, controller, obj):
                 continue
             groups.setdefault((obj.controller_id, obj.name), []).append(obj)
         found: list[SbaAction] = []
@@ -749,17 +753,17 @@ class StateBasedActionsMixin:
             raise ValueError("Choose one of the offered copies")
         self.state.legend_rule_picks[choice["group_key"]] = answer
 
-    def _loss_prevented(self, player: Player) -> bool:
+    def _loss_prevented(self, player: Player, reason: Optional[str] = None) -> bool:
         return any(
             isinstance(e, WinConditionEffect) and e.prevents_loss()
             for e in player.player_effects
-        ) or continuous.player_cant_lose(self.state, player)  # RULE 104.3b standing static (Herald of Eternal Dawn)
+        ) or continuous.player_cant_lose(self.state, player, reason)
     def _lose_players(self, losses, prevention_checked=False):
         """One simultaneous loss event, with resumable RULE 616 APNAP choices."""
         eligible = [
             (pid, reason) for pid, reason in losses
             if (player := self.state.player_by_id(pid)) is not None and not player.has_lost
-            and (prevention_checked or reason in ("conceded", "opponent_won") or not self._loss_prevented(player))
+            and (prevention_checked or reason in ("conceded", "opponent_won") or not self._loss_prevented(player, reason))
         ]
         # RULE 616.1/704.7: one event per player, choices in APNAP order
         # even when an effect supplies its targets in another order.
@@ -845,7 +849,10 @@ class StateBasedActionsMixin:
                 ]
             from ..effects.battlefield_batches import cancel_conceded_return_entry
             cancel_conceded_return_entry(self, player.id, ending_game=ending_game)
+            from ..effects.hand_entry import cancel_conceded_hand_entry
+            cancel_conceded_hand_entry(self, player.id, ending_game=ending_game)
             self._cancel_conceded_turn_draw(player.id, ending_game=ending_game)
+            self._cancel_conceded_amount_payment(player.id, ending_game=ending_game)
             self._cancel_conceded_graveyard_shuffle(player.id, ending_game=ending_game)
             self._cancel_conceded_fight(player.id, ending_game=ending_game)
             self._cancel_conceded_loss_recovery(player.id, ending_game=ending_game)

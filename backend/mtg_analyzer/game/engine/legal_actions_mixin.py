@@ -21,12 +21,13 @@ from contextlib import contextmanager
 from typing import Any, Optional
 
 from ...models.cards.card import Card
+from ...models.cards.interchangeable_names import matching_name_keys
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, more_than_meets_the_eye, variants, splice
+from .. import combat, condition_query, kicker_costs, continuous, durations, face_down, more_than_meets_the_eye, variants, splice, replicate as replicate_mechanic
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -39,6 +40,7 @@ from ..costs import (
     REMOVE_COUNTERS_X,
     RETURN_SELF_TO_HAND,
     SACRIFICE_COUNT_X,
+    SACRIFICE_COUNT_HALF,
     SACRIFICE_COUNT_ANY,
     TAP_OTHERS_X,
     ActivationCost,
@@ -182,11 +184,38 @@ class LegalActionsMixin:
         # PAR-247 (RULE 701.20 / 602.2b): "Reveal X <colour> cards from your hand" announces X too (the Martyrs).
         reveal_x = bool(ability.cost.reveal_x_color)
         if (mana.has_variable or remove_counters_x or sacrifice_x or tap_x or reveal_x
-                or ability.cost.pay_energy == PAY_ENERGY_X):
+                or ability.cost.pay_energy == PAY_ENERGY_X or ability.cost.exile_others_total_mana_value_x
+                or ability.cost.sacrifice_count_mana_value_x
+                or ability.cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X):
             action["has_x"] = True
             action["min_x"] = ability.cost.minimum_x
             action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
-        requirements = self._ability_target_requirements(player, ability, source, mode=mode)
+        if ability.cost.sacrifice_count_mana_value_x:
+            pool = self._sacrifice_count_pool(player, ability.cost.sacrifice_count[1], source)
+            previous_x = source.x_paid
+            by_x = {}
+            try:
+                for value in sorted({int(o.mana_value or 0) for o in pool}):
+                    if not self.can_activate(player, source, ability, x=value):
+                        continue
+                    source.x_paid = value
+                    options = self._ability_target_requirements(player, ability, source, mode=mode)
+                    if all_requirements_satisfiable(options):
+                        by_x[str(value)] = options
+            finally:
+                source.x_paid = previous_x
+            values = [int(value) for value in by_x]
+            action["targets_by_x"] = by_x
+            action["allowed_x"] = values
+            if values:
+                action["min_x"], action["max_x"] = values[0], values[-1]
+                requirements = by_x[str(values[-1])]
+            else:
+                requirements = self._ability_target_requirements(player, ability, source, mode=mode)
+                action["locked"] = True
+                action["lock_reason"] = "Kein gültiges Ziel im Spiel"
+        else:
+            requirements = self._ability_target_requirements(player, ability, source, mode=mode)
         if requirements:
             action["requires_target"] = True
             action["targets"] = requirements
@@ -199,7 +228,7 @@ class LegalActionsMixin:
             # PAR-247 / RULE 602.2b: which tapped permanents untap is the player's pick; same `tap_cost` shape,
             # flagged ``untap`` (answered with `tap_choices`).
             action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
-        if ability.cost.reveal_x_color:
+        if ability.cost.reveal_x_color or ability.cost.reveal_shared_color:
             # PAR-247: the X cards shown; answered with `hand_card_choices` (exactly `x` of `options`).
             action["reveal_cost"] = self._reveal_cost_choice(player, ability.cost)
         if self._picks_counter_holder(ability.cost):
@@ -215,12 +244,31 @@ class LegalActionsMixin:
             # Crew cost is the player's own choice — the `_crew_cost_choice`
             # UI shape (a power threshold, not `tap_cost`'s exact count).
             action["crew_cost"] = self._crew_cost_choice(player, source, ability.cost)
+        if ability.cost.tap_total_power is not None:
+            action['power_tap_cost'] = {'power_required': ability.cost.tap_total_power,
+                'options': [{'instance_id': obj.instance_id, 'name': obj.name, 'power': int(obj.power or 0)}
+                            for obj in self._crew_pool(player, source, crewing=False)]}
+        if ability.cost.exile_instant_or_sorcery_spell:
+            action['exile_cost'] = {'count': 1, 'spell': True, 'options': [
+                {'instance_id': obj.instance_id, 'name': obj.name}
+                for obj in self._exile_spell_cost_pool(player)
+            ]}
         if ability.cost.exile_others:
             count, word = ability.cost.exile_others
             action["exile_cost"] = {"count": count, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
                 for obj in self._sacrifice_count_pool(player, word, source)
             ]}
+        if ability.cost.exile_others_total_mana_value_x:
+            values = self._exile_value_cost_sums(player, source, ability.cost)
+            action['allowed_x'] = values
+            if values:
+                action['min_x'], action['max_x'] = values[0], values[-1]
+            action['exile_value_cost'] = {'options': [
+                {'instance_id': obj.instance_id, 'name': obj.name, 'mana_value': obj.mana_value}
+                for obj in self._sacrifice_count_pool(player, ability.cost.exile_others[1], source, exclude_source=True)
+            ]}
+            action.pop('exile_cost', None)
         if ability.cost.exile_from_graveyard_mana_value_x:
             action["graveyard_exile_cost"] = {"count": 1, "mana_value_equals_x": True, "options": [
                 {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value}
@@ -241,11 +289,14 @@ class LegalActionsMixin:
                 owners = {c.owner_id for c in pool if sum(o.owner_id == c.owner_id for o in pool)
                           >= ability.cost.exile_from_graveyard}
                 pool = [c for c in pool if c.owner_id in owners]
-            action["graveyard_exile_cost"] = {"count": ability.cost.exile_from_graveyard, "options": [
+            action["graveyard_exile_cost"] = {"count": "x" if ability.cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else ability.cost.exile_from_graveyard, "options": [
                 {"instance_id": card.instance_id, "name": card.name, "mana_value": card.mana_value,
                  "owner_id": card.owner_id}
                 for card in pool
             ]}
+        if ability.cost.put_opponent_exile_to_graveyard:
+            # RULE 602.2b: which opponent-owned exiled card pays is the player's pick (`opponent_exile_choices`).
+            action["opponent_exile_cost"] = self._opponent_exile_cost_choice(player)
         if ability.cost.return_to_hand and ability.cost.return_to_hand != RETURN_SELF_TO_HAND:
             action["return_cost"] = {"count": 1, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
@@ -270,9 +321,30 @@ class LegalActionsMixin:
             # discard and "your hand" / "X cards" are not); the board answers with `discard_choices`.
             action["discard_cost"] = {
                 "count": cost.discard,
-                "options": [{"instance_id": card.instance_id, "name": card.name}
-                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name)],
+                'matching_names': cost.discard_matching_names,
+                'different_names': cost.discard_different_names,
+                "options": [{"instance_id": card.instance_id, "name": card.name, 'names': list(matching_name_keys(card.names)), 'mana_value': card.mana_value}
+                            for card in self._discard_cost_pool(player, None, cost.discard_filter, source.name,
+                                                                cost.discard if cost.discard_matching_names else 0)],
             }
+        if cost.discard_mana_value_x:
+            action['discard_cost']['mana_value_equals_x'] = True
+            values = sorted({option['mana_value'] for option in action['discard_cost']['options']
+                             if option['mana_value'] <= action.get('max_x', 0)})
+            if values:
+                action['allowed_x'] = values
+                action['min_x'], action['max_x'] = values[0], values[-1]
+        if cost.sacrifice_count_mana_value_x:
+            # MEC-173 / RULE 602.2b: X is announced as the mana value of the permanent sacrificed, so only the mana values
+            # that some legal permanent has are announceable, and each option names its own.
+            pool = self._sacrifice_count_pool(player, cost.sacrifice_count[1], source)
+            sacrifice = action.setdefault("sacrifice_cost", {"options": []})
+            sacrifice["count"] = cost.sacrifice_count[0]  # one permanent; the bots read this
+            sacrifice["options"] = [{"instance_id": o.instance_id, "name": o.name, "mana_value": int(o.mana_value or 0)}
+                                    for o in pool]
+            if "slots" in sacrifice:
+                sacrifice["slots"] = [sacrifice["options"]]
+            sacrifice["mana_value_equals_x"] = True
         if ability.cost.blight:
             action["blight_cost"] = self._blight_cost_choice(player, ability.cost.blight)
         return action
@@ -315,6 +387,7 @@ class LegalActionsMixin:
             action["face"] = face
         return action
     @splice.with_splice
+    @replicate_mechanic.offer_payments
     def _cast_action(
         self,
         player: Player,
@@ -579,6 +652,7 @@ class LegalActionsMixin:
                     or getattr(_add, "discard", 0) == DISCARD_X
                     or getattr(_add, "exile_from_graveyard", 0) == EXILE_FROM_GRAVEYARD_X
                     or (getattr(_add, "sacrifice_count", None) and _add.sacrifice_count[0] == SACRIFICE_COUNT_X)
+                    or getattr(_add, "sacrifice_count_mana_value_x", False)
                     or (getattr(_add, "return_pick", None) and _add.return_pick_count is None)
                 )
             )
@@ -587,6 +661,13 @@ class LegalActionsMixin:
                 action["max_x"] = self.max_affordable_x(player, obj, warp=warp)
                 if _add is not None and _add.sacrifice_count and _add.sacrifice_count[0] == SACRIFICE_COUNT_X:
                     action["max_x"] = min(action["max_x"], len(self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)))
+                if _add is not None and _add.sacrifice_count_mana_value_x:
+                    # RULE 601.2b (Nahiri's Sacrifice): only the mana values of permanents that can be sacrificed.
+                    values = sorted({int(o.mana_value or 0)
+                                     for o in self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)})
+                    action["allowed_x"] = values
+                    if values:
+                        action["min_x"], action["max_x"] = values[0], values[-1]
 
             # RULE 702.33: surface Kicker/Multikicker so the UI can prompt for
             # how many times to pay it, the same "has_x/max_x" shape as {X}.
@@ -599,6 +680,11 @@ class LegalActionsMixin:
                     action["kicker_keyword"] = "offspring"  # the UI titles the field by it
                 action["kicker_multi"] = bool(kicker_param.get("multi"))
                 action["max_kicker"] = self.max_affordable_kicker(player, obj)
+                if kicker_costs.is_multi_cost(obj):
+                    # RULE 702.33b/d (ENG-62): "Kicker A and/or B" -- send ``kicked`` as a list of
+                    # indices into ``kicker_costs``; ``kicker_options`` are the affordable combinations.
+                    action["kicker_costs"] = kicker_costs.kicker_cost_texts(obj)
+                    action["kicker_options"] = self.affordable_kicker_combinations(player, obj)
                 if kicker_cost.has_variable:
                     # PAR-7: Kicker's own {X} (Emblazoned Golem) — the same
                     # "has_x/max_x" shape as the spell's own {X} above, but for
@@ -636,6 +722,10 @@ class LegalActionsMixin:
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             if graveyard_keyword is not None:
                 action["cast_from_graveyard"] = graveyard_keyword
+                if graveyard_keyword == "jump_start":
+                    action["discard_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name} for card in player.hand
+                    ]}
                 if graveyard_keyword == "escape":
                     escape_cost = self._escape_cost(obj)
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
@@ -730,12 +820,20 @@ class LegalActionsMixin:
                 if paying_additional and additional_cost.sacrifice_count:
                     count, kind = additional_cost.sacrifice_count
                     pool = self._sacrifice_count_pool(player, kind, obj)
+                    if count == SACRIFICE_COUNT_HALF:
+                        from ..effect_amounts import pool_fraction
+                        count = pool_fraction(sum(o.is_land for o in self.state.permanents_controlled_by(player.id)),
+                                              2, additional_cost.sacrifice_fraction_round_up)
                     action["sacrifice_count_cost"] = {
-                        "count": "x" if count == SACRIFICE_COUNT_X else 1 if count == SACRIFICE_COUNT_ANY else count,
-                        "options": [{"instance_id": c.instance_id, "name": c.name} for c in pool],
+                        # RULE 107.1c: "any number of" announces from zero up to the whole pool.
+                        "count": "x" if count == SACRIFICE_COUNT_X else 0 if count == SACRIFICE_COUNT_ANY else count,
+                        "options": [{"instance_id": c.instance_id, "name": c.name, "mana_value": c.mana_value}
+                                    for c in pool],
                     }
                     if count == SACRIFICE_COUNT_ANY:
                         action["sacrifice_count_cost"]["count_max"] = len(pool)
+                    if additional_cost.sacrifice_count_mana_value_x:
+                        action["sacrifice_count_cost"]["mana_value_equals_x"] = True
                 if paying_additional and additional_cost.return_pick:
                     # RULE 601.2b: which permanent is returned is the caster's pick -- the shared one-permanent cost
                     # picker, flagged so the UI words it as a return, not a sacrifice.
@@ -745,6 +843,11 @@ class LegalActionsMixin:
                         "options": [{"instance_id": c.instance_id, "name": c.name}
                                     for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
                     }
+                if paying_additional and additional_cost.reveal_from_hand:
+                    action["reveal_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name}
+                        for card in self._cast_reveal_candidates(player, obj, additional_cost.reveal_from_hand)
+                    ]}
                 if paying_additional and additional_cost.blight:
                     action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)
@@ -753,7 +856,7 @@ class LegalActionsMixin:
                     # the pool is still useful, while its final count is
                     # validated by `cast_spell`.
                     discard_n = 0
-                if paying_additional and discard_n and discard_n != DISCARD_HAND:
+                if paying_additional and discard_n and discard_n != DISCARD_HAND and not additional_cost.discard_random:
                     pool = self._discard_cost_pool(player, exclude=obj)
                     action["discard_cost"] = {
                         "count": discard_n,
@@ -796,7 +899,7 @@ class LegalActionsMixin:
         from ..damage_division import requirements as division_requirements
         with self._mode_effects_applied(obj, mode):
             requirements = requirements_with_targets(self.state, player.id, obj)
-            divisions = division_requirements(getattr(obj, "spell_effects", []))
+            divisions = division_requirements(getattr(obj, "spell_effects", []), self.state)
         if divisions:
             action["damage_divisions"] = divisions
         if requirements:
@@ -834,7 +937,7 @@ class LegalActionsMixin:
             try:
                 with self._mode_effects_applied(obj, mode):
                     kicked_targets = requirements_with_targets(self.state, player.id, obj)
-                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []))
+                    kicked_divisions = division_requirements(getattr(obj, "spell_effects", []), self.state)
                 if kicked_targets != requirements or kicked_divisions != divisions:
                     variant = copy.deepcopy(action)
                     variant.pop("locked", None)
@@ -944,12 +1047,23 @@ class LegalActionsMixin:
         a free/alt-cost one, since the combined check answers only "offer
         *something*", not "offer *this specific* one".
         """
-        if self.can_cast(player, obj, face=face):
+        x = self._least_announceable_x(player, obj)
+        if self.can_cast(player, obj, x, face=face):
             return True
-        if not self.can_cast(player, obj, face=face, assume_mana_available=True):
+        if not self.can_cast(player, obj, x, face=face, assume_mana_available=True):
             return False
-        cost = self.effective_cast_cost(player, obj, face=face)
+        cost = self.effective_cast_cost(player, obj, x, face=face)
         return mana_potential.is_castable_via_potential(self, player, cost)
+
+    def _least_announceable_x(self, player: Player, obj: GameObject) -> int:
+        """The X a castability probe announces: 0, except that a spell whose additional cost sacrifices a permanent
+        "with mana value X" (RULE 601.2b, Nahiri's Sacrifice) can only be announced as the mana value of a permanent
+        there is to sacrifice -- the smallest one, or 0 (unpayable) when there is none."""
+        additional = getattr(obj, "additional_cast_cost", None)
+        if additional is None or not additional.sacrifice_count_mana_value_x:
+            return 0
+        return min((int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, additional.sacrifice_count[1], obj)),
+                   default=0)
     def _castable_now_or_via_potential(
         self, player: Player, obj: GameObject, face: str = "front",
     ) -> bool:
@@ -1053,6 +1167,21 @@ class LegalActionsMixin:
         sources (clicking it then silently auto-taps first, `Activation
         Mixin._auto_tap_for_activation_if_needed`)."""
         minimum_x = ability.cost.minimum_x
+        if ability.cost.exile_others_total_mana_value_x:
+            values = self._exile_value_cost_sums(player, source, ability.cost)
+            if not values:
+                return False
+            minimum_x = values[0]
+        if ability.cost.sacrifice_count_mana_value_x:
+            values = [int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, ability.cost.sacrifice_count[1], source)]
+            if not values:
+                return False
+            return any(self.can_activate(player, source, ability, x=value) for value in sorted(set(values)))
+        if ability.cost.discard_mana_value_x:
+            values = [obj.mana_value for obj in self._discard_cost_pool(player, exclude=source)]
+            if not values:
+                return False
+            minimum_x = min(values)
         if ability.cost.exile_from_graveyard_mana_value_x:
             possible = sorted({card.mana_value for card in player.graveyard
                                if self._matches_sacrifice_type(card, ability.cost.exile_from_graveyard_filter, state=self.state)})
@@ -1216,6 +1345,107 @@ class LegalActionsMixin:
         ):
             actions.append(self._cast_action(player, obj, pay_additional=True))
 
+    def mana_actions(self, player: Player) -> list[dict[str, Any]]:
+        """Mana abilities available to a player, including during a RULE 608.2g payment."""
+        actions: list[dict[str, Any]] = []
+        for source in self.state.permanents_controlled_by(player.id):
+            # One offer per mana ability the source has (almost always just
+            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
+            # *and* any extra cost component (Selvala's {G}, Gnarlroot
+            # Trapper's life payment, Birchlore Rangers' "tap two other
+            # Elves" — RULE 602.1), so a source that can't tap itself can
+            # still offer an ability that doesn't need to.
+            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
+                # "Activate only during your turn and only once each turn.")
+                # — `tap_for_mana` re-checks both at payment time too, this
+                # just keeps an already-illegal option off the offer list.
+                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
+                    continue
+                if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
+                    continue
+                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
+                    continue
+                # Existence-only check here (no chosen tap_others yet — the
+                # player picks those in the UI *after* choosing to activate,
+                # same as a target); `tap_for_mana` re-validates the actual
+                # choice at payment time.
+                if not self._can_pay_activation_cost(
+                    player, source, ability.cost, x=0, is_mana_ability=True
+                ):
+                    continue
+                action = {
+                    "type": "tap_for_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    # Each option is a distinct choice (dual-land "W or U");
+                    # the UI puts multiple choices in a dropdown.
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt),
+                         **({'cost_land': [ability.cost_land_options[i]['instance_id'],
+                                          ability.cost_land_options[i]['zone_incarnation']],
+                             'cost_land_name': ability.cost_land_options[i]['name']}
+                            if ability.cost_land_options else {})}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.x_scaled:
+                    # ENG-51: "Add X mana …" (Springjack Pasture) — the board
+                    # asks for X like an {X} activated ability.
+                    action["has_x"] = True
+                    action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
+                if ability.any_combination:
+                    # RULE 605.1a "any combination of colours" (Flamebraider/
+                    # Gwenna/Smokebraider/Selvala) — the player may split
+                    # this total across colours (`color_split`) instead of
+                    # picking one of the single-colour ``options`` above;
+                    # `gameBoardView.js`'s `colorSplitHtml` offers both: the
+                    # single-colour dropdown as a still-legal fallback, plus
+                    # this split builder.
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                if ability.cost.tap_others:
+                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
+                if ability.cost.untap_others and not ability.cost_land_options:
+                    action["tap_cost"] = self._untap_cost_choice(player, source, ability.cost)
+                if self._offers_sacrifice_choice(ability.cost):
+                    # RULE 602.1: same cost choice as `_activate_action`'s,
+                    # for a mana ability whose cost is a sacrifice (Ashnod's
+                    # Altar-shaped).
+                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
+                actions.append(action)
+
+        for source in list(player.hand):
+            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
+            # Simian Spirit Guide) — the hand-zone counterpart of the
+            # battlefield loop above; every real card's cost is just the
+            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
+            # extra payability check here.
+            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
+                if not ability.options:
+                    continue
+                action = {
+                    "type": "activate_hand_mana",
+                    "instance_id": source.instance_id,
+                    "name": source.name,
+                    "ability_index": ability_index,
+                    "cost_label": ability.cost.label(),
+                    "options": [
+                        {"index": i, "mana": opt, "label": option_label(opt)}
+                        for i, opt in enumerate(ability.options)
+                    ],
+                }
+                if ability.any_combination:
+                    action["any_combination"] = True
+                    action["combination_total"] = sum(ability.options[0].values())
+                actions.append(action)
+
+        return actions
+
     def legal_actions(self, player: Player) -> list[dict[str, Any]]:
         """Every action ``player`` may legally take in the current state.
 
@@ -1227,6 +1457,10 @@ class LegalActionsMixin:
             return actions
 
         for obj in list(player.sideboard):
+            if self.can_play_land(player, obj):
+                actions.append(self._land_action(obj))
+            if obj.card.back_face() is not None and self.can_play_land(player, obj, face="back"):
+                actions.append(self._land_action(obj, face="back"))
             if self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
             if obj.card.back_face() is not None and self._castable_now_or_via_potential(player, obj, face="back"):
@@ -1247,6 +1481,16 @@ class LegalActionsMixin:
                     "type": "foretell", "instance_id": obj.instance_id,
                     "name": obj.name, "cost_label": "{2}", "auto_tap": True,
                 })
+            if self.can_plot(player, obj, assume_mana_available=True):
+                cost = self._plot_cost(obj)
+                paid_from_pool = self.can_plot(player, obj)
+                if paid_from_pool or mana_potential.find_tap_plan(
+                    self, player, cost, reserved_ids=(obj.instance_id,),
+                ) is not None:
+                    actions.append({
+                        "type": "plot", "instance_id": obj.instance_id, "name": obj.name,
+                        "cost_label": cost.raw, "auto_tap": not paid_from_pool,
+                    })
             if self.can_suspend(player, obj, assume_mana_available=True):
                 params = self._suspend_params(obj) or {}
                 action = {
@@ -1467,16 +1711,9 @@ class LegalActionsMixin:
             # the count to decide a one-step declaration (0/1 defender) vs. a
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
-            attack_tax_amounts = []
-            for defender in defenders:
-                defending = self._defending_player(defender)
-                attack_tax_amounts.append(
-                    continuous.attack_tax_per_creature_for(
-                        self.state,
-                        defending.id if defending is not None else "",
-                        str(defender.get("kind", "player")),
-                    )
-                )
+            defending_ids = [
+                owner.id if (owner := self._defending_player(spec)) else None for spec in defenders
+            ]
             for obj in self.state.permanents_controlled_by(player.id):
                 # RULE 508.1a: attackers are declared once per combat. A
                 # creature already attacking (most visibly a vigilant one,
@@ -1514,12 +1751,29 @@ class LegalActionsMixin:
                             # positional list lets the client ask before it
                             # submits its one-attacker declaration instead
                             # of silently spending floating mana.
-                            "attack_tax_amounts": [attack_tax_amounts[index] for index in allowed],
+                            "attack_tax_amounts": [
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj
+                                ) + combat.attack_cost_for(self.state, obj)
+                                for index in allowed
+                            ],
+                            "attack_life_amounts": [
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj,
+                                    payment="life",
+                                )
+                                for index in allowed
+                            ],
                             # RULE 702.19a: whether the client may offer an
                             # "exert as it attacks" checkbox alongside this
                             # declaration (`GameEngine.declare_attackers`'s
                             # own ``exert`` flag).
                             "can_exert": combat.has(obj, "exert"),
+                            "enlist_count": combat.keyword_instances(obj, "enlist"),
+                            "enlist_options": [
+                                {"instance_id": candidate.instance_id, "name": candidate.name}
+                                for candidate in self.enlist_options(player, obj)
+                            ],
                         }
                     )
 
@@ -1552,7 +1806,8 @@ class LegalActionsMixin:
                 actions.append(
                     {
                         "type": "declare_blockers",
-                        "block_tax_amount": continuous.block_tax_per_creature(self.state),
+                        "block_tax_amount": continuous.block_tax_per_creature(self.state)
+                        + max((combat.block_cost_for(self.state, obj, a) for a in blockable), default=0),
                         "instance_id": obj.instance_id,
                         "name": obj.name,
                         "player_id": player.id,
@@ -1562,7 +1817,8 @@ class LegalActionsMixin:
                         # creatures" siblings — validated across the complete
                         # assignment in `declare_blockers` — can be satisfied.
                         "legal_attackers": [
-                            {"instance_id": a.instance_id, "name": a.name} for a in blockable
+                            {"instance_id": a.instance_id, "name": a.name,
+                             "life_cost": combat.block_life_cost_for(self.state, obj, a)} for a in blockable
                         ],
                     }
                 )
@@ -1575,7 +1831,7 @@ class LegalActionsMixin:
         unblocked = self.ninjutsu_unblocked_attackers(player)
         if unblocked:
             for ninja in list(player.hand):
-                cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
+                cost = self._keyword_cost_adjusted(self._ninjutsu_cost(ninja), "ninjutsu", player, ninja)
                 if cost is None or not player.mana_pool.can_pay(cost):
                     continue
                 for atk in unblocked:
@@ -1587,95 +1843,7 @@ class LegalActionsMixin:
                         "returned_attacker_name": atk.name,
                     })
 
-        for source in self.state.permanents_controlled_by(player.id):
-            # One offer per mana ability the source has (almost always just
-            # one) — `_can_pay_activation_cost` covers tap/summoning-sickness
-            # *and* any extra cost component (Selvala's {G}, Gnarlroot
-            # Trapper's life payment, Birchlore Rangers' "tap two other
-            # Elves" — RULE 602.1), so a source that can't tap itself can
-            # still offer an ability that doesn't need to.
-            for ability_index, ability in enumerate(mana_abilities_for(source, state=self.state)):
-                if not ability.options:
-                    continue
-                # RULE 602.5d, printed on the ability itself (Vivi Ornitier's
-                # "Activate only during your turn and only once each turn.")
-                # — `tap_for_mana` re-checks both at payment time too, this
-                # just keeps an already-illegal option off the offer list.
-                if ability.cost.only_during_your_turn and not self._only_during_your_turn_ok(player):
-                    continue
-                if ability.cost.only_before_attackers and not self._before_attackers_declared_ok(player):
-                    continue
-                if ability.cost.once_per_turn and ability_index in source.mana_abilities_activated_this_turn:
-                    continue
-                # Existence-only check here (no chosen tap_others yet — the
-                # player picks those in the UI *after* choosing to activate,
-                # same as a target); `tap_for_mana` re-validates the actual
-                # choice at payment time.
-                if not self._can_pay_activation_cost(
-                    player, source, ability.cost, x=0, is_mana_ability=True
-                ):
-                    continue
-                action = {
-                    "type": "tap_for_mana",
-                    "instance_id": source.instance_id,
-                    "name": source.name,
-                    "ability_index": ability_index,
-                    "cost_label": ability.cost.label(),
-                    # Each option is a distinct choice (dual-land "W or U");
-                    # the UI puts multiple choices in a dropdown.
-                    "options": [
-                        {"index": i, "mana": opt, "label": option_label(opt)}
-                        for i, opt in enumerate(ability.options)
-                    ],
-                }
-                if ability.x_scaled:
-                    # ENG-51: "Add X mana …" (Springjack Pasture) — the board
-                    # asks for X like an {X} activated ability.
-                    action["has_x"] = True
-                    action["max_x"] = self._max_x_for_activation_cost(player, source, ability.cost)
-                if ability.any_combination:
-                    # RULE 605.1a "any combination of colours" (Flamebraider/
-                    # Gwenna/Smokebraider/Selvala) — the player may split
-                    # this total across colours (`color_split`) instead of
-                    # picking one of the single-colour ``options`` above;
-                    # `gameBoardView.js`'s `colorSplitHtml` offers both: the
-                    # single-colour dropdown as a still-legal fallback, plus
-                    # this split builder.
-                    action["any_combination"] = True
-                    action["combination_total"] = sum(ability.options[0].values())
-                if ability.cost.tap_others:
-                    action["tap_cost"] = self._tap_cost_choice(player, source, ability.cost)
-                if self._offers_sacrifice_choice(ability.cost):
-                    # RULE 602.1: same cost choice as `_activate_action`'s,
-                    # for a mana ability whose cost is a sacrifice (Ashnod's
-                    # Altar-shaped).
-                    action["sacrifice_cost"] = self._sacrifice_cost_choice(player, ability.cost, source)
-                actions.append(action)
-
-        for source in list(player.hand):
-            # RULE 605.1a "Exile this card from your hand: Add …" (Elvish/
-            # Simian Spirit Guide) — the hand-zone counterpart of the
-            # battlefield loop above; every real card's cost is just the
-            # exile itself, so (unlike `tap_for_mana`'s offer) there's no
-            # extra payability check here.
-            for ability_index, ability in enumerate(hand_mana_abilities_for(source, state=self.state)):
-                if not ability.options:
-                    continue
-                action = {
-                    "type": "activate_hand_mana",
-                    "instance_id": source.instance_id,
-                    "name": source.name,
-                    "ability_index": ability_index,
-                    "cost_label": ability.cost.label(),
-                    "options": [
-                        {"index": i, "mana": opt, "label": option_label(opt)}
-                        for i, opt in enumerate(ability.options)
-                    ],
-                }
-                if ability.any_combination:
-                    action["any_combination"] = True
-                    action["combination_total"] = sum(ability.options[0].values())
-                actions.append(action)
+        actions.extend(self.mana_actions(player))
 
         if self.can_roll_planar_die(player):
             # RULE 901.6: rolling the planar die is a special action too, and
@@ -1777,6 +1945,14 @@ class LegalActionsMixin:
             combined = source.activated_abilities + source.granted_activated_abilities
             for index, ability in enumerate(combined):
                 if (ability.cost.graveyard_zone or "graveyard" in ability.cost.activation_zones) and self.can_activate(player, source, ability):
+                    actions.extend(self._activate_actions_for(player, source, index, ability))
+
+        # RULE 113.6: explicitly exile-usable abilities are discovered in
+        # their owner's exile zone, including Q's granted card-copy ability.
+        for source in list(player.exile):
+            combined = source.activated_abilities + source.granted_activated_abilities
+            for index, ability in enumerate(combined):
+                if "exile" in ability.cost.activation_zones and self.can_activate(player, source, ability):
                     actions.extend(self._activate_actions_for(player, source, index, ability))
 
         # RULE 116.2a (MEC-35, Leonin Arbiter's own "any player may pay

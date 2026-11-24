@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
 from ..count_phrase import COMBAT_RELATION_TAILS, parse_count_phrase
+from ..characteristic_phrase import parse_object_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..referent_condition import PRONOUN_NOUN_ALT
 from ..static_handlers import object_filter
@@ -29,6 +30,7 @@ from ..subgrammars import (
     target_quality_filter,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from ..clause_hooks import match_clause_once
 
@@ -484,9 +486,45 @@ def xx_token_mid_params(mid: str, kw: Optional[str]) -> Optional[dict]:
     return params
 SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
     "creature": "creature", "artifact": "artifact", "land": "land", "permanent": "permanent",
+    # PAR-281 (Pick Your Poison): `_matches_permanent_type` already reads "enchantment" (RULE 701.17).
+    "enchantment": "enchantment",
     # PAR-262 (Dathon and Picard at El-Adrel): "a nontoken artifact or enchantment of their choice".
     "artifact or enchantment": "artifact_or_enchantment",
 }
+
+#: "an attacking or blocking creature" (Celestial Flare): `parse_object_phrase` has no "attacking or blocking" adjective
+#: pair, but `combat.matches_object_filter` reads the combined ``attacking_or_blocking`` key (RULE 506.4).
+_ATTACKING_OR_BLOCKING_POOL = re.compile(r"attacking or blocking (?P<noun>creature)s?")
+
+
+def edict_pool(phrase: str, plural: bool = False) -> Optional[tuple[str, Optional[dict]]]:
+    """``(what, object_filter)`` for the permanents an edict ("`<player>` sacrifices `<phrase>` of their choice") lets
+    that player choose among, or ``None`` when any word of the phrase is outside the shared adjective/noun vocabulary.
+
+    The plain type words (and "nontoken `<type>`") keep the long-standing ``what`` spelling with no filter; every other
+    phrase ("nonland, nontoken permanent", "non-zombie creature", "creature or planeswalker", "artifact, creature, or
+    land") is a `combat.matches_object_filter` dict over ``what="permanent"`` (RULE 701.17a: only a permanent that has
+    every printed quality can be sacrificed to it). A controller tail ("you control") is refused: the edict's pool is
+    always the sacrificing player's own permanents.
+    """
+    text = phrase.strip().lower()
+    if re.search(r"\b(?:with|without|that|they|you|your|other|another)\b", text):
+        return None  # tails and referents are other rows' grammar ("with flying" is the `filter_slots` edict slot)
+    singular = text[:-1] if plural and text.endswith("s") else text
+    simple = re.fullmatch(rf"(?P<nontoken>nontoken )?(?P<word>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})", singular)
+    if simple is not None:
+        what = SACRIFICE_EDICT_WHAT_WORDS[simple.group("word")]
+        if simple.group("nontoken"):
+            # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature".
+            what = "nontoken_creature" if what == "creature" else f"nontoken_{what}"
+        return what, None
+    blocked = _ATTACKING_OR_BLOCKING_POOL.fullmatch(text)  # the optional "s" is in the pattern
+    if blocked is not None:
+        return "permanent", {"attacking_or_blocking": True, "card_type": blocked.group("noun")}
+    parsed = parse_object_phrase(text, plural=plural)
+    if parsed is None or parsed[1] is not None or not parsed[0]:
+        return None
+    return "permanent", parsed[0]
 
 
 #: PAR-117 (PAR-115's group-subject residue): "whenever a `<type>` [you
@@ -506,6 +544,10 @@ SACRIFICE_EDICT_WHAT_WORDS: dict[str, str] = {
 ENTERING_CONTROLLER: dict = {"of": "entering", "as": "controller"}
 BECOMES_TARGET_EVENT = "BECOMES_TARGET"
 EVENT_PLAYER_EVENTS_KEY = "event_player_events"
+#: Combat events that name the attacked player (``defending_player_id``): ATTACKS (and ATTACKS_ALONE), ATTACKER_UNBLOCKED (RULE 509.1h),
+#: BECOMES_BLOCKED (RULE 509.1). Under one of these heads "defending player" / "that player" is that event's player
+#: (RULE 508.1b / 506.2; PAR-208, PAR-315).
+DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKS_ALONE", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: The single-printed-type permanent target kinds `resolve_target_kind`
@@ -554,8 +596,8 @@ CREATURE_FILTER_KEYWORD_WORDS: dict[str, str] = {
 #: joined by "and", RULE 115/601.2c) without a group-name collision.
 def _creature_filter_clause(suffix: str) -> str:
     return (
-        rf"power (?P<pwr{suffix}>\d+) or (?P<pwr_cmp{suffix}>greater|less)"
-        rf"|toughness (?P<tough{suffix}>\d+) or (?P<tough_cmp{suffix}>greater|less)"
+        rf"power (?P<pwr{suffix}>\d+|x) or (?P<pwr_cmp{suffix}>greater|less)"
+        rf"|toughness (?P<tough{suffix}>\d+|x) or (?P<tough_cmp{suffix}>greater|less)"
         rf"|(?P<kw{suffix}>{'|'.join(CREATURE_FILTER_KEYWORD_WORDS)})"
         # "with a -1/-1 counter on it" (Liliana, Death Wielder's -3 —
         # `TargetSpec.creature_filter` ``has_counter_kind``) / the kindless
@@ -597,6 +639,10 @@ def scoped_creature_kind(m: re.Match[str]) -> Optional[str]:
 
 
 def _creature_quality_filter_clause(groups: dict, suffix: str) -> Optional[dict]:
+    # PAR-285: "power/toughness X or less" -- the source's announced {X} (RULE 107.3); "X or greater" has no card.
+    for stat, key in (("pwr", "power"), ("tough", "toughness")):
+        if groups.get(f"{stat}{suffix}") == "x":
+            return {f"max_{key}_from_source_x": True} if groups[f"{stat}_cmp{suffix}"] == "less" else None
     if groups.get(f"pwr{suffix}"):
         n = int(groups[f"pwr{suffix}"])
         return {"min_power": n} if groups[f"pwr_cmp{suffix}"] == "greater" else {"max_power": n}
@@ -670,9 +716,56 @@ _MASS_GROUP_REFUSED_WORDS = (
 )
 
 
-def mass_group_params(text: str, quant: str) -> Optional[dict]:
-    """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``."""
+#: ENG-64 / RULE 603.2: the relative tails that compare a mass group with the object a trigger names -- "destroy all other
+#: creatures that **share a color with it**", "...permanents **with that name**" -- and the `combat.matches_object_filter`
+#: key each one reads. The group then carries ``reference: trigger_subject`` (`effects.core.group_reference_object`); the
+#: gate (`_group_reference_ok`) keeps the claim to a group-subject enters/dies/leaves trigger, where "it" is that subject.
+GROUP_REFERENCE_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r" that shares? a color with (?:it|that (?:creature|permanent))$"), "shares_color_with_reference"),
+    (re.compile(r" that shares? a creature type with (?:it|that creature)$"), "shares_creature_type_with_reference"),
+    (re.compile(r" with (?:the same name as that (?:creature|permanent)|that name)$"), "named_as_reference"),
+)
+#: The one whole-group phrase `combat.matches_object_filter`'s ``same_name_as_another_permanent`` reads (RULE 201.2).
+_SAME_NAME_AS_ANOTHER_PERMANENT_GROUP = "permanent with the same name as another permanent, except for basic lands"
+#: The `GROUP_REFERENCE_TAILS` referent: the object the firing trigger event names.
+GROUP_REFERENCE_TRIGGER_SUBJECT = "trigger_subject"
 
+
+def strip_group_reference_tail(text: str) -> tuple[str, Optional[str]]:
+    """``(text without its `GROUP_REFERENCE_TAILS` tail, the filter key that tail reads)``; the key is ``None`` (and the
+    text unchanged) when no tail ends it."""
+    for tail, key in GROUP_REFERENCE_TAILS:
+        if tail.search(text):
+            return tail.sub("", text), key
+    return text, None
+
+
+def stamp_group_reference(group: dict, key: str) -> Optional[dict]:
+    """``group`` with the `strip_group_reference_tail` filter ``key`` and ``reference: trigger_subject`` (ENG-64), or
+    ``None`` when the group already reads that key some other way."""
+    if group.get("filter", {}).get(key):
+        return None
+    return {**group, "filter": {**group.get("filter", {}), key: True}, "reference": GROUP_REFERENCE_TRIGGER_SUBJECT}
+
+
+def mass_group_params(
+    text: str, quant: str, group_clause: bool = False, self_join: bool = False,
+) -> Optional[dict]:
+    """``{"group", "group_player"?}`` for a mass verb's "all/each `<group>`" object, or ``None``.
+
+    ``group_clause`` (ENG-64): the clause runs under a group-subject trigger (`ClauseReading.group_clause`) and its
+    verb honours ``group["reference"]``, so a trailing `GROUP_REFERENCE_TAILS` ("that share a color with it") names the
+    trigger's subject. Under any other reading "it" is something else and the tail is left to the count grammar.
+    ``self_join`` accepts the whole-group "same name as another permanent" phrase (destroy only)."""
+
+    if self_join and text == _SAME_NAME_AS_ANOTHER_PERMANENT_GROUP:
+        # RULE 201.2: "destroy each permanent with the same name as another permanent, except for basic lands" (Eye of
+        # Singularity) -- every nonbasic permanent whose name another permanent shares; no trigger subject involved.
+        return {"group": {"zone": "battlefield", "of": "any",
+                          "filter": {"same_name_as_another_permanent": True, "nonbasic": True}}}
+    reference_key = None
+    if group_clause:
+        text, reference_key = strip_group_reference_tail(text)
     group_player = None
     for tail, who in DAMAGE_GROUP_PLAYER_TAILS.items():
         if text.endswith(tail):
@@ -693,6 +786,10 @@ def mass_group_params(text: str, quant: str) -> Optional[dict]:
         group = {**group, "filter": {**group.get("filter", {}), "color_any": ["W", "U", "B", "R", "G"]}}
     if group is None or group.get("zone") != "battlefield":
         return None
+    if reference_key is not None:
+        group = stamp_group_reference(group, reference_key)
+        if group is None:
+            return None
     params: dict = {"group": group}
     if group_player is not None:
         # The group is that player's own: written `of: "you"`, evaluated for them.
@@ -780,15 +877,19 @@ UNLESS_COST = (
 #: subtype vocabulary is needed here either). Tried before the bare
 #: "permanent" alternative so it isn't swallowed by it.
 GRAVEYARD_TYPE_WORD = (
-    r"equipment, instant, or sorcery|noncreature, nonland|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
+    r"equipment, instant, or sorcery|noncreature, nonland|noncreature artifact|noncreature|"  # PAR-163 (Thor; Practiced Scrollsmith)
     # PAR-162: the battle unions and the Zombie subtype named on a "put ... on top of your library" card.
     r"instant, sorcery, or battle|creature (?:or|and) planeswalker|creature or battle|creature or vehicle|zombie|"
-    r"instant or sorcery|sorcery|nonland permanent|rebel permanent|"
-    r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature|artifact|"
+    # PAR-285: the bare "instant card" ("target blue instant card", Nucklavee) -- after the unions that begin with it.
+    r"instant or sorcery|instant|sorcery|nonland permanent|rebel permanent|"
+    r"mercenary permanent|artifact (?:and|or) enchantment|artifact or creature|creature or land|creature|artifact|"
     r"non-aura enchantment|enchantment|land|permanent|"
     # Star Trek (PAR-262): the artifact-creature intersection, the Spacecraft subtype and its "and/or" union, and the
     # non-Doctor permanent card.
-    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent"
+    r"artifact creature|creature and/or spacecraft|spacecraft|non-doctor permanent|"
+    # PAR-281: "target nonland / historic / legendary creature card from your graveyard" (Secret Salvage, Rona,
+    # The Kenriths' Royal Funeral); each word has a `targeting._GRAVEYARD_TYPE_FILTERS` predicate.
+    r"nonland|historic|legendary creature"
 )
 #: A graveyard clause's *scope* — whose graveyard — "your"/"a" (any single
 #: graveyard)/"an opponent's" (longest-alternative-first, same reason).
@@ -818,8 +919,13 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "artifact or creature": "artifact_or_creature",
         "equipment, instant, or sorcery": "equipment_instant_or_sorcery",
         "noncreature, nonland": "noncreature_nonland",
+        # PAR-285: "noncreature artifact card" (Salvaging Station): `targeting._GRAVEYARD_TYPE_FILTERS`.
+        "noncreature artifact": "noncreature_artifact",
+        "instant": "instant",
         "zombie": "zombie_card",
         "creature or battle": "creature_or_battle",
+        # PAR-285: "creature or land card" (Pulse of Murasa, Awaken the Honored Dead): `targeting._GRAVEYARD_TYPE_FILTERS`.
+        "creature or land": "creature_or_land",
         # PAR-251: Vehicle cards are artifacts, not creature cards, in a graveyard (RULE 301.7), so the union is its own kind.
         "creature or vehicle": "creature_or_vehicle",
         "creature or planeswalker": "creature_or_planeswalker",
@@ -830,6 +936,9 @@ def graveyard_target_kind(type_word: Optional[str], scope_word: str) -> Optional
         "spacecraft": "spacecraft_card",
         "creature and/or spacecraft": "creature_or_spacecraft",
         "non-doctor permanent": "non_doctor_permanent",
+        "nonland": "nonland_card",
+        "historic": "historic_card",
+        "legendary creature": "legendary_creature",
     }.get((type_word or "").strip().lower(), (type_word or "").strip().lower() or "card")
     return f"{scope_key}_{type_key}"
 
@@ -953,7 +1062,7 @@ def counter_sign(token: str) -> str:
 #: counter-kind literals so a *new* reader can't slip in unreserved.
 RESERVED_COUNTER_KINDS: tuple[str, ...] = (
     "age", "fade", "level", "loyalty", "lore", "defense",
-    "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket",
+    "rad", "energy", "experience", "poison", "decayed", "exalted", "finality", "ticket", "intel",
 )
 #: Multi-word RULE 122.1b keyword kinds first, so "first strike" isn't read as kind "first".
 NAMED_COUNTER_KIND = (
@@ -1157,6 +1266,12 @@ _GROUP = (
     # or "<adjective> creatures" group; `_group_selector` (the count-phrase grammar) fails closed on a word that
     # is none of its vocabulary.
     r"|other [a-z]+s you control|[a-z]+ creatures you control|[a-z]+s you control"
+    # PAR-285: "other <subtype|attacking|blocking|modified> creatures [you control]" ("other Faerie creatures you
+    # control get +1/+0", "other blocking creatures get +1/+1") and the joined subtype list with "other" ("other
+    # Goblins and Orcs you control"). RULE 109.5: the "other" excludes the source; `parse_count_phrase` reads both
+    # and still fails closed on a word outside its vocabulary.
+    r"|other [a-z]+ creatures(?: you control)?"
+    r"|other [a-z]+(?: (?:and|or) [a-z]+)+s you control"
     # PAR-245: "Goblins and Orcs you control gain menace until end of turn" (Along the Crooked Way) -- a joined list of
     # subtypes ("<a> and/or <b>s", "<a> or <b> creatures"); `parse_count_phrase` reads it as a `subtype_any` filter.
     r"|[a-z]+(?: (?:and|or) [a-z]+)+s you control|[a-z]+(?: (?:and|or) [a-z]+)+ creatures you control"
@@ -1164,6 +1279,10 @@ _GROUP = (
     # leading combat state ("attacking Klingons [and Warriors] you control", Kruge, Genesis Seeker). RULE 205.3m: a
     # list of creature types is a union; `parse_count_phrase` still fails closed on a word outside its vocabulary.
     r"|attacking [a-z]+s you control"
+    # PAR-285: "<adjective> permanents <scope>" ("legendary permanents you control", "nonland permanents your
+    # opponents control") and "attacking modified creatures you control" -- a qualified permanent / creature group;
+    # `parse_count_phrase` reads the quality and fails closed on a word outside its vocabulary.
+    r"|[a-z]+ permanents (?:you control|your opponents control)|attacking [a-z]+ creatures you control"
     r"|(?:attacking )?[a-z]+(?:(?:, (?:and |or )?| and/or | and | or )[a-z]+)+s you control"
     # PAR-203: the controller-less subtype/colour/negated groups ("all Elf creatures get -1/-1", "non-Elf creatures get
     # -3/-3" -- the shapes a "choose a creature type" body reads as once the chosen type is substituted); the count-phrase
@@ -1193,16 +1312,13 @@ SUBJECT = (
 #: proven equivalent to the old `creatures_you_control_with_a_counter`
 #: string on a real board) — no residual entry needed for it at all.
 _GROUP_SELECTORS: dict[str, "str | dict"] = {
-    "other creatures you control": "other_creatures_you_control",
-    "each other creature you control": "other_creatures_you_control",
-    "all creatures": "all_creatures",
-    "creatures you dont control": "creatures_opponents_control",
+    "other creatures you control": battlefield_group(OF_YOU, other=True),
+    "each other creature you control": battlefield_group(OF_YOU, other=True),
+    "all creatures": battlefield_group(OF_ANY),
+    "creatures you dont control": battlefield_group(OF_OPPONENTS),
     # PAR-128: the unscoped "each other creature" (singular, so `parse_count_phrase`
     # can't read it) — every creature but the effect's source.
-    "each other creature": {
-        "zone": "battlefield", "of": "any",
-        "filter": {"card_type": "creature", "not_reference": True},
-    },
+    "each other creature": battlefield_group(OF_ANY, other=True),
 }
 
 
@@ -1376,6 +1492,12 @@ def match_clause_reading(
         if effects is not None:
             return [EffectSpec("trigger_subject_referent", {"event_key": GROUP_SUBJECT_KEY_SENTINEL}), *effects]
         return group_pronoun_as_target(clause, reading) or _group_controller_as_you(clause, reading)
+    if (effects is None and reading.attached_subject and not reading.previous_subject
+            and "that much" not in clause):  # "that much" polarity stays with the matrix rows (test_par121_subject_rows)
+        # RULE 303.4m: an Aura's "whenever enchanted artifact becomes tapped, its controller gets a poison counter" /
+        # "~ deals 2 damage to that creature's controller" names the host's controller, which the firing event (the
+        # host's own `TAPPED`) carries like a group subject's.
+        return _group_controller_as_you(clause, reading)
     return effects
 
 

@@ -45,7 +45,7 @@ def _depthshaker_titan() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "card_type": "artifact", "keywords": ["melee", "trample", "haste"],
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'all_of': [{'card_type': 'artifact'}]}}, "keywords": ["melee", "trample", "haste"],
             })],
         ),
     ]

@@ -19,7 +19,7 @@ def _orochi_merge_keeper() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "mana": [{"G": 2}], "affects": "self", "object_filter": {"modified": True},
+                "mana": [{"G": 2}], "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'is_reference': True, 'modified': True}}, 
             })],
         ),
     ]

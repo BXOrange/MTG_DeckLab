@@ -18,7 +18,7 @@ def _return_of_the_wildspeaker() -> list[AbilitySpec]:
                     })],
                     [EffectSpec("pump", {
                         "power": 3, "toughness": 3,
-                        "selector": "non_human_creatures_you_control",
+                        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "without_subtype": "human"}},
                     })],
                 ],
                 "descriptions": [

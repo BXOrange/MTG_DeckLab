@@ -167,8 +167,12 @@ def test_subtype_noun_and_stacked_adjectives_become_a_creature_filter():
 def test_a_noncreature_subtype_or_unknown_adjective_is_not_a_creature_target():
     assert match_clause("create a token that's a copy of target equipment you control") is None or True
     assert match_clause("create a token that's a copy of target frobbly creature you control") is None
-    # An Aura is no creature: the NP row refuses it instead of turning it into a creature target.
-    assert match_clause("create a token that's a copy of another target aura you control") is None
+    # An Aura is no creature: the copy row refuses it as a creature target. PAR-285: the shared operand grammar now
+    # announces it as a permanent pick (subtype filter) that leaves the source out (RULE 109.5).
+    (aura,) = match_clause("create a token that's a copy of another target aura you control")
+    announce = aura.params["effects"][0]["params"]
+    assert announce["kinds"] == ["permanent_you_control"]
+    assert announce["creature_filter"] == {"subtype": "aura"} and announce["excludes_source"] is True
 
 
 def test_the_exiled_card_is_its_own_referent():

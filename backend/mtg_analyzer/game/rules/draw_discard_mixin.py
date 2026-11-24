@@ -384,6 +384,7 @@ class DrawDiscardMixin:
                     self.state.fire_event(GameEvent(
                         EventType.DRAW, player_id=player.id, count=1,
                         instance_ids=[card.instance_id],
+                        zone_incarnations={str(card.instance_id): card.zone_incarnation},
                         first_in_draw_step=first_in_draw_step and index == 0,
                         draw_step_ordinal=None if ordinal is None else ordinal + index + 1,
                     ))
@@ -466,6 +467,34 @@ class DrawDiscardMixin:
         # through `apply_replacements` like `gain_life`; with no such replacement active `_mill` runs synchronously.
         event = GameEvent(EventType.WOULD_MILL, player_id=player.id, count=count)
         self.apply_replacements(event, on_resolved={"kind": "mill", "player_id": player.id, "count": count})
+
+    def _request_shared_mill(self, count):
+        """RULE 608.2f: settle each player's mill replacements before moving any cards."""
+        if count > 0:
+            self._advance_shared_mill({
+                "count": count, "players": [p.id for p in self.state.living_players_apnap()],
+                "resolved": [],
+            })
+
+    def _advance_shared_mill(self, frame):
+        if frame["players"]:
+            player_id = frame["players"].pop(0)
+            event = GameEvent(EventType.WOULD_MILL, player_id=player_id, count=frame["count"])
+            self.apply_replacements(event, on_resolved={
+                "kind": "shared_mill", "frame": frame, "player_id": player_id,
+            })
+            return
+        with self.state.simultaneous():
+            for player_id, count in frame["resolved"]:
+                player = self.state.player_by_id(player_id)
+                if not player.has_lost:
+                    self._mill(player, count)
+
+    def _finish_shared_mill(self, callback, resolved):
+        frame = callback["frame"]
+        if resolved is not None:
+            frame["resolved"].append((callback["player_id"], int(resolved.get("count", frame["count"]))))
+        self._advance_shared_mill(frame)
 
     def _finish_mill(self, player_id, count, resolved):
         player = self.state.player_by_id(player_id)
@@ -828,6 +857,7 @@ class DrawDiscardMixin:
         zone: str = "hand",
         nonland: bool = False,
         else_specs: Optional[list[dict]] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         """Interactive exile-from-hand (PAR-74 — Kyoki, Sanity's Eclipse:
         "target opponent exiles a card from their hand."). The exile sibling
@@ -858,6 +888,7 @@ class DrawDiscardMixin:
                 else "Wähle eine Karte aus deiner Hand zum Exilieren"
             ),
             source=source, then_specs=then_specs,
+            track_exiled_with=track_exiled_with,
         )
 
     def put_hand_cards_on_top(self, player: Player, count: int) -> None:

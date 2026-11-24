@@ -42,18 +42,38 @@ _COUNTER_THRESHOLD = re.compile(
 
 #: "you activate `<what>`" -- RULE 602.2. Mana abilities never fire `ACTIVATED_ABILITY` (RULE 605.1a), so
 #: "that isn't a mana ability" restates what the event already guarantees.
-_ACTIVATE = re.compile(r"^you activate (?P<what>.+)$")
+_ACTIVATE = re.compile(r"^(?P<actor>you|a player|an opponent) activates? (?P<what>.+)$")
 _NOT_MANA = " that isn't a mana ability"
 _KINDED_ABILITY = re.compile(
     r"^an? (?P<kind>exhaust|loyalty) ability(?: of (?P<object>(?:a|an) .+|enchanted planeswalker))?$"
 )
+#: "an ability that isn't a mana ability" with no object: any non-mana activation (Burning-Tree Shaman).
+_ANY_NON_MANA_ABILITY = "an ability"
+#: Keyword abilities `GameEngine.activate_ability` labels with ``ActivationCost.ability_keyword`` (Boast's label rides on
+#: its once-per-turn marker, PAR-256; Embalm/Eternalize carry theirs from `_graveyard_keyword_activated_ability`).
+_LABELLED_KEYWORDS = ("boast", "eternalize", "embalm", "outlast", "ninjutsu")
+_KEYWORD_ABILITY = re.compile(
+    rf"^an? (?P<kw>{'|'.join(_LABELLED_KEYWORDS)})(?: or (?P<kw2>{'|'.join(_LABELLED_KEYWORDS)}))? ability$"
+)
+#: RULE 603.1 / 106.1a: "whenever you activate an ability of a creature" includes mana abilities (RULE 605.1a only
+#: removes them from *stack-using* abilities), which fire their own event; both are watched.
+_ANY_ABILITY_EVENTS = ["ACTIVATED_ABILITY", "MANA_ABILITY_ACTIVATED"]
+#: Who "activates": the player-subject scopes `binding.core._subject_condition` compares with the event's acting
+#: player (``controller_id``) -- the same shape `player_event_head._ACTORS` gives every other player-event head.
+_ACTIVATOR_SCOPES: dict[str, dict[str, Any]] = {
+    "a player": {"subject": "player", "scope": "any"},
+    "an opponent": {"subject": "player", "scope": "not_you"},
+}
 _ABILITY_OF = re.compile(r"^an ability of (?P<object>(?:a|an) .+)$")
 #: The event fields `GameEngine.activate_ability` stamps on `ACTIVATED_ABILITY` for each kind.
 _ABILITY_KIND_FIELDS = {"exhaust": "is_exhaust_ability", "loyalty": "is_loyalty_ability"}
 
 #: A board state a head may name: only these openings, so a phrase that merely happens to parse as a condition
 #: ("you control a creature") cannot turn into a trigger by accident.
-_STATE_OPENING = re.compile(r"^(?:there (?:are|is) |you (?:control|have|don'?t control) |~ (?:has|is) )")
+#: PAR-286: "an opponent controls / has ..." and "a player has ..." name a state any one of those players satisfies.
+_STATE_OPENING = re.compile(
+    r"^(?:there (?:are|is) |you (?:control|have|don'?t control) |~ (?:has|is) |an opponent (?:controls|has) |a player has )"
+)
 _SELF_HAS_KEYWORD = re.compile(r"^~ has (?P<keyword>[a-z ]+)$")
 
 #: Player-event verbs this module adds to `player_event_head`'s table by rewriting to a phrase it knows.
@@ -88,7 +108,26 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
     m = _ACTIVATE.match(cond)
     if m is None:
         return None
-    what = m.group("what").strip().removesuffix(_NOT_MANA)
+    raw_what = m.group("what").strip()
+    what = raw_what.removesuffix(_NOT_MANA)
+    if m.group("actor") != "you":
+        # "whenever a player/an opponent activates ...": the acting player is the subject, whatever the source's
+        # controller. Only the two unscoped kinds exist on real cards (Burning-Tree Shaman, Gideon the Oathless).
+        scope = dict(_ACTIVATOR_SCOPES[m.group("actor")])
+        if what == _ANY_NON_MANA_ABILITY and raw_what != what:
+            return "ACTIVATED_ABILITY", scope, {}
+        kinded = _KINDED_ABILITY.match(what)
+        if kinded is not None and kinded.group("kind") == "loyalty" and kinded.group("object") is None:
+            return "ACTIVATED_ABILITY", scope, {"filter": {_ABILITY_KIND_FIELDS["loyalty"]: True}}
+        return None
+    if what == "~'s outlast ability":
+        return "ACTIVATED_ABILITY", {"subject": "self"}, {"filter": {"ability_keyword": "outlast"}, "activator_is_you": True}
+    keyworded = _KEYWORD_ABILITY.match(what)
+    if keyworded is not None:
+        names = sorted({keyworded.group("kw"), keyworded.group("kw2") or keyworded.group("kw")})
+        # RULE 702.142 / 702.128 / 702.129: the activation's ``ability_keyword`` label (a list when two kinds are named).
+        trigger_filter = {"ability_keyword": names[0]} if len(names) == 1 else {"ability_keyword_in": names}
+        return "ACTIVATED_ABILITY", {"subject": "you"}, {"filter": trigger_filter}
     kinded = _KINDED_ABILITY.match(what)
     if kinded is not None:
         trigger: dict[str, Any] = {"filter": {_ABILITY_KIND_FIELDS[kinded.group("kind")]: True}}
@@ -99,13 +138,14 @@ def _activation_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str,
             return None
         return "ACTIVATED_ABILITY", scoped[0], {**trigger, **scoped[1]}
     ability_of = _ABILITY_OF.match(what)
-    if ability_of is not None and what != m.group("what").strip():
-        # Only with the explicit "isn't a mana ability": a bare "an ability of a creature" would read as
-        # including mana abilities, which this event never reports.
+    if ability_of is not None:
         scoped = _activation_object(ability_of.group("object"))
         if scoped is None:
             return None
-        return "ACTIVATED_ABILITY", scoped[0], {}
+        if what != raw_what:
+            # With the explicit "isn't a mana ability": the stack-using event alone.
+            return "ACTIVATED_ABILITY", scoped[0], {}
+        return _ANY_ABILITY_EVENTS, scoped[0], {}
     return None
 
 
@@ -161,11 +201,34 @@ def _state_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]
     return "STATE_CHECK", {}, {"state_condition": state}
 
 
+#: RULE 706 (PAR-286): "a 6 is rolled on a 6-sided die" (Chicken a la King) -- any player's kept die whose natural face is
+#: that number on a die with that many sides (one `DIE_RESULT` per kept die).
+_DIE_ROLLED_ON = re.compile(r"^an? (?P<n>\d+) is rolled on an? (?P<sides>\d+)-sided die$")
+
+
+def _die_rolled_on_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
+    m = _DIE_ROLLED_ON.match(cond)
+    if m is None or m.group("n") != m.group("sides"):
+        return None  # only the die's highest face is printed this way
+    return "DIE_RESULT", {"subject": "player", "scope": "any"}, {
+        "filter": {"natural_result": int(m.group("n")), "sides": int(m.group("sides"))},
+    }
+
+
 def parse_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for an activation / threshold / state head, or ``None``."""
     cond = cond.strip().lower()
+    final_chapter = re.fullmatch(r"the final chapter ability of a saga you control (triggers|resolves)", cond)
+    if final_chapter:
+        event = ("SAGA_FINAL_CHAPTER_TRIGGERED" if final_chapter[1] == "triggers"
+                 else "SAGA_FINAL_CHAPTER_RESOLVED")
+        return event, {"subject": "you"}, {}
+    if cond in ("~ becomes plotted", "this card becomes plotted"):
+        return "BECOMES_PLOTTED", {"subject": "self"}, {}
+    if cond in ("~ enlists a creature", "this creature enlists a creature"):
+        return "ENLISTS", {"subject": "self"}, {}
     return (
         _activation_head(cond) or _counter_threshold_head(cond) or _energy_gained_head(cond)
-        or _enchanted_player_attacked(cond)
+        or _enchanted_player_attacked(cond) or _die_rolled_on_head(cond)
         or _state_head(cond)
     )

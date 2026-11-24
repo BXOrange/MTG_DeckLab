@@ -31,7 +31,7 @@ def _marchesa_the_black_rose() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "other_creatures_you_control", "keywords": ["dethrone"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "keywords": ["dethrone"],
             })],
         ),
         AbilitySpec(

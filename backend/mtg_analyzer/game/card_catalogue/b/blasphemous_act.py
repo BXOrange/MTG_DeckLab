@@ -24,7 +24,7 @@ def _blasphemous_act() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "spell_effect",
-            [EffectSpec("damage", {"amount": 13, "selector": "each_creature"})],
+            [EffectSpec("damage", {"amount": 13, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
         ),
     ]
 

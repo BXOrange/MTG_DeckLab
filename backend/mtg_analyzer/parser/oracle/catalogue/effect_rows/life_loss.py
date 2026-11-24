@@ -24,6 +24,7 @@ from .shared import (
     compile_clause,
     EffectHandler,
     ENTERING_CONTROLLER,
+    DEFENDING_PLAYER_COMBAT_EVENTS,
     EVENT_PLAYER_EVENTS_KEY,
     SACRIFICE_EDICT_WHAT_WORDS,
     selector_devotion_builder,
@@ -444,7 +445,7 @@ def _lose_life_that_controller(m: re.Match[str]) -> list[EffectSpec]:
     if m.group("who") == "player":
         return [EffectSpec("lose_life", {
             "amount": int(m.group("n")), "player": {"of": "trigger_player", "as": "self"},
-            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "ATTACKS", "BECOMES_TARGET",
+            EVENT_PLAYER_EVENTS_KEY: ["SPELL_CAST", "DAMAGE", "BECOMES_TARGET", *DEFENDING_PLAYER_COMBAT_EVENTS,
                                       "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"],
         })]
     return [EffectSpec("lose_life", {
@@ -460,7 +461,6 @@ _FRACTIONAL_LIFE_DIVISORS = {"half": 2, "a third of": 3}
 #: player (RULE 120.3) -- singly or as one combat batch -- and an ATTACKS event's defending player (RULE 508.1b);
 #: read by the `trigger_player` referent.
 _TRIGGER_PLAYER_EVENTS = ["DAMAGE", "ATTACKS", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER"]
-_DEFENDING_PLAYER_EVENTS = ["ATTACKS"]
 _LOSE_FRACTION_OF_LIFE_RE = compile_clause(
     r"(?P<who>you|target opponent|target player|that player|they|defending player) loses? "
     r"(?P<fraction>half|a third of) (?:your|their) life, rounded (?P<round>up|down)"
@@ -479,7 +479,7 @@ def _lose_fraction_of_life(m: re.Match[str]) -> list[EffectSpec]:
     elif who != "you":
         amount["of"] = "trigger_player"
         params["player"] = {"of": "trigger_player", "as": "self"}
-        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
+        params[EVENT_PLAYER_EVENTS_KEY] = DEFENDING_PLAYER_COMBAT_EVENTS if who == "defending player" else _TRIGGER_PLAYER_EVENTS
     return [EffectSpec("lose_life", params)]
 
 
@@ -682,9 +682,9 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
 #: narrow pair of rows rather than a generic COUNT alternative.
 def _lose_life_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind != "player":
+    if kind not in ("player", "opponent"):  # BUG-72: "target opponent" keeps its own pool (RULE 102.3)
         return None
-    return [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+    return [EffectSpec("lose_life", {"target_kind": kind, "amount_from_trigger_event": "amount"})]
 
 
 #: "Whenever ~ deals damage, **you gain that much life**." (El-Hajjâj /
@@ -729,9 +729,33 @@ def _lose_life_spell_mv_that_player(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+def _drain_triggering_saga(m: re.Match[str]) -> list[EffectSpec]:
+    mana_value = {"kind": "characteristic", "of": "trigger_subject", "event_key": "instance_id",
+                  "characteristic": "mana_value"}
+    return [EffectSpec("bind", {"name": "n", "amount": mana_value, "effects": [
+        {"type": "lose_life", "params": {"selector": "each_opponent", "amount": "$n"}},
+        {"type": "gain_life", "params": {"amount": "$n"}},
+    ]})]
+
+
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "drain_triggering_saga",
+        compile_clause(r"each opponent loses x life and you gain x life, where x is that saga'?s mana value"),
+        _drain_triggering_saga,
+    ),
     # RULE 119.5: setting a life total causes the necessary gain or loss;
     # "your" names the resolving controller and announces no player target.
+    # RULE 119.5 / 103.4: "up to one target player's life total becomes half their starting life total, rounded down."
+    # (Torgaar, Famine Incarnate) -- the starting total is the player's own (`Player.starting_life`), so the format's
+    # 40 (Commander) or 20 is read at resolution rather than printed into the spec.
+    EffectHandler(
+        "set_life_half_starting",
+        compile_clause(r"up to (?:one|1) target player'?s life total becomes half their starting life total, rounded down"),
+        lambda m: [EffectSpec("set_life", {
+            "target_kind": "player", "optional": True, "fraction_of_starting": 2,
+        })],
+    ),
     EffectHandler(
         "set_own_life",
         compile_clause(r"your life total becomes (?P<n>\d+)"),
@@ -873,8 +897,9 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "gain_life_target_from_trigger_amount",
         compile_clause(rf"{TARGET} gains that much life"),
-        lambda m: ([EffectSpec("gain_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
-                   if resolve_target_kind(m.group("target")) == "player" else None),
+        lambda m: ([EffectSpec("gain_life", {"target_kind": resolve_target_kind(m.group("target")),
+                                             "amount_from_trigger_event": "amount"})]
+                   if resolve_target_kind(m.group("target")) in ("player", "opponent") else None),
     ),
     # "Whenever ~ deals damage, you gain that much life." (El-Hajjâj /
     # Exalted Angel-shaped, PAR-36) — before the plain `gain_life` row so

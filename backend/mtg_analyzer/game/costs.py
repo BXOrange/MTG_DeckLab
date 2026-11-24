@@ -25,6 +25,7 @@ from typing import Any, Optional, Union
 
 from ..models.mana.mana_cost import ManaCost
 
+from ..parser.oracle.catalogue.sacrifice_clause import ANY_COLOR_PREFIX, COUNT_ANY, NAMED_PREFIX
 from ..parser.oracle.catalogue.cost_text import (
     NUMBER_WORDS as _NUMBER_WORDS,
     WARD_X_SELECTOR_PHRASES as _WARD_X_SELECTOR_PHRASES,
@@ -120,7 +121,11 @@ PAY_LIFE_COMMANDER_COLORS = -3
 #: sacrifice cost component instead of a mana `{X}`/counter-removal one.
 #: Threaded through the same `x` param `activate_ability` already carries.
 SACRIFICE_COUNT_X = -1
-SACRIFICE_COUNT_ANY = -2
+# RULE 107.1a: half the controlled pool, measured when paying an additional cost.
+SACRIFICE_COUNT_HALF = -4
+#: RULE 107.1c / 601.2b: "sacrifice any number of <type>" -- the count is the player's announcement, zero allowed (the
+#: ``sacrifice_clause`` grammar's `COUNT_ANY`, so the parser and the engine cannot drift).
+SACRIFICE_COUNT_ANY = COUNT_ANY
 #: Announced X for "Tap X untapped tokens you control" (Hazel).
 TAP_OTHERS_X = -1
 
@@ -176,6 +181,7 @@ class ActivationCost:
     taps_self: bool = False
     untaps_self: bool = False
     sacrifice: Optional[str] = None
+    sacrifice_all_lands: bool = False
     #: "Sacrifice a Swamp and a Forest" (Jarad, Golgari Lich Lord): the *second*, distinct permanent word charged
     #: alongside ``sacrifice`` (never the same object). The engine picks it (the cost UI offers the first only).
     sacrifice_also: Optional[str] = None
@@ -214,6 +220,10 @@ class ActivationCost:
     #: (Fauna Shaman's "creature"), matched against the type line; ``None``
     #: accepts any card.
     discard_filter: Optional[str] = None
+    discard_matching_names: bool = False
+    discard_different_names: bool = False
+    #: RULE 202.3/602.2b: match the discarded hand card to announced X.
+    discard_mana_value_x: bool = False
     #: ENG-49: "discard a card at random" (Amok) — RULE 701.8d, the payer
     #: doesn't choose.
     discard_random: bool = False
@@ -309,6 +319,7 @@ class ActivationCost:
     #: Thunderherd Migration): the creature-type word of the card to reveal. Only payable while the caster's hand
     #: holds such a card besides the spell itself; paying moves nothing.
     reveal_from_hand: Optional[str] = None
+    reveal_hand: bool = False  # Sasaya: reveal the entire hand as an activation cost.
     #: RULE 701.4a (Behold, PAR-30 — the Lorwyn "Champion" cycle reflavoured):
     #: "as an additional cost to cast this spell, behold a `<type>` **and
     #: exile it**." — the mandatory sibling of ``behold`` (no "or pay {N}"
@@ -345,6 +356,7 @@ class ActivationCost:
     #: summoning sickness (RULE 302.6 only restricts a permanent's own
     #: {T}-cost ability, not being tapped as someone else's cost).
     tap_others: Optional[tuple[int, str]] = None
+    tap_shared_creature_type: bool = False
     #: "Sacrifice N <type>s" (Samwise Gamgee: "Sacrifice three Foods:") —
     #: ``(count, singular subtype word)``, the `tap_others`-shaped sibling
     #: for a sacrifice cost that names a *count* rather than the single
@@ -356,6 +368,11 @@ class ActivationCost:
     #: against the activation's own ``x`` in `GameEngine._can_pay_
     #: activation_cost`/`_pay_activation_cost`.
     sacrifice_count: Optional[tuple[int, str]] = None
+    # RULE 107.1a: SACRIFICE_COUNT_HALF uses the controlled pool before sacrifices.
+    sacrifice_fraction_round_up: bool = False
+    #: RULE 601.2b / 107.3 (Nahiri's Sacrifice): the ``sacrifice_count`` permanent must have a mana value equal to the
+    #: announced X.
+    sacrifice_count_mana_value_x: bool = False
     #: "Put a <kind> counter on this creature" as a *cost* (Devoted Druid's
     #: untap ability) — ``(kind, count)``; always payable (no minimum to
     #: check), unlike `remove_counters`.
@@ -427,6 +444,8 @@ class ActivationCost:
     #: subtype word (``sacrifice_count`` can't express "blue" or
     #: "nontoken"). Alt-cast-only, like ``return_to_hand_count`` above.
     sacrifice_filter: Optional[dict] = None
+    #: Move this source from its owner’s graveyard to library bottom as payment.
+    bottom_self_from_graveyard: bool = False
     #: "Exile this card from your hand" (Elvish Spirit Guide) — an
     #: alternative-zone cost the engine doesn't charge yet (no hand-zone
     #: activation path); recognised so the ability is never treated as a
@@ -440,6 +459,8 @@ class ActivationCost:
     #: (`GameEngine._sacrifice_count_pool`, so the word may be a compound like ``other_artifact_creature_or_vehicle``). They are
     #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
     exile_others: Optional[tuple[int, str]] = None
+    exile_others_total_mana_value_x: bool = False
+    exile_instant_or_sorcery_spell: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne
     #: of Eldraine's second ability, RULE 601.2b/106.6) — a colour-lock on
     #: *this ability's own* mana cost (as opposed to a spend restriction on
@@ -584,6 +605,8 @@ class ActivationCost:
     #: hand-authored only (`game/card_catalogue`); no oracle-text
     #: grammar for it yet.
     dynamic_reduction: Optional[dict[str, Any]] = None
+    # RULE 602.2b: a generic activation cost computed from counters on the source.
+    mana_per_source_counter: Optional[tuple[str, int]] = None
     #: ``"equip"``/``"fortify"``/``"reconfigure"`` on the cost of an attach keyword's own ability (`binding.core._keyword_activated_ability`),
     #: so a static can target "equip {N}" costs specifically ("Equipment you control have equip {0}", Puresteel Paladin).
     attach_kind: Optional[str] = None
@@ -614,6 +637,7 @@ class ActivationCost:
     #: `_crew_pool`; the tapped creatures are recorded on the crewed
     #: permanent's own `GameObject.crewed_by_ids` (RULE 702.122c).
     crew_power: Optional[int] = None
+    tap_total_power: Optional[int] = None
     #: RULE 702.171a: "Saddle N" — "Tap any number of other untapped
     #: creatures you control with total power N or greater: This permanent
     #: becomes saddled until end of turn." (Guardian Sunmare, MEC-40) —
@@ -690,6 +714,9 @@ class ActivationCost:
     exile_graveyard_top: Optional[str] = None
     #: ENG-51: "Exile N cards from your hand" (Cadaverous Bloom).
     exile_hand_cards: int = 0
+    #: RULE 406 / 118.3: "Put a card an opponent owns from exile into that player's graveyard" (Cryptic Cruiser,
+    #: Oracle of Dust, Void Attendant) -- one exiled card owned by an opponent, moved to its owner's graveyard.
+    put_opponent_exile_to_graveyard: bool = False
     #: ENG-51: "Tap enchanted creature/land" — the source Aura's host.
     tap_attached: bool = False
     #: PAR-247 / RULE 602.2b: "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) --
@@ -697,9 +724,11 @@ class ActivationCost:
     #: word has no tapped-state part (the pool is tapped by definition); the source is never in it when ``untaps_self``
     #: ({Q} already untapped it, RULE 701.26b: it cannot be untapped twice).
     untap_others: Optional[tuple[int, str]] = None
+    untap_others_scope: str = "you"
     #: PAR-247 / RULE 701.20 + 602.2b: "Reveal X red cards from your hand" (the Martyr cycle) -- the colour word of the
     #: cards the player shows; how many is the announced X. Revealing moves nothing (the cards become public).
     reveal_x_color: Optional[str] = None
+    reveal_shared_color: int = 0
     #: PAR-247 (Ion Storm): "Remove a +1/+1 counter **or a charge counter** from ..." -- the second kind the player may
     #: take instead of ``remove_counters``' kind (RULE 602.2b: the player chooses which counter is removed).
     remove_counters_alt_kind: Optional[str] = None
@@ -763,6 +792,7 @@ class ActivationCost:
             or self.taps_self
             or self.untaps_self
             or self.sacrifice
+            or self.sacrifice_all_lands
             or self.sacrifice_with_self
             or self.exile_creature
             or self.pay_life
@@ -777,23 +807,28 @@ class ActivationCost:
             or self.forage
             or self.behold
             or self.reveal_from_hand
+            or self.reveal_hand
             or self.behold_exile
             or self.behold_two_shared_type
             or self.blight
             or self.tap_others
             or self.untap_others
             or self.reveal_x_color
+            or self.reveal_shared_color
             or self.sacrifice_count
             or self.add_counters_cost
+            or self.bottom_self_from_graveyard
             or self.exile_self_from_hand
             or self.exile_self
             or self.exile_others
+            or self.exile_instant_or_sorcery_spell
             or self.return_to_hand
             or self.return_to_hand_count
             or self.return_pick
             or self.sacrifice_filter
             or self.exile_hand_card_color
             or self.crew_power
+            or self.tap_total_power
             or self.saddle_power
             or self.station
             or self.sacrifice_or_discard
@@ -802,6 +837,7 @@ class ActivationCost:
             or self.mill
             or self.exile_graveyard_top
             or self.exile_hand_cards
+            or self.put_opponent_exile_to_graveyard
             or self.tap_attached
         )
 
@@ -854,6 +890,18 @@ class ActivationCost:
             parts.append("Discard your hand" if self.discard == DISCARD_HAND
                          else "Discard X cards" if self.discard == DISCARD_X
                          else f"Discard {self.discard} card(s)")
+            if self.discard_filter in {'black', 'nonblack'}:
+                parts[-1] = f'Discard {self.discard} {self.discard_filter} card(s)'
+            if self.discard_filter == 'last_drawn_this_turn':
+                parts[-1] = 'Discard the last card you drew this turn'
+            if self.discard_mana_value_x:
+                parts[-1] += ' with mana value X'
+            if self.discard_different_names:
+                parts[-1] += ' with different names'
+            if self.discard_matching_names:
+                if self.discard_filter == 'nonland':
+                    parts[-1] = parts[-1].replace('card(s)', 'nonland card(s)')
+                parts[-1] += ' with the same name'
         if self.discard_self:
             parts.append("Discard this card")
         if self.remove_counters:
@@ -879,6 +927,8 @@ class ActivationCost:
             parts.append(f"Behold a {self.behold}")
         if self.reveal_from_hand:
             parts.append(f"Reveal a {self.reveal_from_hand} card from your hand")
+        if self.reveal_hand:
+            parts.append("Reveal your hand")
         if self.behold_exile:
             parts.append(f"Behold a {self.behold_exile} and exile it")
         if self.behold_two_shared_type:
@@ -888,28 +938,47 @@ class ActivationCost:
         if self.tap_others:
             count, subtype = self.tap_others
             parts.append(f"Tap {'X' if count == TAP_OTHERS_X else count} untapped {_permanent_phrase(subtype)}(s) you control")
+            if self.tap_shared_creature_type:
+                parts[-1] += ' that share a creature type'
         if self.untap_others:
             count, subtype = self.untap_others
-            parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) you control")
+            who = "an opponent controls" if self.untap_others_scope == "opponents" else "you control"
+            parts.append(f"Untap {count} tapped {_permanent_phrase(subtype)}(s) {who}")
         if self.reveal_x_color:
             parts.append(f"Reveal X {self.reveal_x_color} cards from your hand")
+        if self.reveal_shared_color:
+            parts.append(f"Reveal {self.reveal_shared_color} cards from your hand that share a color")
         if self.sacrifice_count:
             count, subtype = self.sacrifice_count
-            amount = "X" if count == SACRIFICE_COUNT_X else "one or more" if count == SACRIFICE_COUNT_ANY else count
+            if count == SACRIFICE_COUNT_HALF:
+                amount = "half, rounded up" if self.sacrifice_fraction_round_up else "half, rounded down"
+            else:
+                amount = "X" if count == SACRIFICE_COUNT_X else "any number of" if count == SACRIFICE_COUNT_ANY else count
             with_self = "~ and " if self.sacrifice_with_self and not self.sacrifice else ""
             parts.append(f"Sacrifice {with_self}{amount} {_permanent_phrase(subtype)}(s)")
         if self.add_counters_cost:
             kind, count = self.add_counters_cost
             parts.append(f"Put {count} {kind} counter(s) on this")
+        if self.bottom_self_from_graveyard:
+            parts.append("Put this card from your graveyard on the bottom of your library")
         if self.exile_self_from_hand:
             parts.append("Exile this card from your hand")
         if self.exile_self:
             parts.append("Exile ~")
+        if self.sacrifice_all_lands:
+            parts.append('Sacrifice all lands you control')
+        if self.exile_instant_or_sorcery_spell:
+            parts.append('Exile an instant or sorcery spell you control')
         if self.exile_others:
             count, word = self.exile_others
+            if self.exile_others_total_mana_value_x:
+                count = "one or more"
             parts.append(f"Exile {count} other {_permanent_phrase(word)}(s)")
+            if self.exile_others_total_mana_value_x:
+                parts[-1] += " with total mana value X"
         if self.return_to_hand:
-            parts.append(f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
+            parts.append("Return this permanent to its owner's hand" if self.return_to_hand == RETURN_SELF_TO_HAND
+                         else f"Return a {self.return_to_hand.capitalize()} you control to its owner's hand")
         if self.return_to_hand_count:
             count, subtype = self.return_to_hand_count
             parts.append(f"Return {count} {subtype.capitalize()}s you control to their owner's hand")
@@ -929,6 +998,8 @@ class ActivationCost:
             parts.append(f"[{'+' if self.loyalty >= 0 else ''}{self.loyalty}]")
         if self.crew_power:
             parts.append(f"Tap any number of other untapped creatures you control with total power {self.crew_power} or greater")
+        if self.tap_total_power is not None:
+            parts.append(f"Tap any number of other untapped creatures you control with total power {self.tap_total_power} or greater")
         if self.station:
             parts.append("Tap another untapped creature you control")
         if self.sacrifice_or_discard:
@@ -941,12 +1012,15 @@ class ActivationCost:
             parts.append(f"Exile the top {self.exile_graveyard_top} of your graveyard")
         if self.exile_hand_cards:
             parts.append(f"Exile {self.exile_hand_cards} card(s) from your hand")
+        if self.put_opponent_exile_to_graveyard:
+            parts.append("Put a card an opponent owns from exile into that player's graveyard")
         if self.tap_attached:
             parts.append("Tap enchanted permanent")
         return ", ".join(parts)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **({"activation_zones": list(self.activation_zones)} if self.activation_zones else {}),
             "mana": self.mana.raw,
             "taps_self": self.taps_self,
             "untaps_self": self.untaps_self,
@@ -958,6 +1032,10 @@ class ActivationCost:
             "pay_energy": self.pay_energy,
             "pay_land_drops": self.pay_land_drops,
             "discard": self.discard,
+            "discard_filter": self.discard_filter,
+            "discard_mana_value_x": self.discard_mana_value_x,
+            "discard_matching_names": self.discard_matching_names,
+            "discard_different_names": self.discard_different_names,
             "discard_self": self.discard_self,
             "is_cycling": self.is_cycling,
             "ability_keyword": self.ability_keyword,
@@ -970,18 +1048,29 @@ class ActivationCost:
             "forage": self.forage,
             "behold": self.behold,
             "reveal_from_hand": self.reveal_from_hand,
+            "reveal_hand": self.reveal_hand,
             "behold_exile": self.behold_exile,
             "behold_two_shared_type": self.behold_two_shared_type,
             "blight": self.blight,
             "tap_others": list(self.tap_others) if self.tap_others else None,
+            "tap_shared_creature_type": self.tap_shared_creature_type,
             "help_pay_kind": self.help_pay_kind,
             "untap_others": list(self.untap_others) if self.untap_others else None,
+            "untap_others_scope": self.untap_others_scope,
             "reveal_x_color": self.reveal_x_color,
+            "reveal_shared_color": self.reveal_shared_color,
             "sacrifice_count": list(self.sacrifice_count) if self.sacrifice_count else None,
+            "sacrifice_fraction_round_up": self.sacrifice_fraction_round_up,
+            "sacrifice_count_mana_value_x": self.sacrifice_count_mana_value_x,
+            "discard_random": self.discard_random,
             "add_counters_cost": list(self.add_counters_cost) if self.add_counters_cost else None,
+            "bottom_self_from_graveyard": self.bottom_self_from_graveyard,
             "exile_self_from_hand": self.exile_self_from_hand,
             "exile_self": self.exile_self,
             "exile_others": list(self.exile_others) if self.exile_others else None,
+            "exile_others_total_mana_value_x": self.exile_others_total_mana_value_x,
+            "exile_instant_or_sorcery_spell": self.exile_instant_or_sorcery_spell,
+            "sacrifice_all_lands": self.sacrifice_all_lands,
             "return_to_hand": self.return_to_hand,
             "return_to_hand_state": self.return_to_hand_state,
             "return_to_hand_count": list(self.return_to_hand_count) if self.return_to_hand_count else None,
@@ -997,7 +1086,9 @@ class ActivationCost:
             "loyalty": self.loyalty,
             "loyalty_is_x": self.loyalty_is_x,
             "x_selector": self.x_selector,
+            "mana_per_source_counter": self.mana_per_source_counter,
             "crew_power": self.crew_power,
+            "tap_total_power": self.tap_total_power,
             "station": self.station,
             "sacrifice_or_discard": self.sacrifice_or_discard,
             "alternatives": [branch.to_dict() for branch in self.cast_alternatives],
@@ -1046,7 +1137,7 @@ def parse_activation_cost(
     if "activation_zones" in cost:
         zones = cost["activation_zones"]
         if not isinstance(zones, (list, tuple)) or not zones or any(
-            not isinstance(zone, str) or zone not in {"battlefield", "graveyard", "hand"}
+            not isinstance(zone, str) or zone not in {"battlefield", "graveyard", "hand", "exile"}
             for zone in zones
         ):
             raise ValueError("Unknown activation zone")
@@ -1057,6 +1148,15 @@ def parse_activation_cost(
         parsed.taps_self = bool(cost["taps_self"])
     if "untaps_self" in cost:
         parsed.untaps_self = bool(cost["untaps_self"])
+    if 'reveal_shared_color' in cost:
+        parsed.reveal_shared_color = max(0, int(cost['reveal_shared_color']))
+    if cost.get("untap_others"):
+        count, word = cost['untap_others']
+        parsed.untap_others = (int(count), str(word))
+    if "untap_others_scope" in cost:
+        if cost['untap_others_scope'] not in ('you', 'opponents'):
+            raise ValueError('Unknown untap cost scope')
+        parsed.untap_others_scope = cost['untap_others_scope']
     if cost.get("sacrifice"):
         parsed.sacrifice = str(cost["sacrifice"])
     if cost.get("sacrifice_also"):
@@ -1079,8 +1179,22 @@ def parse_activation_cost(
         parsed.pay_energy = int(cost["pay_energy"])
     if "note_spent_color" in cost:
         parsed.note_spent_color = bool(cost["note_spent_color"])
+    parsed.discard_random = bool(cost.get("discard_random", False))
+    parsed.sacrifice_fraction_round_up = bool(cost.get("sacrifice_fraction_round_up", False))
     if "discard" in cost:
-        parsed.discard = DISCARD_X if cost["discard"] == "x" else int(cost["discard"])
+        discard = cost["discard"]
+        if isinstance(discard, dict):
+            parsed.discard_random = bool(discard.get("random"))
+            discard = discard.get("count", 0)
+        parsed.discard = DISCARD_X if discard == "x" else int(discard)
+    if 'discard_mana_value_x' in cost:
+        parsed.discard_mana_value_x = bool(cost['discard_mana_value_x'])
+    if 'discard_filter' in cost:
+        parsed.discard_filter = cost['discard_filter']
+    if 'discard_different_names' in cost:
+        parsed.discard_different_names = bool(cost['discard_different_names'])
+    if 'discard_matching_names' in cost:
+        parsed.discard_matching_names = bool(cost['discard_matching_names'])
     if "discard_self" in cost:
         parsed.discard_self = bool(cost["discard_self"])
     if "is_cycling" in cost:
@@ -1120,6 +1234,7 @@ def parse_activation_cost(
         parsed.forage = True
     if cost.get("behold"):
         parsed.behold = str(cost["behold"])
+    parsed.reveal_hand = bool(cost.get("reveal_hand", False))
     if cost.get("reveal_from_hand"):
         parsed.reveal_from_hand = str(cost["reveal_from_hand"])
     if cost.get("behold_exile"):
@@ -1131,25 +1246,49 @@ def parse_activation_cost(
     if cost.get("tap_others"):
         count, subtype = cost["tap_others"]
         parsed.tap_others = (int(count), str(subtype))
+    if 'tap_shared_creature_type' in cost:
+        parsed.tap_shared_creature_type = bool(cost['tap_shared_creature_type'])
+    if cost.get("sacrifice_fraction"):
+        fraction = cost["sacrifice_fraction"]
+        parsed.sacrifice_count = (SACRIFICE_COUNT_HALF, str(fraction["what"]))
+        parsed.sacrifice_fraction_round_up = bool(fraction["round_up"])
     if cost.get("sacrifice_count"):
         count, subtype = cost["sacrifice_count"]
         parsed.sacrifice_count = (int(count), str(subtype))
+    if cost.get("sacrifice_mana_value_x"):
+        # MEC-169: one permanent whose mana value equals the announced X (Nahiri's Sacrifice), paid through the counted
+        # sacrifice machinery with the mana-value filter.
+        parsed.sacrifice_count = (1, str(cost["sacrifice_mana_value_x"]))
+        parsed.sacrifice_count_mana_value_x = True
     if cost.get("add_counters_cost"):
         kind, count = cost["add_counters_cost"]
         parsed.add_counters_cost = (str(kind), int(count))
     if cost.get("remove_counters"):
         kind, count = cost["remove_counters"]
         parsed.remove_counters = (str(kind), int(count))
+    if cost.get("mana_per_source_counter"):
+        kind, per = cost["mana_per_source_counter"]
+        parsed.mana_per_source_counter = (str(kind), int(per))
     if cost.get("x_selector"):
         parsed.x_selector = str(cost["x_selector"])
     if cost.get("crew_power"):
         parsed.crew_power = int(cost["crew_power"])
+    if cost.get('tap_total_power') is not None:
+        parsed.tap_total_power = int(cost['tap_total_power'])
     if "sacrifice_or_discard" in cost:
         parsed.sacrifice_or_discard = bool(cost["sacrifice_or_discard"])
+    if "bottom_self_from_graveyard" in cost:
+        parsed.bottom_self_from_graveyard = bool(cost["bottom_self_from_graveyard"])
     if "exile_self_from_hand" in cost:
         parsed.exile_self_from_hand = bool(cost["exile_self_from_hand"])
     if "exile_self" in cost:
         parsed.exile_self = bool(cost["exile_self"])
+    if "sacrifice_all_lands" in cost:
+        parsed.sacrifice_all_lands = bool(cost["sacrifice_all_lands"])
+    if "exile_instant_or_sorcery_spell" in cost:
+        parsed.exile_instant_or_sorcery_spell = bool(cost["exile_instant_or_sorcery_spell"])
+    if "exile_others_total_mana_value_x" in cost:
+        parsed.exile_others_total_mana_value_x = bool(cost["exile_others_total_mana_value_x"])
     if cost.get("exile_others"):
         count, word = cost["exile_others"]
         parsed.exile_others = (int(count), str(word))
@@ -1163,6 +1302,8 @@ def parse_activation_cost(
         # int(True) == 1, so a hand-authored bool (meaning "one card") and a
         # real printed count both parse correctly through the same line.
         parsed.exile_top_of_library = int(cost["exile_top_of_library"])
+    if cost.get("put_opponent_exile_to_graveyard"):
+        parsed.put_opponent_exile_to_graveyard = True
     if "put_hand_card_on_library" in cost:
         parsed.put_hand_card_on_library = bool(cost["put_hand_card_on_library"])
     if cost.get("return_to_hand"):
@@ -1351,6 +1492,11 @@ def _parse_text(text: str) -> ActivationCost:
                 SACRIFICE_COUNT_X if counted[0].count is None else counted[0].count, counted[0].word,
             )
         cost.sacrifice_with_self = any(item.kind == "self" for item in sac_clause.items)
+    if hits.get("sacrifice_mana_value_x"):
+        # MEC-173: the activated "sacrifice <permanent> with mana value X" (Scrap Welder, Sidisi): one permanent whose
+        # mana value is the announced X, paid through the counted sacrifice machinery with the mana-value filter.
+        cost.sacrifice_count = (1, hits["sacrifice_mana_value_x"])
+        cost.sacrifice_count_mana_value_x = True
     sac_count = hits.get("sacrifice_count")
     if sac_count:
         # ENG-49: "Sacrifice two lands" / "Sacrifice X lands" (Copper-Leaf
@@ -1441,6 +1587,8 @@ def _parse_text(text: str) -> ActivationCost:
     hand_card = hits.get("exile_hand_card")
     if hand_card:
         cost.exile_hand_cards = _word_to_int(hand_card.group("n"))  # ENG-51: Cadaverous Bloom
+    if "put_opponent_exile_to_graveyard" in hits:
+        cost.put_opponent_exile_to_graveyard = True
     if "exert" in hits:
         cost.exert_self = True  # ENG-51 / RULE 701.43
     mill = hits.get("mill")
@@ -1477,9 +1625,14 @@ def _parse_text(text: str) -> ActivationCost:
     if tap_others:
         amount = tap_others.group("n").lower()
         count = TAP_OTHERS_X if amount == "x" else _word_to_int(amount)
+        qual = tap_others.group("qual")
+        if qual and tap_others.group("qual2"):
+            # "white and/or blue creatures" (Sky Hussar): one colour-pair word, any of the colours (RULE 105.1).
+            qual = f"{ANY_COLOR_PREFIX}{qual.lower()},{tap_others.group('qual2').lower()}"
         kind = _permanent_word(
-            "other" if amount == "another" or tap_others.group("other") else None, tap_others.group("qual"),
+            "other" if amount == "another" or tap_others.group("other") or tap_others.group("other_than") else None, qual,
             tap_others.group("kw"), _singularize(tap_others.group("type").lower()),
+            f"{NAMED_PREFIX}~" if tap_others.group("named") else None,  # "named ~": the source's own name
         )
         if tap_others.group("tail"):
             # PAR-267: "artifact creatures" -- both words must hold (RULE 205.2a), like "noncreature artifact".

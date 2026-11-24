@@ -161,3 +161,23 @@ from . import crooked_scales  # noqa: F401
 from . import central_elevator_promising_stairs  # noqa: F401
 from . import charred_foyer_warped_space  # noqa: F401
 from . import cultist_of_the_absolute  # noqa: F401
+
+from . import curse_of_echoes  # noqa: F401
+
+from . import charred_graverobber  # noqa: F401
+
+from . import curse_of_the_fire_penguin_curse_of_the_fire_penguin_creature  # noqa: F401
+from . import commander_spock  # noqa: F401
+from . import cherished_hatchling  # noqa: F401
+
+from . import chief_montgomery_scott  # noqa: F401
+from . import chronomantic_escape  # noqa: F401
+
+from . import concerted_effort  # noqa: F401
+from . import cmdr_troi_outgoing_empath  # noqa: F401
+from . import court_of_vantress  # noqa: F401
+from . import curie_emergent_intelligence  # noqa: F401
+
+from . import choice_of_damnations  # noqa: F401
+
+from . import curse_of_the_cabal  # noqa: F401

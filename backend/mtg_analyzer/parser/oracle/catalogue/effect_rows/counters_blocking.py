@@ -9,6 +9,7 @@ from ..combat_phrase import combat_tail
 from typing import Optional
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ..duration_phrase import FIXED_DURATIONS, FIXED_DURATION_PATTERN
 from ..counters import counter_choice_list, parse_counter_choice_items
 from ..static_handlers import object_filter, ATTACHED_SUBJECT_PATTERN
@@ -24,6 +25,7 @@ from ..subgrammars import (
     TARGET,
     target_kind_allowed,
     target_is_optional,
+    target_quality_filter,
 )
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
@@ -65,7 +67,7 @@ def _opponent_chooses_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("choose_objects", {
         "action": "select_referent", "what": m.group("what"), "count": 1,
         "player_selector": "target",
-        # `resolve_target_kind` reads "target opponent" as the broader "player"; an edict must keep the restriction.
+        # an edict keeps the opponent restriction (RULE 102.3).
         "target_kind": "opponent" if m.group("who") == "target opponent" else "player",
         "then": [{"type": "destroy", "params": {"previous_subject": True}}],
     })]
@@ -561,7 +563,7 @@ def _base_pt_until_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     params: dict = {
         "power": _v(m.group("p")), "toughness": _v(m.group("t")),
-        "affects": "creatures_you_control" if m.groupdict().get("group") else "self",
+        "affects": battlefield_group(OF_YOU) if m.groupdict().get("group") else "self",
     }
     target_kind = None
     if tgt:
@@ -705,18 +707,21 @@ def _distribute_counters_range(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: grammar deliberately keeps "each ..." selectors out, see
 #: `subgrammars._TARGET_ROWS`'s note).
 def _add_counters_selector(m: re.Match[str]) -> list[EffectSpec]:
-    selector = {
-        "each creature you control": "each_creature_you_control",
-        "each other creature you control": "each_other_creature_you_control",
-        "each other planeswalker you control": "each_other_planeswalker_you_control",
-        "each creature": "each_creature",
-        "each other creature": "each_other_creature",
-        "each creature your opponents control": "each_creature_opponents_control",
+    # "each [other] <creature|planeswalker> [you control | your opponents control]" -> the structured group
+    # (`AddCountersEffect.group`), the same `group_selector_objects` set the retired named selectors resolved.
+    group = {
+        "each creature you control": battlefield_group(OF_YOU),
+        "each other creature you control": battlefield_group(OF_YOU, other=True),
+        "each other planeswalker you control": battlefield_group(OF_YOU, "planeswalker", other=True),
+        "each creature": battlefield_group(OF_ANY),
+        "each other creature": battlefield_group(OF_ANY, other=True),
+        "each creature your opponents control": battlefield_group(OF_OPPONENTS),
     }[m.group("selector")]
     amount = count_or_x_of(m.group("n"))
-    params: dict = {"kind": counter_sign(m.group("ckind")), "selector": selector}
+    params: dict = {"kind": counter_sign(m.group("ckind")), "group": group}
     if m.groupdict().get("has_counter"):
-        params["creature_filter"] = {"has_counter_kind": "+1/+1"}
+        # RULE 122.1: narrow the group itself (the retired ``creature_filter`` rider did the same per member).
+        group["filter"]["has_counter_kind"] = "+1/+1"
     if amount == "x":
         # RULE 107.3c: an X in a resolving spell reads that spell's announced X.
         params["x_multiplier"] = 1
@@ -867,7 +872,7 @@ _CANT_BE_BLOCKED_TURN_MASS_RE = compile_clause(
 
 
 def _cant_be_blocked_turn_mass(m: re.Match[str]) -> list[EffectSpec]:
-    selector = "creatures_you_control" if m.group("group") == "creatures you control" else "all_creatures"
+    selector = battlefield_group(OF_YOU if m.group("group") == "creatures you control" else OF_ANY)
     return [EffectSpec("unblockable", {"selector": selector})]
 
 
@@ -974,30 +979,14 @@ _CANT_BLOCK_TURN_MULTI_RE = compile_clause(
 )
 _CANT_BLOCK_TURN_RE = compile_clause(rf"{TARGET} can'?t block this turn")
 
-#: The untargeted mass form's own subject vocabulary (RULE 601.2c) — a
-#: `continuous.group_selector_objects` selector plus an optional
-#: characteristic narrowing (`combat.matches_object_filter`), since
-#: "creatures **without flying**" is a real printed scope no selector name
-#: covers. Bare "creatures" is every creature on the battlefield.
-_CANT_BLOCK_TURN_GROUPS: dict[str, tuple[str, dict]] = {
-    "creatures": ("all_creatures", {}),
-    "all creatures": ("all_creatures", {}),
-    "creatures without flying": ("all_creatures", {"without_keyword": "flying"}),
-    "creatures with flying": ("all_creatures", {"keyword": "flying"}),
-    "creatures your opponents control": ("opponents_permanents", {}),
-    # PAR-128: the controller scope written after the quality filter
-    # (Stoneshock Giant's "creatures without flying your opponents control").
-    "creatures without flying your opponents control": (
-        "opponents_permanents", {"without_keyword": "flying"}),
-    "creatures with flying your opponents control": ("opponents_permanents", {"keyword": "flying"}),
-    "creatures you control": ("creatures_you_control", {}),
-    "creatures you don't control": ("opponents_permanents", {}),
-}
-_CANT_BLOCK_TURN_GROUP_RE = compile_clause(
-    r"(?P<group>" + "|".join(re.escape(g) for g in _CANT_BLOCK_TURN_GROUPS)
-    + r") can'?t block this turn"
-)
+#: "Enchanted creature can't block this turn." -- a single object (the permanent the source is attached to), not a
+#: group, so it stays the marking form; every untargeted group form is the floating static in `pump_keywords`
+#: (RULE 611.2c), which also binds creatures entering after resolution.
+_ENCHANTED_CANT_BLOCK_TURN_RE = compile_clause(r"enchanted creature can'?t block this turn")
 
+
+def _enchanted_cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("cant_block_this_turn", {"selector": "attached_permanent"})]
 
 #: "Target creature can't be regenerated this turn." (Gravebind, Hurr Jackal, Furnace
 #: Brood) / "It can't be regenerated this turn." (Engulfing Flames, Rage of Purphoros) /
@@ -1044,7 +1033,11 @@ def _cant_block_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
         return None
-    return [EffectSpec("cant_block_this_turn", {"target_kind": kind, **optional_param(m)})]
+    params: dict = {"target_kind": kind, **optional_param(m)}
+    quality = target_quality_filter(m.group("target"))  # PAR-285: "with power less than or equal to ~'s power"
+    if quality:
+        params["creature_filter"] = quality
+    return [EffectSpec("cant_block_this_turn", params)]
 
 
 def _cant_block_turn_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1099,14 +1092,6 @@ def _cant_be_blocked_by_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("combat_restriction_this_turn", params)]
 
 
-def _cant_block_turn_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    selector, filt = _CANT_BLOCK_TURN_GROUPS[m.group("group").lower()]
-    params: dict = {"selector": selector}
-    if filt:
-        params["filter"] = dict(filt)
-    return [EffectSpec("cant_block_this_turn", params)]
-
-
 #: "Target creature can't block ~ this turn." (RULE 509.1a, Provoke-adjacent
 #: but without the untap half) — the *pairwise* sibling of `_cant_block_turn`
 #: above: that one bars the target from blocking anything, this one bars it
@@ -1121,7 +1106,7 @@ _CANT_BLOCK_SOURCE_TURN_RE = compile_clause(rf"{TARGET} can'?t block (?:~|it|thi
 #: forces one specific (usually opposing) creature to block this ability's
 #: own source, checked by `GameEngine._enforce_block_requirements` via the
 #: `must_block_target` restriction kind.
-_BLOCKS_SOURCE_TURN_IF_ABLE_RE = compile_clause(rf"{TARGET} blocks (?:~|it|this creature) this turn if able")
+_BLOCKS_SOURCE_TURN_IF_ABLE_RE = compile_clause(rf"{TARGET} blocks (?:~|it|this creature) this (?:turn|combat) if able")
 
 
 def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1135,14 +1120,22 @@ def _cant_block_source_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
-def _blocks_source_turn_if_able(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _blocks_source_turn_if_able(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    # Under a group-subject trigger "it" is the creature that fired it (Fighter Class: "whenever a creature you control
+    # attacks, ... blocks it"), not this ability's source, which `restrict_to_source` would force: fail closed.
+    if reading.group_subject or reading.group_clause:
+        return None
     kind = resolve_target_kind(m.group("target"))
-    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control")):
+    # PAR-315: "target creature defending player controls blocks it this combat if able" (Avalanche Tusker): the
+    # defending player's creature, the same pool the targeting frame scopes to the attacked player.
+    if not target_kind_allowed(kind, ("creature", "creature_you_control", "creature_you_dont_control",
+                                      "creature_defending_player_controls")):
         return None
     return [EffectSpec("combat_restriction_this_turn", {
         "target_kind": kind,
         "restriction": {"kind": "must_block_target"},
         "restrict_to_source": True,
+        **({"optional": True} if target_is_optional(m) else {}),  # RULE 115.1a: "up to 1 target creature ..."
     })]
 
 
@@ -1620,11 +1613,7 @@ ROWS: list[EffectHandler] = [
         _CANT_BLOCK_TURN_RE,
         _cant_block_turn,
     ),
-    EffectHandler(
-        "cant_block_this_turn_group",
-        _CANT_BLOCK_TURN_GROUP_RE,
-        _cant_block_turn_group,
-    ),
+    EffectHandler("enchanted_cant_block_this_turn", _ENCHANTED_CANT_BLOCK_TURN_RE, _enchanted_cant_block_turn),
     # "If it's a creature, it can't block this turn." (Searing Barb's
     # damage-rider tail) — acts on the previous clause's target.
     EffectHandler(
@@ -1652,6 +1641,7 @@ ROWS: list[EffectHandler] = [
         "blocks_source_this_turn_if_able",
         _BLOCKS_SOURCE_TURN_IF_ABLE_RE,
         _blocks_source_turn_if_able,
+        reading_aware=True,
     ),
     # "Target creature attacks this turn if able." (RULE 508.1a, resolve-time)
     EffectHandler(
@@ -1673,3 +1663,15 @@ ROWS: list[EffectHandler] = [
         _must_be_blocked_turn,
     ),
 ]
+
+
+def _modular_group_counter(_match):
+    return [EffectSpec("add_counters", {
+        "kind": "+1/+1", "count": 1,
+        "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "keyword": "modular"}},
+    })]
+
+
+ROWS.append(EffectHandler("counter_on_creatures_with_modular", compile_clause(
+    r"put a \+1/\+1 counter on each creature you control with modular"
+), _modular_group_counter))

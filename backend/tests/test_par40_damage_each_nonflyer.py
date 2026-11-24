@@ -92,8 +92,7 @@ def test_nonflyers_take_damage_flyers_do_not():
     eng.recompute_continuous_effects()
 
     build_effects([EffectSpec("damage", {
-        "amount": 2, "selector": "each_creature",
-        "selector_filter": {"without_keyword": "flying"},
+        "amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "without_keyword": "flying"}},
     })], src)[0].apply(GameContext(state, eng.rules), None)
     eng.rules.check_state_based_actions()
 
@@ -112,8 +111,7 @@ def test_and_each_player_hits_players_too_but_never_filters_them():
     eng.recompute_continuous_effects()
 
     build_effects([EffectSpec("damage", {
-        "amount": 3, "selector": "each_creature_and_player",
-        "selector_filter": {"without_keyword": "flying"},
+        "amount": 3, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "without_keyword": "flying"}}, "group_and_players": "each_player",
     })], src)[0].apply(GameContext(state, eng.rules), None)
 
     assert ground.damage_marked == 3

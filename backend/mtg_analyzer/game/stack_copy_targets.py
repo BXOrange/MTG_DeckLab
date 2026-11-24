@@ -74,7 +74,7 @@ def make_frame(rules, item, may_choose):
     body = item.effects
     if len(body) == 1 and hasattr(body[0], "effects"):
         body = body[0].effects
-    specs = targeting.effects_target_specs(body)
+    specs = targeting.effects_target_specs(body, ability_source=item.kind != "spell")
     if item.kind == "spell" and item.obj is not None and not specs:
         specs = ([targeting.TargetSpec(kind="non_human_creature_you_own")]
                  if item.obj.cast_via_mutate else targeting.spell_target_specs(item.obj))

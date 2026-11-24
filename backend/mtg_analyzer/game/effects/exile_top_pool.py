@@ -5,19 +5,42 @@ Each card exiles cards from the top of its controller's library and then lets th
 engine already has the two halves: `ImpulsiveDrawEffect` (RULE 601.3b window, `GameContext.created_objects`) and
 `CastWindowFromExiledPoolEffect` (PAR-167, reads `GameContext.latest_exiled_visits`). This module adds only what
 neither can express: an exile loop that stops on a running mana-value total, a bridge that turns the impulsive
-draw's pool into a casting pool, and a RULE 603.7 end-step cleanup that makes tokens from the leftovers.
+draw's pool into a casting pool, simultaneous entry of its permanent cards, and a RULE 603.7 end-step cleanup
+that makes tokens from the leftovers.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from ...models.game.game_object import Zone
+from ...models.cards.card_query import is_permanent_card, matches
 from .core import EffectRegistry, GameEffect, GameContext, _controller_of
 from .counters_tokens import CreateTokenEffect
 from .library import ReturnRemainingExiledEffect
 
 #: Printed text of the Eldrazi Spawn token Glimpse the Impossible makes (its sacrifice mana ability).
 _SPAWN_ORACLE = "Sacrifice this token: Add {C}."
+
+
+class PutLatestExiledOntoBattlefieldEffect(GameEffect):
+    """Put qualifying permanent cards from this resolution's latest exile pool into play together."""
+
+    def __init__(self, card_filter: Any = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.card_filter = card_filter
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .battlefield_batches import start_exile_return_batch
+
+        controller = _controller_of(self.source, context)
+        if controller is None:
+            return
+        # RULE 400.7 / 608.2c: only this instruction's exact exile visits,
+        # never an earlier activation's leftovers or a card exiled again.
+        visits = [(obj.instance_id, visit) for obj, visit in context.latest_exiled_visits
+                  if obj.zone == Zone.EXILE and obj.zone_incarnation == visit
+                  and is_permanent_card(obj.card) and matches(obj.card, self.card_filter)]
+        start_exile_return_batch(context.engine, visits, controller.id, source=self.source)
 
 
 class ExileUntilTotalManaValueEffect(GameEffect):
@@ -108,6 +131,10 @@ EffectRegistry.register(
 EffectRegistry.register(
     "exile_pool_from_created",  # bridge: the impulsive draw's pool becomes the casting-window pool
     lambda p: ExilePoolFromCreatedEffect(),
+)
+EffectRegistry.register(
+    "put_latest_exiled_onto_battlefield",
+    lambda p: PutLatestExiledOntoBattlefieldEffect(card_filter=p.get("card_filter")),
 )
 EffectRegistry.register(
     "glimpse_arm_cleanup",  # Glimpse the Impossible: arm the next-end-step leftover cleanup

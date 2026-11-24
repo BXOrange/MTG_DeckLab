@@ -251,7 +251,7 @@ def test_add_counters_each_other_creature_you_control_excludes_source():
     other = _bf(state, _creature("Other", 2, 2))
     from mtg_analyzer.game.effects.core import AddCountersEffect, GameContext
 
-    effect = AddCountersEffect(selector="each_other_creature_you_control", source=source)
+    effect = AddCountersEffect(group={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, source=source)
     effect.apply(GameContext(state, engine.rules))
     assert source.plus_one_counters == 0
     assert other.plus_one_counters == 1
@@ -263,7 +263,7 @@ def test_deal_damage_each_creature_and_planeswalker_hits_both_once_each():
     victim = _bf(state, _creature("Victim3", 2, 5), controller="p2")
     from mtg_analyzer.game.effects.core import DealDamageEffect, GameContext
 
-    effect = DealDamageEffect(amount=1, selector="each_creature_and_planeswalker", source=source)
+    effect = DealDamageEffect(amount=1, group={"zone": "battlefield", "of": "any", "filter": {"card_type_any": ["creature", "planeswalker"]}}, source=source)
     effect.apply(GameContext(state, engine.rules))
     assert victim.damage_marked == 1
 

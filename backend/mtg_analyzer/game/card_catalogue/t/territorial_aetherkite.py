@@ -20,7 +20,7 @@ def _territorial_aetherkite() -> list[AbilitySpec]:
                 EffectSpec("add_player_counters", {"amount": 2, "kind": "energy"}),
                 EffectSpec("pay_energy_then", {"amount": 1, "variable": True, "effects": [
                     {"type": "reflexive_trigger", "params": {"then_trigger": [
-                        {"type": "damage", "params": {"amount": "x", "selector": "each_other_creature"}},
+                        {"type": "damage", "params": {"amount": "x", "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}}},
                     ]}},
                 ]}),
             ],

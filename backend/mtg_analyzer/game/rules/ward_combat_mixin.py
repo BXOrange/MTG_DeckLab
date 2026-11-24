@@ -168,6 +168,17 @@ class WardCombatMixin:
         anything else can key a trigger off "became a target" the same way
         it already can for damage/counters/etc.
         """
+        # RULE 707.10 / 608.2h: targeting triggers can fire before this
+        # announced item has been pushed onto the stack. Preserve its values
+        # now when a listener can copy it, including if it is countered later.
+        from ..copy_event_state import needs_recipe, freeze
+        if any(getattr(ability, "trigger_event", None) == EventType.BECOMES_TARGET
+               and needs_recipe(ability.effects)
+               for obj in self.state.permanents()
+               for ability in obj.triggered_abilities + obj.granted_triggered_abilities):
+            self.state.copiable_stack_recipes.setdefault(item.stack_id, freeze(self, item))
+        player_ids = []
+        permanent_controller_ids = []
         for index, target in enumerate(item.targets or []):
             if (isinstance(target, GameObject) and index < len(item.target_incarnations)
                     and item.target_incarnations[index] not in (None, target.zone_incarnation)):
@@ -177,6 +188,8 @@ class WardCombatMixin:
                 is_player = False
                 instance_id: Optional[str] = target.instance_id
                 target_controller_id: Optional[str] = target.controller_id
+                if target in self.state.permanents():
+                    permanent_controller_ids.append(target.controller_id)
             elif isinstance(target, Player):
                 is_player = True
                 instance_id = None
@@ -184,6 +197,7 @@ class WardCombatMixin:
                 # RULE 115.1a: the targeted player ("you become the target of ...", PAR-236); a player has no
                 # controller, so ``target_controller_id`` stays ``None`` and object-scoped subjects never match.
                 target_player_id = target.id
+                player_ids.append(target.id)
             else:
                 continue  # not a real RULE 115 target (e.g. an already-resolved value)
             self.state.fire_event(GameEvent(
@@ -200,11 +214,21 @@ class WardCombatMixin:
                 player_id=item.controller_id,
                 item_kind=item.kind,
                 item_category=item.category,
+                ability_keyword=next((getattr(effect, "keyword_name", None) for effect in item.effects
+                                      if getattr(effect, "keyword_name", None)), None),
                 stack_id=item.stack_id,
                 # The targeting spell itself, for "becomes the target of an Aura spell" (PAR-236): read live off the
                 # stack by `spell_filter_predicate`; ``None`` for an ability (it has no card).
                 item_instance_id=item.obj.instance_id if item.kind == "spell" and item.obj is not None else None,
             ))
+        if player_ids or permanent_controller_ids:
+            # RULE 603.2c: Leyline of Combustion sees the combined group once.
+            self.state.fire_event(GameEvent(EventType.TARGETS_ANNOUNCED,
+                target_player_ids=list(dict.fromkeys(player_ids)),
+                permanent_controller_ids=list(dict.fromkeys(permanent_controller_ids)),
+                controller_id=item.controller_id, player_id=item.controller_id,
+                item_kind=item.kind, item_category=item.category, stack_id=item.stack_id))
+
     def check_ward(self, item: StackItem, caster: Player, *, defer_stack: bool = False) -> list[StackItem]:
         """RULE 702.21/601.2c/603.3: after ``item`` (a spell, activated
         ability, or triggered ability) is placed on the stack with its final
@@ -280,6 +304,10 @@ class WardCombatMixin:
             )
         if not defer_stack:
             self.state.stack.extend(wards)
+        from ..copy_event_state import notify_triggered
+
+        for ward_item in wards:
+            notify_triggered(self, ward_item)
         return wards
     def resolve_ward_effect(
         self,
@@ -418,6 +446,21 @@ class WardCombatMixin:
                 EventType.ATTACKS, instance_id=attacker.instance_id, player_id=attacker.controller_id,
                 defending_player_id=defending.id,
             ))
+
+    def _queue_enlist(self, attacker: GameObject, enlisted: GameObject) -> None:
+        # RULE 702.154b-d: one linked trigger for each paid Enlist cost.
+        from ..effects.enlist import EnlistEffect
+
+        event = GameEvent(
+            EventType.ENLISTS, instance_id=attacker.instance_id,
+            zone_incarnation=attacker.zone_incarnation, player_id=attacker.controller_id,
+            controller_id=attacker.controller_id, enlisted_id=enlisted.instance_id,
+        )
+        self.state.fire_event(event)
+        self._queue_firing(TriggeredAbility(
+            trigger_event=EventType.ENLISTS, controller_id=attacker.controller_id, source=attacker,
+            description="Enlist", effects=[EnlistEffect(attacker, enlisted, int(enlisted.power or 0))],
+        ), event, attacker)
 
     def check_dethrone(self, attacker: GameObject) -> None:
         """RULE 702.107: place Dethrone's own triggered ability, if any,

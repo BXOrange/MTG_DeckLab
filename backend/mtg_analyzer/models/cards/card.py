@@ -111,6 +111,10 @@ class Card:
     #: binder (`card_registry.specs_for`) parses each line on top of the copied abilities. A copy of the copy inherits
     #: them through `as_copy` (RULE 707.9: the exception is part of the copiable values).
     granted_ability_lines: tuple[str, ...] = ()
+    #: RULE 707.9: intrinsic keyword losses are themselves copiable values.
+    copy_removed_keywords: tuple[str, ...] = ()
+    #: Binding identity of copied abilities when a copy exception changes the name (RULE 707.9b).
+    copy_ability_name: Optional[str] = None
 
     def __init__(
         self,
@@ -162,6 +166,9 @@ class Card:
         digital: Optional[bool] = None,
         games: Optional[list[str]] = None,
         legalities: Optional[dict[str, str]] = None,
+        copy_removed_keywords: Optional[list[str]] = None,
+        copy_ability_name: Optional[str] = None,
+        granted_ability_lines: Optional[list[str]] = None,
     ) -> None:
         """Construct a Card, validating attributes per the data model spec.
 
@@ -193,6 +200,9 @@ class Card:
         self.games = list(games or [])
         self.legalities = dict(legalities or {})
         self.name = name
+        self.copy_removed_keywords = tuple(copy_removed_keywords or [])
+        self.copy_ability_name = copy_ability_name
+        self.granted_ability_lines = tuple(granted_ability_lines or [])
         self.mana_cost = dict(mana_cost) if mana_cost is not None else dict(_DEFAULT_MANA_COST)
         self.mana_cost_string = mana_cost_string
         self.converted_mana_cost = converted_mana_cost
@@ -575,6 +585,7 @@ class Card:
         set_toughness: Optional[int] = None,
         set_colors: Optional[list[str]] = None,
         add_ability_lines: Optional[list[str]] = None,
+        remove_keywords: Optional[list[str]] = None,
     ) -> "Card":
         """This card's *copiable values* (RULE 706.2), as a fresh `Card`.
 
@@ -696,6 +707,7 @@ class Card:
             if new_lines:
                 oracle_text = f"{oracle_text}\n" + "\n".join(new_lines) if oracle_text else "\n".join(new_lines)
         copied = Card(
+            copy_ability_name=self.copy_ability_name,
             unsupported_reason=self.unsupported_reason,
             digital=self.digital,
             games=list(self.games),
@@ -742,7 +754,12 @@ class Card:
             back_keywords=list(self.back_keywords),
         )
         # RULE 707.9a: granted ability lines accumulate (a copy of a copy keeps the earlier exception's too).
-        copied.granted_ability_lines = tuple(dict.fromkeys((*self.granted_ability_lines, *(add_ability_lines or []))))
+        # RULE 113.2c/707.9a: an added identical ability is a separate instance.
+        copied.granted_ability_lines = (*self.granted_ability_lines, *(add_ability_lines or []))
+        removed = (set(self.copy_removed_keywords) - {k.lower() for k in add_keywords or []})
+        removed.update(k.lower() for k in remove_keywords or [])
+        copied.copy_removed_keywords = tuple(sorted(removed))
+        copied.keywords = [k for k in copied.keywords if k.lower() not in removed]
         return copied
 
     @property
@@ -856,6 +873,9 @@ class Card:
         support = card_support_policy(self)
         return {
             "unsupported": support.unsupported,
+            "copy_removed_keywords": list(self.copy_removed_keywords),
+            "copy_ability_name": self.copy_ability_name,
+            "granted_ability_lines": list(self.granted_ability_lines),
             "unsupported_reason": support.reason,
             "id": self.id,
             "digital": self.digital,
@@ -912,6 +932,9 @@ class Card:
         """Deserialize a Card from a dict produced by to_dict()."""
         return cls(
             unsupported_reason=data.get("unsupported_reason"),
+            copy_removed_keywords=data.get("copy_removed_keywords"),
+            copy_ability_name=data.get("copy_ability_name"),
+            granted_ability_lines=data.get("granted_ability_lines"),
             digital=data.get("digital"),
             games=data.get("games"),
             legalities=data.get("legalities"),

@@ -76,7 +76,7 @@ def test_self_form_with_its_parses():
 def test_mass_form_parses():
     assert parse_effect_body(
         "switch each creature's power and toughness until end of turn."
-    ) == [EffectSpec("switch_power_toughness", {"selector": "all_creatures"})]
+    ) == [EffectSpec("switch_power_toughness", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})]
 
 
 def test_multi_target_up_to_n_parses():

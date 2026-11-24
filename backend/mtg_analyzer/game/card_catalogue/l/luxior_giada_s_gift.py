@@ -15,7 +15,7 @@ def _luxior_giada_s_gift() -> list[AbilitySpec]:
     permanent, loyalty counters included: a 4-loyalty planeswalker is a 4/4). The type clause is a layer-4
     `type_change` on the attached permanent (RULE 613.1d: adds creature, removes planeswalker); a planeswalker has no
     printed P/T, so it is 0/0 before the bonus (the card's ruling), and `GameObject.is_planeswalker` follows the layer
-    while the printed type keeps its loyalty abilities usable (RULE 606). "Equip {3}" is the keyword's own ability;
+    while its retained loyalty abilities remain usable (RULE 606). "Equip {3}" is the keyword's own ability;
     "Equip planeswalker {1}" is a second, hand-authored attach whose host is a planeswalker you control
     (`AttachEffect.allow_planeswalker`): it is no creature until the Equipment makes it one, and stays a legal host
     afterwards because Luxior's own static keeps it a creature (RULE 704.5n re-check).

@@ -58,6 +58,11 @@ _ALPINE_MOON = re.compile(
 _ANY_COLOR_MANA: list[dict[str, int]] = [{"W": 1}, {"U": 1}, {"B": 1}, {"R": 1}, {"G": 1}]
 
 
+#: "sources with the chosen name": any object (RULE 602.1), whoever controls it, matched on the naming source's choice.
+def _chosen_name_sources() -> dict[str, Any]:
+    return {"zone": "battlefield", "of": "any", "filter": {"name_from_source": True}}
+
+
 def named_card_static_specs(text: str) -> Optional[list[EffectSpec]]:
     """The specs for a static clause that reads "the chosen name", or ``None`` when ``text`` is none of the table's shapes."""
     text = text.strip().rstrip(".").strip().lower()
@@ -76,7 +81,7 @@ def named_card_static_specs(text: str) -> Optional[list[EffectSpec]]:
         return [EffectSpec("cast_prohibition", {"scope": "opponents", "card_name_from_source": True})]
     m = _ACTIVATION_PROHIBITED.fullmatch(text)
     if m is not None:
-        params: dict[str, Any] = {"affects": "all_permanents", "card_name_from_source": True}
+        params: dict[str, Any] = {"affects": _chosen_name_sources()}
         if m.group("unless"):
             params["except_mana_abilities"] = True
         return [EffectSpec("activation_prohibition", params)]
@@ -96,8 +101,8 @@ def named_card_static_specs(text: str) -> Optional[list[EffectSpec]]:
     m = _ACTIVATION_COST.fullmatch(text)
     if m is not None:
         params = {
-            "scope": "activation", "affects": "all_permanents", "generic": int(m.group("n")),
-            "increase": m.group("dir") == "more", "card_name_from_source": True,
+            "scope": "activation", "affects": _chosen_name_sources(), "generic": int(m.group("n")),
+            "increase": m.group("dir") == "more",
         }
         if m.group("unless"):
             params["except_mana_abilities"] = True
@@ -111,7 +116,9 @@ def named_card_static_specs(text: str) -> Optional[list[EffectSpec]]:
             "affects": "objects", "protects_controller": True, "protection_from_chosen_name": True,
         })]
     if _ALPINE_MOON.fullmatch(text):
-        scope = {"affects": "opponents_permanents", "card_type": "land", "card_name_from_source": True}
+        scope = {"affects": {
+            "zone": "battlefield", "of": "opponents", "filter": {"card_type": "land", "name_from_source": True},
+        }}
         return [
             EffectSpec("type_change", {**scope, "remove_land_types": True}),
             EffectSpec("remove_all_abilities", dict(scope)),

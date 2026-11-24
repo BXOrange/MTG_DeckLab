@@ -311,6 +311,12 @@ def linked_pool_return_specs(body):
         r"(?:return|put) (?:all|each) cards? exiled with (?:~|it) (?:to|into) their owners?'?s? hands?\.?", body)
     if hands is not None:
         return [EffectSpec('return_all_exiled_with', {'destination': 'hand'})]
+    # PAR-285 (class G): the "exile ... target creatures ..." ETB's own return half, "the exiled cards" being the
+    # source-linked pool (Angel of Serenity to hands, Savior of Ollenbock onto the battlefield).
+    if re.fullmatch(r"return the exiled cards to their owners'? hands\.?", body):
+        return [EffectSpec('return_all_exiled_with', {'destination': 'hand'})]
+    if re.fullmatch(r"put the exiled cards onto the battlefield under their owners'? control\.?", body):
+        return [EffectSpec('return_all_exiled_with', {})]
     matched = re.fullmatch(
         r'return (?:all|each) (?:(?P<types>(?:(?:artifact|battle|creature|enchantment|land|planeswalker) )+))?'
         r'cards? exiled with (?:~|it) to the battlefield(?P<tapped> tapped)? '

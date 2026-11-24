@@ -75,11 +75,10 @@ class AssignNoCombatDamageEffect(PreventCombatDamageDealtEffect):
             obj.temp_assign_no_combat_damage = True
 
 
-#: PAR-128: RULE 109.5's "each other creature" — every creature but this
-#: effect's own source. Kept off `_DAMAGE_SELECTORS`, which `library.py`'s
-#: power-damage effect shares and does not iterate.
+#: Single-recipient / event-relative `DealDamageEffect` selectors beyond `_DAMAGE_SELECTORS` (the player-and-source
+#: vocabulary `library.py`'s power-damage effect shares): the attacker's defender and the random-opponent picks.
 _DAMAGE_OTHER_SELECTORS: frozenset[str] = frozenset({
-    "each_other_creature", "attacked_object", "random_opponent", "random_opponent_or_planeswalker",
+    "attacked_object", "random_opponent", "random_opponent_or_planeswalker",
 })
 
 
@@ -103,7 +102,6 @@ class DealDamageEffect(GameEffect):
         count_max: Optional[int] = None,
         colors: Optional[list[str]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
-        selector_filter: Optional[dict[str, Any]] = None,
         group: Optional[dict[str, Any]] = None,
         group_player: Optional[str] = None,
         group_and_players: Optional[str] = None,
@@ -141,8 +139,16 @@ class DealDamageEffect(GameEffect):
         unpreventable_if: Optional[dict[str, Any]] = None,
         count_selector: Optional[str] = None,
         amount_per_recipient: Optional[dict[str, Any]] = None,
+        announced_amount: Optional[Any] = None,
     ) -> None:
         super().__init__(source)
+        #: "~ deals X damage divided as you choose among any number of targets, where X is the number of Mountains you
+        #: control **as you cast this spell**" (Jaws of Stone, Volcanic Wind; RULE 601.2d, 107.3): a count selector read
+        #: once, as the spell is announced, whose total the division must sum to. `damage_division.prepare` freezes it
+        #: into ``amount`` (and clears this field) when the spell is cast, so resolution never re-measures the board.
+        self.announced_amount = announced_amount
+        #: The total `damage_division.prepare` froze from ``announced_amount`` (``None`` until a cast announces it).
+        self.frozen_amount: Optional[int] = None
         #: "If X is 5 or more, ... the damage can't be prevented." (Banefire, Demonfire, Urza's Rage, Lightning Surge;
         #: RULE 615.6): `unpreventable` gated on a condition read when this effect resolves.
         self.unpreventable_if = dict(unpreventable_if) if unpreventable_if else None
@@ -287,10 +293,9 @@ class DealDamageEffect(GameEffect):
         self.amount_from_noncreature_spells_cast_this_turn = amount_from_noncreature_spells_cast_this_turn
         self.target = target
         self.selector = selector if selector in _DAMAGE_SELECTORS | _DAMAGE_OTHER_SELECTORS else None
-        #: PAR-128: "~ deals N damage to each creature you don't control" / "…to each other
-        #: creature without flying" — a structured battlefield selector (`{"zone","of",
-        #: "filter"}`) for the mass groups the closed `_DAMAGE_SELECTORS` vocabulary has no
-        #: name for, resolved through `continuous.group_selector_objects`.
+        #: "~ deals N damage to each creature you don't control" / "…to each other creature without flying" /
+        #: "…to each creature and each player" — a structured battlefield selector (`{"zone","of","filter"}`),
+        #: resolved through `continuous.group_selector_objects` (ENG-61: the one mass-damage group form).
         self.group = dict(group) if isinstance(group, dict) and group.get("zone", "battlefield") == "battlefield" else None
         if self.group is not None:
             self.selector = "group"
@@ -313,12 +318,6 @@ class DealDamageEffect(GameEffect):
                                             "player_or_planeswalker", "opponent_or_planeswalker")
             else None
         )
-        #: "~ deals N damage to each creature **without flying**." (RULE
-        #: 601.2c — Earthquake / Fault Line / Pyroclasm-with-a-filter) — a
-        #: `combat.matches_object_filter`-shaped narrowing applied to the
-        #: `each_creature`/`each_creature_and_player` iteration only (players
-        #: in a union selector are never filtered).
-        self.selector_filter = selector_filter
         # RULE 601.2d: a *divided* damage spell splits its total ``amount``
         # (typically {X}) among the chosen targets — "N damage divided as you
         # choose among …" (Fire Covenant, Shatterskull Smashing) — rather than
@@ -755,7 +754,7 @@ class DealDamageEffect(GameEffect):
                 if self.group_player == "defending":
                     scoped = _defending_player_of(self.source, context)
                 elif self.group_player == "event_player":
-                    scoped = _event_player(context, key="target_id")
+                    scoped = _event_scope_player(context)
                 elif self.group_player == "previous_controller":
                     # "…deals 4 damage to target creature an opponent controls. Then ~ deals
                     # 2 damage to each other creature **that player** controls." — the
@@ -807,31 +806,6 @@ class DealDamageEffect(GameEffect):
                     amount = len(player.hand)
                 context.deal_damage(player, amount, self.source)
             return
-        if self.selector == "each_other_creature":
-            # Snapshot first: an early death must not skip a still-owed hit.
-            for obj in list(context.state.permanents()):
-                if obj.is_creature and obj is not self.source:
-                    context.deal_damage(obj, amount, self.source)
-            return
-        if self.selector in ("each_creature", "each_creature_and_player", "each_creature_and_planeswalker"):
-            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from .. import combat  # local: combat↔effects cycle
-
-            for obj in group_selector_objects(context.state, None, "all_creatures"):
-                if self.selector_filter and not combat.matches_object_filter(obj, self.selector_filter):
-                    continue
-                context.deal_damage(obj, amount, self.source)
-            if self.selector == "each_creature_and_planeswalker":
-                # A creature that's *also* a planeswalker (rare, but real —
-                # RULE 205.2 multi-type permanents) was already hit above;
-                # excluding ``is_creature`` here is what keeps it a single
-                # hit, not two.
-                for obj in context.state.permanents():
-                    if obj.is_planeswalker and not obj.is_creature:
-                        context.deal_damage(obj, amount, self.source)
-                return
-            if self.selector == "each_creature":
-                return
         controller_id = getattr(self.source, "controller_id", None)
         if self.selector == "controller":
             # "it deals 1 damage to **you**" (Mana Vault) — the source's own
@@ -889,7 +863,12 @@ class DealDamageEffect(GameEffect):
             # `_event_player` helper `PayCostThenEffect` uses.
             # `PLAYER_ATTACKED` (Emberwilde Captain: "whenever an opponent attacks you ... deals damage to that
             # player") names the attacker ``attacking_player_id`` instead.
-            player = _event_player(context, key="player_id") or _event_player(context, key="attacking_player_id")
+            if _is_defending_combat_event(context):
+                # RULE 508.1b: "whenever ~ attacks / becomes blocked, it deals N damage to that player" is the
+                # attacked player; the event's ``player_id`` is the attacker's own controller.
+                player = _combat_defending_player(context)
+            else:
+                player = _event_player(context, key="player_id") or _event_player(context, key="attacking_player_id")
             if player is not None:
                 context.deal_damage(player, amount, self.source)
             return
@@ -913,46 +892,6 @@ class DealDamageEffect(GameEffect):
                 owner = context.state.player_by_id(obj.controller_id)
                 if owner is not None:
                     context.deal_damage(owner, amount, obj)
-            return
-        if self.selector in (
-            "each_creature_opponents_control",
-            "each_creature_and_planeswalker_opponents_control",
-        ):
-            # "~ deals N damage to each creature [and planeswalker] your
-            # opponents control." (Village Pillagers / Volcanic Torrent) —
-            # opponents' permanents only, no players. Snapshot first (an
-            # early death must not skip a still-owed hit).
-            include_pw = self.selector == "each_creature_and_planeswalker_opponents_control"
-            from .. import combat  # local: combat↔effects cycle
-
-            for obj in list(context.state.battlefield):
-                if (
-                    (obj.is_creature or (include_pw and obj.is_planeswalker))
-                    and obj.controller_id is not None
-                    and obj.controller_id != controller_id
-                    # PAR-128: "each creature with flying your opponents control".
-                    and not (self.selector_filter
-                             and not combat.matches_object_filter(obj, self.selector_filter))
-                ):
-                    context.deal_damage(obj, amount, self.source)
-            return
-        if self.selector in (
-            "each_opponent_and_their_creatures", "each_opponent_and_their_creatures_and_planeswalkers",
-        ):
-            # Snapshot first (same reasoning as `each_creature_controller`
-            # above): an opponent's own creature dying to this damage must
-            # not skip a later opponent's still-owed hit.
-            for obj in list(context.state.battlefield):
-                if obj.controller_id == controller_id or obj.controller_id is None:
-                    continue
-                if obj.is_creature or (
-                    self.selector == "each_opponent_and_their_creatures_and_planeswalkers"
-                    and obj.is_planeswalker
-                ):
-                    context.deal_damage(obj, amount, self.source)
-            for player in context.state.living_players():
-                if player.id != controller_id:
-                    context.deal_damage(player, amount, self.source)
             return
         excluded_recipient = None
         if self.selector == "each_other_opponent":
@@ -1036,6 +975,53 @@ class DrawIfTriggerObjectGreatestPowerEffect(GameEffect):
         context.draw(player, 1)
 
 
+class DiscardDrawnSinceEffect(GameEffect):
+    """Internal tail: choose only completed draws from this resolution window."""
+
+    def __init__(self, player_id, before, count=1, source=None):
+        super().__init__(source)
+        self.player_id, self.before, self.count = player_id, before, count
+
+    def apply(self, context, targets=None):
+        player = context.state.player_by_id(self.player_id)
+        if player is None:
+            return
+        visits = {}
+        for event in context.state.event_log[self.before:]:
+            if event.type == EventType.DRAW and event.get('player_id') == self.player_id:
+                for instance_id in event.get('instance_ids') or []:
+                    visits[instance_id] = (event.get('zone_incarnations') or {}).get(str(instance_id))
+        candidates = [obj for obj in player.hand
+                      if obj.instance_id in visits and obj.zone_incarnation == visits[obj.instance_id]]
+        context.engine._request_choose_objects(player, candidates, 'discard', count=self.count,
+                                              source=self.source, prompt='Wirf eine der gerade gezogenen Karten ab')
+
+
+class DrawThenDiscardDrawnEffect(GameEffect):
+    """RULE 608.2c/400.7: draw, then discard only a card actually drawn this way."""
+
+    def __init__(self, count=2, discard_count=1, source=None):
+        super().__init__(source)
+        self.count, self.discard_count = count, discard_count
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        before = len(context.state.event_log)
+        _apply_effects_partitioned([
+            DrawCardEffect(count=self.count, player=player, source=self.source),
+            DiscardDrawnSinceEffect(player.id, before, self.discard_count, source=self.source),
+        ], context, None, None, self.source)
+
+
+#: `DrawCardEffect.player` sentinel: the owner of the card the previous instruction of this resolution moved.
+PREVIOUS_TARGET_OWNER = "previous_target_owner"
+#: `DrawCardEffect.player` sentinel: the owner of the ability's own source ("~'s owner shuffles it into their library and
+#: draws three cards", Gandalf: the source left the battlefield, but an owner never changes, RULE 108.3).
+SOURCE_OWNER = "source_owner"
+
+
 class DrawCardEffect(GameEffect):
     """Draw ``count`` cards for the effect's controller (or a target player)
     — or, with ``count_selector`` set, a per-object dynamic count instead of
@@ -1086,6 +1072,27 @@ class DrawCardEffect(GameEffect):
             _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
                                       context, None, None, self.source)
             return
+        if self.player == SOURCE_OWNER:
+            try:
+                owner = context.state.player_by_id(self.source.owner_id) if self.source is not None else None
+            except (KeyError, ValueError):
+                owner = None
+            if owner is not None:
+                context.draw(owner, count)
+            return
+        if self.player == PREVIOUS_TARGET_OWNER:
+            # RULE 608.2c: "The owner of target permanent shuffles it into their library, then draws two cards."
+            # (Oblation) -- the later instruction's omitted subject is the same owner, whose card the previous
+            # instruction moved (an owner never changes with the zone, RULE 108.3).
+            prev = list(context.previous_targets)
+            owner = next((getattr(p, "owner_id", None) for p in prev if getattr(p, "owner_id", None) is not None), None)
+            try:
+                drawer = context.state.player_by_id(owner) if owner is not None else None
+            except (KeyError, ValueError):
+                drawer = None
+            if drawer is not None:
+                context.draw(drawer, count)
+            return
         if self.selector == "event_player":
             # "…you and the controller of those creatures each draw a card." (Nelly Borca,
             # MEC-104) — the player the firing event names (``player_id``: the combat-damage
@@ -1112,7 +1119,7 @@ class DrawCardEffect(GameEffect):
             return
         if self.selector in ("each_player", "each_opponent"):
             controller_id = getattr(self.source, "controller_id", None)
-            drawers = [p for p in context.state.living_players()
+            drawers = [p for p in context.state.living_players_apnap()
                        if self.selector != "each_opponent" or p.id != controller_id]
             _apply_effects_partitioned([DrawCardEffect(count=count, player=p, source=self.source) for p in drawers],
                                       context, None, None, self.source)
@@ -1409,6 +1416,9 @@ class PutRevealedCardEffect(GameEffect):
         player = _reveal_whose_player(self.whose, self.source, context)
         if player is None or not player.library or player.library[-1] is not card:
             return
+        from ..effect_conditions import revealed_card_on_library_top
+        if not revealed_card_on_library_top(context):
+            return
         if self.destination == "exile":
             context.exile(card)
             return
@@ -1527,13 +1537,24 @@ class DiscardEffect(GameEffect):
         whole_hand: bool = False,
         count_max: Optional[int] = None,
         then_draw_discarded: bool = False,
+        then_draw_hand_size: bool = False,
         filter: Optional[dict[str, Any]] = None,
         unless_discard: Optional[dict[str, Any]] = None,
         player_id: Optional[str] = None,
+        hand_fraction: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: PAR-320 "target opponent discards **half the cards in their hand**, rounded down" (Lord Xander) --
+        #: ``{"divisor": 2, "round_up": bool}``, counted over that player's own hand when they discard (RULE 107.1a
+        #: rounds down unless the card says up); ``count`` is ignored then.
+        fraction = hand_fraction if isinstance(hand_fraction, dict) else {}
+        divisor = fraction.get("divisor")
+        self.hand_fraction = (
+            {"divisor": divisor, "round_up": bool(fraction.get("round_up"))}
+            if isinstance(divisor, int) and not isinstance(divisor, bool) and divisor in (2, 3) else None
+        )
         #: "Discard N cards **unless** you discard a `<quality>` card." (Thirst for Knowledge, Compulsive
         #: Research, Alpharael) — the discarding player may instead discard one hand card matching this
         #: filter (``{"card_type": "land"}`` / ``{"nonland": True}`` / ``{"subtype": "pirate"}`` / ``{"card_types": ["instant",
@@ -1570,6 +1591,10 @@ class DiscardEffect(GameEffect):
         #: `context.discard(player, len(hand))` the fused `wheel`/`windfall`
         #: classes used before ENG-37 decomposed them.
         self.whole_hand = bool(whole_hand)
+        #: "…discards their hand, then draws that many cards." (Robber Fly, Shocker, Collective Defiance): with
+        #: ``whole_hand``, the same player draws as many cards as they discarded (RULE 701.8f; the count is read per
+        #: player, before the discard, so a ``scope`` sweep draws each player's own hand size).
+        self.then_draw_hand_size = bool(then_draw_hand_size)
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
         self.scope = scope
         #: "…discards a card **at random**." (RULE 701.8d — Black Cat /
@@ -1630,6 +1655,10 @@ class DiscardEffect(GameEffect):
                 context.discard_matching(player, mana_value=mv, cause=self.source)
             return
         count = self._measured(self.count, context)
+        if self.hand_fraction is not None:
+            from ..effect_amounts import pool_fraction  # function-scoped: effects<->amounts cycle
+
+            count = pool_fraction(len(player.hand), self.hand_fraction["divisor"], self.hand_fraction["round_up"])
         if count <= 0:
             return
         if self.unless_discard:
@@ -1642,7 +1671,10 @@ class DiscardEffect(GameEffect):
             )
             return
         if self.whole_hand:
-            context.discard(player, len(player.hand), cause=self.source)
+            discarded = len(player.hand)
+            context.discard(player, discarded, cause=self.source)
+            if self.then_draw_hand_size and discarded:
+                context.draw(player, discarded)
             return
         if self.count_max is not None:
             if not player.hand:
@@ -1806,6 +1838,7 @@ class ExileHandCardEffect(GameEffect):
         sweep_time_counters: bool = False,
         then_opponent: bool = False,
         player_id: Optional[str] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
@@ -1828,6 +1861,8 @@ class ExileHandCardEffect(GameEffect):
         self.then_opponent = bool(then_opponent)
         #: The chained opponent half's actor (set on the continuation spec, never by the parser).
         self.player_id = player_id
+        # RULE 607.2a: the common chooser records exact source/exile visits.
+        self.track_exiled_with = bool(track_exiled_with)
 
     def target_polarity(self) -> Optional[str]:
         return None if self.then_opponent else "harmful"
@@ -1838,6 +1873,7 @@ class ExileHandCardEffect(GameEffect):
             "count": self.count, "zone": self.zone, "optional": self.optional, "nonland": self.nonland,
             "time_counters_from_mana_value": self.time_counters_from_mana_value,
             "grant_suspend": self.grant_suspend, "grant_suspend_cast": self.grant_suspend_cast,
+            "track_exiled_with": self.track_exiled_with,
         }
         params.update(override)
         return params
@@ -1871,6 +1907,7 @@ class ExileHandCardEffect(GameEffect):
         context.exile_hand_choice(
             player, self.count, source=self.source, zone=self.zone, optional=self.optional,
             nonland=self.nonland, then_specs=then_specs + chain or None, else_specs=else_specs + chain or None,
+            track_exiled_with=self.track_exiled_with,
         )
 
 
@@ -1973,8 +2010,14 @@ class LookAtHandEffect(GameEffect):
         target_kind: Optional[str] = "player",
         previous_subject: bool = False,
         defending_player: bool = False,
+        damaged_player: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "Whenever ~ deals combat damage to a player, look at **that player's** hand." (Walker of Secret Ways, PAR-287)
+        #: -- the player the firing DAMAGE event names (RULE 120.3), read at resolution; no target.
+        self.damaged_player = bool(damaged_player)
+        if damaged_player:
+            target_kind = None
         #: "Look at **defending player's** hand." (Zara, Renegade Recruiter) — no target: the player the source attacks.
         self.defending_player = bool(defending_player)
         if defending_player:
@@ -1993,6 +2036,10 @@ class LookAtHandEffect(GameEffect):
             owner = targets[0]
         if owner is None and self.defending_player:
             owner = _defending_player_of(self.source, context)
+        if owner is None and self.damaged_player:
+            from ..effect_conditions import subject_of  # function-scoped: cycle
+
+            owner = subject_of("damaged_player", context, self.source, targets)
         if looker is not None and owner is not None:
             context.look_at_hand(looker, owner, source=self.source)
 
@@ -2128,10 +2175,19 @@ class RevealHandChooseDiscardEffect(GameEffect):
         up_to: bool = False,
         destination: str = "discard",
         then_specs: Optional[list[dict[str, Any]]] = None,
+        shuffle_if_none: bool = False,
+        shuffle_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
         self.target = target
+        #: BUG-83, RULE 608.2c / 701.24a: a same-name sweep's closing "Then that player shuffles" is its own
+        #: instruction, so it still happens when the lead picks nothing (an empty or all-basic hand, X = 0, a
+        #: declined pick). The revealed player's library is shuffled on every path that skips ``then_specs``.
+        self.shuffle_if_none = bool(shuffle_if_none)
+        #: The sweep's own gate (Pick the Brain's delirium) also gates this shuffle; nothing the empty pick could
+        #: have changed is read by it, so it is evaluated as the pick opens.
+        self.shuffle_condition = dict(shuffle_condition) if shuffle_condition else None
         #: "Look at target player's hand and choose X cards from it" (Mind Warp, Extortion's "up to 2", Agonizing
         #: Memories' 2): how many the chooser takes. ``"x"`` is the spell's announced X (`_substitute_x`); ``up_to``
         #: lets the chooser stop early. Looking at a hand is a zero-effect visibility action here, as "reveals".
@@ -2191,6 +2247,13 @@ class RevealHandChooseDiscardEffect(GameEffect):
         caster = _controller_of(self.source, context)
         if caster is None:
             return
+        else_specs = list(self.else_specs)
+        from .. import effect_conditions  # avoid the effect_conditions<->effects import cycle
+        shuffles = self.shuffle_if_none and (
+            not self.shuffle_condition
+            or effect_conditions.condition_holds(self.shuffle_condition, context, self.source, targets))
+        if shuffles:
+            else_specs.append({"type": "shuffle", "params": {"player_id": revealed_player.id}})
         if self.reveal:
             for obj in revealed_player.hand:
                 context.state.reveal_card(obj, revealed_player.id)
@@ -2199,6 +2262,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
             candidates.extend(revealed_player.graveyard)
         count = max(0, int(self.count)) if not isinstance(self.count, str) else 0
         if count == 0:
+            if shuffles:
+                context.shuffle_library(revealed_player)
             return  # "choose X cards" with X = 0
         count = max(1, min(count, len(candidates)))
         if not candidates and revealed_player.hand:
@@ -2206,7 +2271,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
             # impossible choice's else-branch or the spell's next instruction.
             context.look_at_hand(caster, revealed_player, source=self.source)
             choice = context.state.pending_choice
-            choice["hand_else_specs"] = self.else_specs
+            choice["hand_else_specs"] = else_specs
             choice["source_id"] = getattr(self.source, "instance_id", None)
             choice["effect_controller_id"] = caster.id
         else:
@@ -2214,7 +2279,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
                 caster, candidates, "select_referent" if self.then_specs else _HAND_PICK_ACTIONS[self.destination],
                 count=count, source=self.source, then_specs=self.then_specs,
                 optional=self.optional or self.up_to,
-                else_specs=self.else_specs or None, force_choice=True,
+                else_specs=else_specs or None, force_choice=True,
                 track_exiled_with=self.track_exiled_with,
             )
         choice = context.state.pending_choice
@@ -2375,96 +2440,26 @@ class PutHandCardOnBottomThenDrawEffect(GameEffect):
         context.put_hand_card_on_bottom_then_draw(player)
 
 
-#: RULE 601.2c mass "destroy/exile all X" selectors (Wrath of God/Citywide
-#: Bust/Farewell-shaped board wipes) — untargeted, unlike every RULE 115
-#: target form above, so `DestroyEffect`/`ExileEffect` skip `target_spec`
-#: entirely when one of these is set, mirroring `DealDamageEffect.selector`.
-_MASS_DESTROY_SELECTORS: frozenset[str] = frozenset(
-    {
-        "all_creatures", "all_artifacts", "all_enchantments", "all_artifacts_and_enchantments", "all_permanents",
-        "all_planeswalkers", "all_lands",
-        # "destroy all Equipment attached to that creature." (Awaken the
-        # Sleeper's after-tail — "that creature" is the threaten clause's
-        # chosen target, `GameContext.previous_targets`). The printed "you
-        # may" isn't offered as an interactive choice (documented
-        # simplification — it's the opponent's Equipment about to help a
-        # creature leaving your control; a `previous_target_is_equipped`
-        # `ConditionalEffect` gate already skips the clause when empty).
-        "equipment_attached_to_previous",
-        # "return all nonland permanents with mana value X or less to their
-        # owners' hands." (Displacement Wave) — `ReturnToHandEffect`'s own
-        # mass-bounce sibling of the destroy/exile board wipes above.
-        "all_nonland_permanents",
-        # "return all blue creatures your opponents control to their
-        # owners' hands." (Llawan, Cephalid Empress, MEC-43) — the
-        # opponent-scoped sibling of ``all_creatures``, combined with the
-        # new ``color`` ``filt`` key below rather than a wider single-word
-        # scope, since no other card here needs "opponents' creatures"
-        # alone yet.
-        "opponents_creatures",
-        # "Destroy all enchantments your opponents control." (Spring
-        # Cleaning — a clash win-branch) and the artifact sibling. The
-        # opponent-scoped versions of ``all_enchantments``/``all_artifacts``,
-        # keyed the same "opponents_<type>" way as ``opponents_creatures``.
-        "opponents_enchantments", "opponents_artifacts",
-        # "exile all other permanents you control." (MEC-43 round 4D,
-        # Worldgorger Dragon) — mandatory and unqualified by type, unlike
-        # `ExileAnyNumberYouControlEffect`'s own "any number" *choice* among
-        # the controller's other permanents (Abdel Adrian, Gorion's Ward):
-        # there's no decision here at all, so it belongs with the plain
-        # `_MASS_DESTROY_SELECTORS` board-wipe family instead.
-        "other_permanents_you_control",
-        # "Destroy all other creatures." / "…all creatures other than ~" /
-        # "…all creatures except for ~" (Novablast Wurm, Magister of Worth's
-        # vote branch, Mageta the Lion) — RULE 400's "other" = every
-        # creature except this effect's own source, whoever controls it;
-        # and the controller-scoped sibling "destroy all other creatures
-        # you control" (Desolation Giant).
-        "all_other_creatures", "other_creatures_you_control",
-        # "Return all other nonland permanents to their owners' hands." (PAR-128,
-        # Kederekt Leviathan) — `all_nonland_permanents` minus the source.
-        "all_other_nonland_permanents",
-    }
-)
+#: The one RULE 601.2c mass "destroy/exile/return all X" name left (ENG-61): a group defined *relative to an earlier
+#: clause*, not by characteristics, so it has no structured ``{zone, of, filter}`` spelling. Every other board wipe
+#: names its group with the structured ``group`` (`_mass_group_objects`). "destroy all Equipment attached to that
+#: creature." (Awaken the Sleeper's after-tail -- "that creature" is the threaten clause's chosen target,
+#: `GameContext.previous_targets`). The printed "you may" isn't offered as an interactive choice (documented
+#: simplification -- it's the opponent's Equipment about to help a creature leaving your control; a
+#: `previous_target_is_equipped` `ConditionalEffect` gate already skips the clause when empty).
+_MASS_RELATIVE_SELECTORS: frozenset[str] = frozenset({"equipment_attached_to_previous"})
 
 
 def _mass_selector_objects(
     context: GameContext, selector: str, filt: Optional[dict[str, Any]] = None,
     source: Optional["GameObject"] = None,
 ) -> list[Any]:
-    """The battlefield objects a mass "all X [with condition]" selector
-    picks — a snapshot list (the caller destroys/exiles each in turn, which
-    mutates ``state.battlefield`` as it goes; iterating this separate list
-    keeps that safe). ``filt`` is a small closed vocabulary of optional
-    numeric conditions, all AND-combined: ``min_toughness``/``max_mana_
-    value``/``min_mana_value`` (Citywide Bust/Austere Command-shaped), plus
-    ``color`` (MEC-43, Llawan — a single WUBRG letter, checked against each
-    candidate's `GameObject.colors`). ``source`` is only needed by the
-    ``"opponents_creatures"`` selector, to know whose opponents.
-    """
-    # RULE 702.26c: a phased-out permanent is treated as though it doesn't
-    # exist — a board wipe leaves it untouched.
+    """The battlefield objects a relative mass selector (`_MASS_RELATIVE_SELECTORS`) picks, narrowed by the optional
+    ``filt`` vocabulary (`_apply_mass_filter`). Any other name selects nothing (fail closed). A snapshot list: the
+    caller destroys/exiles each in turn, which mutates ``state.battlefield`` as it goes."""
+    # RULE 702.26c: a phased-out permanent is treated as though it doesn't exist -- a board wipe leaves it untouched.
     battlefield = context.state.permanents()
-    if selector == "all_creatures":
-        result = [o for o in battlefield if o.is_creature]
-    elif selector == "all_artifacts":
-        result = [o for o in battlefield if o.is_artifact]
-    elif selector == "all_enchantments":
-        result = [o for o in battlefield if o.is_enchantment]
-    elif selector == "all_artifacts_and_enchantments":
-        result = [o for o in battlefield if o.is_artifact or o.is_enchantment]
-    elif selector == "all_planeswalkers":
-        result = [o for o in battlefield if getattr(o, "is_planeswalker", False)]
-    elif selector == "all_permanents":
-        result = list(battlefield)
-    elif selector == "all_lands":
-        result = [o for o in battlefield if o.is_land]
-    elif selector == "all_nonland_permanents":
-        result = [o for o in battlefield if not o.is_land]
-    elif selector == "equipment_attached_to_previous":
-        # "destroy all Equipment attached to that creature." (Awaken the
-        # Sleeper's own after-tail) — "that creature" is the threaten
-        # clause's chosen target (`GameContext.previous_targets`).
+    if selector == "equipment_attached_to_previous":
         prev = context.previous_targets[0] if context.previous_targets else None
         pid = getattr(prev, "instance_id", None)
         result = [
@@ -2472,47 +2467,31 @@ def _mass_selector_objects(
             if pid is not None and o.attached_to == pid
             and o.has_subtype("equipment")
         ]
-    elif selector == "opponents_creatures":
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o.is_creature and controller_id is not None and o.controller_id != controller_id
-        ]
-    elif selector in ("opponents_enchantments", "opponents_artifacts"):
-        controller_id = getattr(source, "controller_id", None)
-        want = "is_enchantment" if selector.endswith("enchantments") else "is_artifact"
-        result = [
-            o for o in battlefield
-            if getattr(o.card, want, False)
-            and controller_id is not None and o.controller_id != controller_id
-        ]
-    elif selector == "other_permanents_you_control":
-        # "exile all other permanents you control." (MEC-43 round 4D,
-        # Worldgorger Dragon) — every battlefield permanent this source's
-        # own controller has, minus the source itself (the printed
-        # "other").
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o is not source and controller_id is not None and o.controller_id == controller_id
-        ]
-    elif selector == "all_other_nonland_permanents":
-        result = [o for o in battlefield if not o.is_land and o is not source]
-    elif selector == "all_other_creatures":
-        # RULE 400: "other" excludes this effect's own source, regardless
-        # of who controls it (Novablast Wurm, Mageta the Lion).
-        result = [o for o in battlefield if o.is_creature and o is not source]
-    elif selector == "other_creatures_you_control":
-        # "destroy all other creatures you control." (Desolation Giant) —
-        # ``all_other_creatures`` narrowed to the source's own controller.
-        controller_id = getattr(source, "controller_id", None)
-        result = [
-            o for o in battlefield
-            if o.is_creature and o is not source
-            and controller_id is not None and o.controller_id == controller_id
-        ]
     else:
         result = []
+    return _apply_mass_filter(context, result, filt, source)
+
+
+def _mass_group_objects(
+    context: GameContext, group: dict[str, Any], group_player: Optional[str], source: Optional["GameObject"],
+    chosen: Optional[Any] = None, filt: Optional[dict[str, Any]] = None,
+) -> Optional[list[Any]]:
+    """ENG-61: a structured mass ``group`` (`{"zone","of","filter"}`) narrowed by the same optional ``filt`` vocabulary
+    `_mass_selector_objects` applies to a named selector, so a board wipe may name its group either way and gets the
+    same objects. ``None`` when a scoped player can't be found (the effect then does nothing)."""
+    from .core import _group_objects
+
+    objects = _group_objects(context, group, group_player, source, chosen)
+    if objects is None:
+        return None
+    return _apply_mass_filter(context, objects, filt, source)
+
+
+def _apply_mass_filter(
+    context: GameContext, result: list[Any], filt: Optional[dict[str, Any]], source: Optional["GameObject"],
+) -> list[Any]:
+    """The closed numeric/state vocabulary (`_mass_selector_objects`'s ``filt``) applied to an already-picked group."""
+    battlefield = context.state.permanents()
     if filt:
         color = filt.get("color")
         if color:

@@ -129,6 +129,15 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     #: turn). Covers Absorb for free — `effect_binder.attach_to_object`'s
     #: Absorb branch reuses this exact factory.
     effect.prevents_damage = True
+    # A rider may be a list of independent follow-ups (New Way Forward); any counter-removal entry is unpreventable.
+    effect.unpreventable_rider = any(
+        one.get("kind") == "remove_self_counter" for one in (rider if isinstance(rider, list) else [rider]) if one
+    )
+
+    def _source(context):
+        # The closures survive deepcopy; resolve their source in this state.
+        source = effect.source
+        return (context.state.find_object(source.instance_id) or source) if source is not None else None
 
     def _controlled_permanent_matches(
         filt: Optional[dict], event: GameEvent, context: GameContext, src: Any,
@@ -158,7 +167,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         return _controlled_permanent_matches(entry, event, context, src)
 
     def _recipient_matches(event: GameEvent, context: GameContext) -> bool:
-        src = effect.source
+        src = _source(context)
         if recipient_union is not None:
             return any(_recipient_entry_matches(e, event, context, src) for e in recipient_union)
         if to == "self":
@@ -210,7 +219,7 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     def _source_matches(event: GameEvent, context: GameContext) -> bool:
         if not source_filter:
             return True
-        src = effect.source
+        src = _source(context)
         color = source_filter.get("color")
         if color is not None and color not in (event.get("source_colors") or ()):
             return False
@@ -301,8 +310,8 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
     requires_counter = params.get("requires_counter")
 
     def _applies(event: GameEvent, context: GameContext) -> bool:
-        if requires_counter and not (getattr(effect.source, "counters", None) or {}).get(str(requires_counter)) and not (
-            str(requires_counter) == "+1/+1" and getattr(effect.source, "plus_one_counters", 0)
+        if requires_counter and not (getattr(_source(context), "counters", None) or {}).get(str(requires_counter)) and not (
+            str(requires_counter) == "+1/+1" and getattr(_source(context), "plus_one_counters", 0)
         ):
             return False
         return _recipient_matches(event, context) and _source_matches(event, context)
@@ -311,12 +320,16 @@ def _prevent_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
         # `_applies` is already checked by `can_replace()` (`effect.condition`
         # below) before `replace()` is ever called in this pass.
         dealt = int(event.get("amount", 0) or 0)
-        survives = _survives(dealt, effect.source, context)
+        damage_source = context.state.find_object(event.get("source_id")) if event.get("source_id") is not None else None
+        disabled = context.engine.damage_prevention_is_disabled(damage_source, bool(event.get("combat")))
+        survives = dealt if disabled else _survives(dealt, _source(context), context)
         prevented = dealt - survives
-        if rider is not None and prevented > 0:
+        # RULE 615.12: counter removal still happens when prevention fails.
+        rider_amount = dealt if disabled and effect.unpreventable_rider else prevented
+        if rider is not None and rider_amount > 0:
             context.engine.apply_prevent_rider(
-                rider, prevented, event, getattr(effect.source, "controller_id", None),
-                shield_source=effect.source,
+                rider, rider_amount, event, getattr(_source(context), "controller_id", None),
+                shield_source=_source(context),
             )
         if survives <= 0:
             return None  # fully prevented — the event doesn't happen
@@ -1295,9 +1308,13 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
     creature tokens would be created under your control, that many 4/4 white Angel creature tokens with flying
     and vigilance are created instead." (Divine Visitation). A substitute that is itself a creature token is
     not replaced again by this same effect (it would loop; RULE 614.5 — a replacement applies once to an event).
+
+    ``from_any_tokens`` widens it further to every token, creature or not: "If one or more tokens would be created
+    under your control, that many 3/3 colorless Illusion artifact creature tokens are created instead." (Holo-Engineer).
     """
     from_token = str(params.get("from_token", ""))
     from_creature_tokens = bool(params.get("from_creature_tokens", False))
+    from_any_tokens = bool(params.get("from_any_tokens", False))
     to = dict(params.get("to") or {})
     min_level = int(params.get("min_level", 0) or 0)
     effect = ReplacementEffect(
@@ -1312,6 +1329,8 @@ def _substitute_token_replacement(params: dict[str, Any]) -> ReplacementEffect:
             return False
         if min_level and int((getattr(src, "counters", None) or {}).get("class_level", 1) or 1) < min_level:
             return False
+        if from_any_tokens:
+            return bool(to) and not event.get("token_definition")
         if from_creature_tokens:
             return bool(to) and bool(event.get("is_creature")) and not event.get("token_definition")
         return bool(to) and event.get("token_name") == from_token
@@ -1672,6 +1691,96 @@ def _first_draw_look_two_replacement(params: dict[str, Any]) -> ReplacementEffec
     return effect
 
 
+class RegenerateSelfReplacement(ReplacementEffect):
+    """RULE 701.19b: a standing regeneration replacement is never consumed."""
+
+    def __init__(self):
+        super().__init__(event_type=EventType.DESTROY, replacement_fn=self._replace,
+                         condition=self._matches)
+
+    def _matches(self, event, context):
+        return self.source is not None and event.get('target_id') == self.source.instance_id
+
+    def _replace(self, event, context):
+        victim = context.state.find_object(event.get('target_id'))
+        if victim is not None:
+            context.engine.regenerate_instead(victim)
+        return None
+
+
+class RegenerationShield(RegenerateSelfReplacement):
+    """One destruction replacement and the instructions tied to its use."""
+
+    regeneration_shield = True
+
+    def __init__(self, source, *, controller_id=None, counter=None, take_control=False, drawer_id=None):
+        super().__init__()
+        self.source = source
+        self.controller_id = controller_id
+        self.counter = counter
+        self.take_control = take_control
+        self.drawer_id = drawer_id
+        self.description = f"{source.name}: Regenerationsschild"
+
+    def _replace(self, event, context):
+        from ..control import gain_control
+        from .composition import OptionalEffect
+        from .core import TriggeredAbility
+        from .counters_tokens import AddCountersEffect
+
+        victim = self.source
+        victim.replacement_effects.remove(self)
+        context.engine.regenerate_instead(victim)
+        # RULE 701.19a: the conditional control change is part of the
+        # replacement. "When it regenerates" instead creates a trigger.
+        if self.take_control:
+            player = context.state.player_by_id(self.controller_id)
+            if player is not None and not player.has_lost:
+                gain_control(context.state, victim, player.id, duration="permanent")
+        if self.counter:
+            effects = [AddCountersEffect(kind=self.counter, source=victim)]
+        elif self.drawer_id:
+            if context.state.player_by_id(self.drawer_id).has_lost:
+                return None
+            drawer = {"of": "event_player", "as": "self"}
+            effects = [OptionalEffect(
+                effects=[{"type": "draw", "params": {"player": drawer}}],
+                player=drawer, source=victim, prompt="Eine Karte ziehen?",
+            )]
+        else:
+            return None
+        firing = GameEvent(
+            EventType.REGENERATED, instance_id=victim.instance_id, player_id=self.drawer_id,
+            source_zone_incarnation=victim.zone_incarnation,
+        )
+        ability = TriggeredAbility(
+            trigger_event=firing.type, effects=effects, controller_id=self.controller_id,
+            source=victim, description=f"{victim.name}: Regeneration",
+        )
+        context.engine.pending_triggers.append((ability, firing))
+        return None
+
+
+class CountersInsteadOfEmptyDraw(ReplacementEffect):
+    """RULE 614.1a/614.6: replace one empty-library draw with counters."""
+
+    def __init__(self, params):
+        self.amount = int(params.get('amount', 5))
+        super().__init__(event_type=EventType.DRAW, replacement_fn=self._replace,
+                         condition=self._matches)
+
+    def _matches(self, event, context):
+        source = self.source
+        if source is None or event.get('player_id') != source.controller_id:
+            return False
+        player = context.state.player_by_id(source.controller_id)
+        return player is not None and not player.library
+
+    def _replace(self, event, context):
+        context.add_counters(self.source, self.amount, source=self.source)
+        return None
+
+
 class ReplacementRegistry:
     """Maps a whitelisted replacement-type name to a `ReplacementEffect` factory.
 
@@ -1755,6 +1864,7 @@ def _redirect_damage_replacement(params: dict[str, Any]) -> ReplacementEffect:
 
 
 ReplacementRegistry.register("prevent_damage", _prevent_damage_replacement)
+ReplacementRegistry.register('regenerate_self', lambda params: RegenerateSelfReplacement())
 ReplacementRegistry.register("redirect_damage", _redirect_damage_replacement)
 ReplacementRegistry.register("prevent_damage_convert_counters", _prevent_damage_convert_counters_replacement)
 ReplacementRegistry.register("double_damage", _double_damage_replacement)
@@ -1790,3 +1900,9 @@ from .guile import GuileCounterReplacement
 ReplacementRegistry.register("guile_counter", lambda p: GuileCounterReplacement())
 
 register(globals())
+
+ReplacementRegistry.register('counters_instead_of_empty_draw', CountersInsteadOfEmptyDraw)
+
+from .edict_riders import skip_draw_replacement, life_gain_to_draw_replacement
+ReplacementRegistry.register("skip_draw", skip_draw_replacement)
+ReplacementRegistry.register("life_gain_to_draw", life_gain_to_draw_replacement)

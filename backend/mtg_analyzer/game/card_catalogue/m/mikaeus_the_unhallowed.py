@@ -39,10 +39,10 @@ def _mikaeus_the_unhallowed() -> list[AbilitySpec]:
             "static",
             [
                 EffectSpec("anthem", {
-                    "affects": "other_nonhuman_creatures_you_control", "power": 1, "toughness": 1,
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "without_subtype": "human"}}, "power": 1, "toughness": 1,
                 }),
                 EffectSpec("grant_keyword", {
-                    "affects": "other_nonhuman_creatures_you_control", "keywords": ["undying"],
+                    "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "without_subtype": "human"}}, "keywords": ["undying"],
                 }),
             ],
         ),

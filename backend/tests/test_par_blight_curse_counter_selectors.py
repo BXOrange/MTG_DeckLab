@@ -61,7 +61,7 @@ def test_each_other_creature_excludes_the_activated_ability_source():
     ally = _creature(engine.state, "Ally", "p1")
     opponent = _creature(engine.state, "Opponent", "p2")
     effect = build_effects([
-        EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "selector": "each_other_creature"})
+        EffectSpec("add_counters", {"count": 1, "kind": "-1/-1", "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "not_reference": True}}})
     ], source)[0]
 
     effect.apply(GameContext(engine.state, engine.rules))

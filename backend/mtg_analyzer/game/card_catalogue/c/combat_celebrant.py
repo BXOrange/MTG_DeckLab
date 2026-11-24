@@ -32,7 +32,7 @@ def _combat_celebrant() -> list[AbilitySpec]:
             [
                 EffectSpec(
                     "tap",
-                    {"selector": "other_creatures_you_control", "untap": True},
+                    {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "untap": True},
                     condition={"not_already_exerted": True},
                 ),
                 EffectSpec(

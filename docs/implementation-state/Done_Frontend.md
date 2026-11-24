@@ -10,6 +10,10 @@ the code lands here (Ctrl+F/grep the exact phrase). Entries written before
 exists; both were merged into `BACKLOG.md`, and those mentions have been
 repointed there.
 
+Delivered fixes and separate scope boundaries are distinguished below. A
+backend modeled/authored verdict does not establish that an excluded UI path
+or interaction redesign has been delivered.
+
 ## Custom table emoji reactions
 
 - The “☺️＋” chat button opens a click-only emoji palette with six categories:
@@ -348,7 +352,7 @@ repointed there.
 - **What:** A "1/1 white Soldier"-shaped token an effect synthesizes inline (no catalogue ability) now shows its real printed art by default instead of a text tile, for the overwhelming majority of tokens that don't already carry an ability (Treasure/Clue/… already had this via the small hand-curated `data/tokens.json`). `scripts/build_token_art_library.py` builds `backend/mtg_analyzer/data/token_art.json` from Scryfall's `default_cards` bulk dump (filtered to `set_type == "token"` real companion sheets, dropping ad/checklist/boxed-game filler mixed into the same layout), keyed by the exact **(name, power, toughness, colors)** combination — 639 entries across 422 distinct names as of the 2026-09 build. `TokenArtLibrary.find` (`services/token_database.py`) is consulted from `synthesize_token_card` (and so every one of its call sites — `CreateTokenEffect`, copy/Incubator/Endure/populate paths — for free) and from `services/replay.py`'s `_token_card` (the Replay/Puzzle board-editor add-token form); a miss leaves the pre-existing imageless behaviour untouched.
 - **Why a (name, power, toughness, colors) key, not just name:** Magic reprints the same token name at different stat lines across sets — several "Shapeshifter" tokens exist as a 1/1, a 2/2 (blue), and a 3/2, and "Spirit" has 14 distinct stat/colour combinations — so a name-only lookup would show one variant's art on every other variant.
 - **Frontend wiring:** `gameBoardView.js`'s `resolveImageUrl` now tries an id-keyed lookup *before* the existing by-name `imageCache` lookup, since two different token variants sharing a display name can't both win a by-name key; `goldfishView.js`/`soloView.js`/`multiplayerView.js`'s token-art preloaders (`preloadDeckTokens`/`preloadDecksTokens`) now seed `imageCache` by the token's own id first (unique per variant) and by name only as a same-name fallback + `cardImages.js` tooltip-cache key. Multiplayer additionally preloads every seat's producible tokens now, not just the client's own deck's (mirroring the existing VIS-6 all-seats card-art preload).
-- **Known gap:** Replay/Puzzle's manually-typed add-token form resolves real art server-side (`_token_card`) but the frontend never preloads/receives it for a freeform (non-decklist-driven) token, so it still shows the text/generic fallback there — `GameObject.to_dict()` carries no image fields on the wire, and there's no "producible tokens" list to preload from in that mode. Goldfisch/Solo/Multiplayer (tokens created by real gameplay effects) are unaffected.
+- **Scope boundary:** Replay/Puzzle's manually-typed add-token form resolves real art server-side (`_token_card`) but the frontend never preloads/receives it for a freeform (non-decklist-driven) token, so it still shows the text/generic fallback there — `GameObject.to_dict()` carries no image fields on the wire, and there's no "producible tokens" list to preload from in that mode. Goldfisch/Solo/Multiplayer (tokens created by real gameplay effects) are unaffected.
 - **Files:** `backend/scripts/build_token_art_library.py`, `mtg_analyzer/services/token_database.py`, `mtg_analyzer/services/replay.py`; `frontend/src/js/gameBoardView.js`, `goldfishView.js`, `soloView.js`, `multiplayerView.js`.
 
 ## Goldfish Board Core
@@ -380,7 +384,7 @@ repointed there.
 
 - **What:** LIFO stack display with a "Priorität abgeben" control resolving one item at a time; a topbar shows turn/phase/step plus a ☀️/🌙 day-night badge (RULE 732) that stays hidden until a designation is established.
 - **Files:** `goldfishView.js`, `gameBoardView.js`
-- **Bugfix (interactive board locked whenever a non-creature spell hit the stack):** `spellTypeLabel` (the stack-item badge) matched on `t` — the imported i18n *function* — instead of `tl`, the lower-cased type line, on every branch after "creature". For an instant/sorcery/artifact/enchantment/planeswalker spell that meant `t.includes(...)` → `TypeError: t.includes is not a function`, thrown out through `stackItemHtml` → `stackOverlayHtml` → `render()`. Because `withBusy` ran its first `render()` *before* its `try`, the throw escaped and left `busy` stuck true, disabling every priority/pass/cast control (`disabled = busy || …`) — reported as "as soon as spells go on the stack nothing reacts, all controls blocked". Fixed the `t`→`tl` typo (those 5 branches had *never* run, so their hard-coded German literals were dead code — now routed through new parity-matched `bd.stack.{instant,sorcery,planeswalker,artifact,enchantment,generic}Spell` keys) and moved `withBusy`'s first `render()` inside the `try` so a render exception can never wedge `busy` again. Creature spells and triggered/activated abilities were unaffected (earlier returns). Separate follow-up still open: reworking the stack/priority *interaction* itself (the modal-overlay "Zur Seite schieben" flow).
+- **Bugfix (interactive board locked whenever a non-creature spell hit the stack):** `spellTypeLabel` (the stack-item badge) matched on `t` — the imported i18n *function* — instead of `tl`, the lower-cased type line, on every branch after "creature". For an instant/sorcery/artifact/enchantment/planeswalker spell that meant `t.includes(...)` → `TypeError: t.includes is not a function`, thrown out through `stackItemHtml` → `stackOverlayHtml` → `render()`. Because `withBusy` ran its first `render()` *before* its `try`, the throw escaped and left `busy` stuck true, disabling every priority/pass/cast control (`disabled = busy || …`) — reported as "as soon as spells go on the stack nothing reacts, all controls blocked". Fixed the `t`→`tl` typo (those 5 branches had *never* run, so their hard-coded German literals were dead code — now routed through new parity-matched `bd.stack.{instant,sorcery,planeswalker,artifact,enchantment,generic}Spell` keys) and moved `withBusy`'s first `render()` inside the `try` so a render exception can never wedge `busy` again. Creature spells and triggered/activated abilities were unaffected (earlier returns). This delivery fixes the render exception and busy-state recovery. Reworking the stack/priority *interaction* itself (the modal-overlay "Zur Seite schieben" flow) is a separate product change; the bugfix does not establish that it has been delivered.
 
 ### Per-card action buttons from legal_actions
 
@@ -414,6 +418,8 @@ repointed there.
 - **What:** A themed modal panel answers any `pending_choice` kind server-side offers — library search, cascade/discover, replacement-order, shock-land pay-life, trigger target/"you may", trigger ordering, enter-as-copy, counter-unless-pays — via the shared `CHOICE_ICONS`/generic one-button-per-option mechanism.
 - **Files:** `gameBoardView.js`
 
+- **Variable payments (MEC-146):** The shared prompt shows the contributions so far. The current payer can move the mana prompt aside and activate mana abilities from the existing card menus before choosing how much to pay.
+
 ### Physical measurement input (MEC-123)
 
 - **What:** The shared choice panel displays the printing/face and image, accepts an explicit bounded nonnegative integer and submits the ordinary choose action. It starts empty, rejects fractions and scientific notation, retains the draft after errors, and supports Enter. Printing labels are escaped; internal IDs remain internal.
@@ -433,6 +439,8 @@ repointed there.
 
 - **What:** `castTargetHtml`/`castTargetModalHtml` turn any `cast_spell`/`activate_ability` with `requires_target` into a modal that walks each target requirement in turn (multi-target support), offering "∅ Kein Ziel" when optional. One mechanism covers spell targeting, Aura-attach targeting, and Equip/Fortify/Reconfigure — no separate "equip control" was built.
 - **Files:** `gameBoardView.js`
+
+- **Mana-value X sacrifice costs (MEC-173):** The activation form offers the X values that have both a valid payment and legal targets. Changing X changes the graveyard targets and filters the subsequent sacrifice picker to the same mana value.
 
 ### Target controller tag and click-on-board picking (VIS-13, VIS-14)
 
@@ -495,6 +503,11 @@ repointed there.
 
 ## Casting & Costs (frontend)
 
+### Per-cost kicker toggles (ENG-62)
+
+- **What:** for a card with two kicker costs the cast form shows one checkbox per cost ("Kicker {1}{U}", escaped), mirroring the existing kicker control; a cost no affordable combination includes is disabled. `readKickerAnnouncement` sends the list of cost indices from `castController.js`/`dragController.js`, while `readKicker` still returns the count for existing comparisons. A drag-cast sends unkicked (the toggles live in the menu).
+- **Validation:** `frontend/tests/test_kicker_cast_form.py` drives headless Chromium against the shared `gameBoardView` and a real `GameSession` with Anavolver: both toggles appear, each combination sends `[0]`/`[1]`/`[0, 1]`/`[]` and the engine records the same `kicker_costs_paid`.
+
 ### Gift recipient cast offers (RULE 702.174)
 
 - **What:** Each server-provided Gift cast offer is rendered as a distinct button naming the
@@ -514,6 +527,11 @@ repointed there.
 - **What:** A spell whose additional cast cost is "discard N cards" (Thrill of Possibility, Cathartic Reunion, Tormenting Voice, Wild Guess, Big Score, …) now opens the same one-pick-at-a-time modal the tap/sacrifice cost choices use, so the player chooses *which* cards pay it, and the picks ride the cast action as `discard_choices`. The modal heading/glyph (🗑️) mark it as a cost choice, not a RULE 115 target.
 - **Files:** `gameBoardView.js` (`data-discard-choice-start` branch + handler, `isDiscardChoice` in `finishCastIfReady`/`castTargetModalHtml`/draft-restore), `game/engine/legal_actions_mixin.py` (`_cast_action` surfaces `discard_cost` = `{count, options}`), `services/game_session.py` (`_dispatch_cast_spell` now resolves and forwards `sacrifice_choice`/`discard_choices`).
 - **Bug fixed:** the engine (`_resolve_discard_cost`, ENG-3) had accepted `discard_choices` on `cast_spell` since the cost-payment-choices batch, but `_dispatch_cast_spell` silently dropped the field (same shape as the earlier `kicked` bug) and the board never prompted — so a rummage spell always auto-discarded the front of the hand with no way to choose. Fixed all three layers together; covered by `test_game_session.py::test_cast_spell_forwards_discard_choices_for_an_additional_cost`.
+
+### Any-number sacrifice picker (MEC-169, RULE 107.1c / 601.2b)
+
+- **What:** an "any number of" sacrifice cost (Emrakul's Evangel, Sword of the Ages) lists its repeatable slot last (`sacrifice_cost.any_number`); the board offers one optional pick per candidate after the fixed slots and a "finish" button, so the player announces any count including zero, and the picks go back as `tap_choices`.
+- **Files:** `gameBoard/castController.js` (`sacrificeSlotRequirements`, `finishOnSkip`); real-browser test `frontend/tests/test_any_number_sacrifice_cost.py` (picks 2 of 3, exactly those are sent, no page errors).
 
 ### Activated return-cost picker (RULE 602.2b / 601.2h)
 

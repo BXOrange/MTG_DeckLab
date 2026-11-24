@@ -24,7 +24,7 @@ def _breach_the_multiverse() -> list[AbilitySpec]:
         EffectSpec("grant_until", {
             "target_kind": None, "duration": "rest_of_game", "lock_group": True,
             "static": {"type": "type_change", "params": {
-                "affects": "creatures_you_control", "add_subtypes": ["Phyrexian"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "add_subtypes": ["Phyrexian"],
             }},
         }),
     ])]

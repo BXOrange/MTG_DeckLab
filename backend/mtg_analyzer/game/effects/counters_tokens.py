@@ -76,46 +76,6 @@ class BecomePreparedEffect(GameEffect):
                 context.make_prepared(subject)
 
 
-#: `AddCountersEffect.selector`'s closed vocabulary — a mass, untargeted
-#: "put a counter on each …" (RULE 601.2c), the group `continuous.
-#: group_selector_objects` already resolves for pump/anthem clauses.
-#: ``each_other_creature_you_control`` (MEC-11's Bellowing Aegisaur — "put a
-#: +1/+1 counter on each **other** creature you control") is the RULE 109.5
-#: "another" exclusion of the ability's own source, `group_selector_objects`'s
-#: existing ``"other_creatures_you_control"`` affects value.
-#: ``each_other_planeswalker_you_control`` (Ajani Steadfast's own "-2",
-#: MEC-30) — the planeswalker-scoped sibling of ``each_other_creature_you_
-#: control`` just above, `group_selector_objects`'s own ``"other_
-#: planeswalkers_you_control"`` affects value.
-_ADD_COUNTERS_SELECTORS: frozenset[str] = frozenset(
-    {
-        "each_creature_you_control", "each_other_creature_you_control",
-        "each_other_planeswalker_you_control",
-        # RULE 122.1a — -1/-1-counter decks commonly affect every creature,
-        # every other creature, or the creatures an opponent controls.
-        "each_creature", "each_other_creature", "each_creature_opponents_control",
-    }
-)
-#: Maps each `_ADD_COUNTERS_SELECTORS` member to the `continuous.
-#: group_selector_objects` ``affects`` value it resolves against.
-_ADD_COUNTERS_SELECTOR_AFFECTS: dict[str, str] = {
-    "each_creature_you_control": "creatures_you_control",
-    "each_other_creature_you_control": "other_creatures_you_control",
-    "each_other_planeswalker_you_control": "other_planeswalkers_you_control",
-    "each_creature": "all_creatures",
-    "each_other_creature": "all_other_creatures",
-    "each_creature_opponents_control": "creatures_opponents_control",
-}
-
-
-#: The `_ADD_COUNTERS_SELECTORS` a following "those creatures" may replay by
-#: name — creature groups only (`_apply_effects_partitioned`'s
-#: `previous_selector` bookkeeping).
-ADD_COUNTERS_GROUP_AFFECTS: dict[str, str] = {
-    k: v for k, v in _ADD_COUNTERS_SELECTOR_AFFECTS.items() if k != "each_other_planeswalker_you_control"
-}
-
-
 class TransferEventCountersEffect(GameEffect):
     """Put each kind of counter from a departing object's snapshot on a target."""
 
@@ -147,14 +107,13 @@ class AddCountersEffect(GameEffect):
     "put a +1/+1 counter on each of up to two target creatures", the
     Support-keyword-shaped family; note ``count`` here is the *target*
     count, distinct from ``amount``, the number of counters placed on each).
-    ``selector`` (`_ADD_COUNTERS_SELECTORS` — RULE 601.2c, Vastwood Surge's
-    "put two +1/+1 counters on each creature you control") is instead a
-    mass, untargeted effect over the group `continuous.
-    group_selector_objects` already resolves for pump/anthem clauses —
-    mirrors `DealDamageEffect.selector`'s "no `target_spec` at all" shape.
-    ``subtypes`` (Vault 12: The Necropolis's own chapter III — "each
-    creature you control that's a Zombie or Mutant") further narrows that
-    same mass group to an OR-combined creature-subtype filter, checked
+    ``group`` (RULE 601.2c, Vastwood Surge's "put two +1/+1 counters on each
+    creature you control") is instead a mass, untargeted effect over the
+    structured selector `continuous.group_selector_objects` resolves (ENG-61:
+    the named ``each_*`` selectors and the ``subtypes`` narrowing were folded
+    into that selector's filter; a leftover named ``selector`` is inert).
+    ``subtypes`` formerly narrowed that named group (Vault 12: The Necropolis's own chapter III — "each
+    creature you control that's a Zombie or Mutant") to an OR-combined creature-subtype filter, checked
     against the *live* object (unlike a DIES trigger's own subtype filter,
     every affected creature here is still on the battlefield) — a real,
     broader gap beyond this one card (tribal mass-counter effects are common).
@@ -184,6 +143,7 @@ class AddCountersEffect(GameEffect):
         group: Optional[dict] = None,
         previous_group_scope: Optional[str] = None,
         kind_options: Optional[list[dict[str, Any]]] = None,
+        choose_existing_kind: bool = False,
         choose_one: bool = False,
         group_other: bool = False,
         per_recipient_stat: Optional[str] = None,
@@ -225,13 +185,13 @@ class AddCountersEffect(GameEffect):
             {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
             for o in (kind_options or [])
         ] or None
+        self.choose_existing_kind = bool(choose_existing_kind)
         #: ``"not_you"`` — "put a stun counter on each of those creatures **you don't control**"
         #: (Lost in the Maze): `previous_group` narrowed to the objects another player controls.
         self.previous_group_scope = previous_group_scope if previous_group_scope == "not_you" else None
         #: PAR-128: "put an impostor counter on each creature you control" /
         #: "…on each Equipment you control" — a structured battlefield selector
-        #: (`{"zone","of","filter"}`) naming the mass group, for the kinds
-        #: `_ADD_COUNTERS_SELECTORS` has no named entry for.
+        #: (`{"zone","of","filter"}`) naming the mass group (ENG-61: the only spelling now).
         self.group = dict(group) if isinstance(group, dict) else None
         #: PAR-128: "tap all creatures your opponents control, then put a stun
         #: counter on **each of those creatures**" — the group the preceding
@@ -276,8 +236,9 @@ class AddCountersEffect(GameEffect):
         # The counter type: "+1/+1" (default) or "-1/-1" (RULE 122). Both shift
         # net P/T the same machinery, just with opposite sign.
         self.kind = kind
-        self.selector = selector if selector in _ADD_COUNTERS_SELECTORS else None
-        self.subtypes = [s.lower() for s in subtypes] if subtypes else None
+        #: ENG-61: the named ``each_*`` selector vocabulary is retired (a structured ``group`` replaces it). A spec
+        #: that still names one is inert: it neither targets nor falls back to counting the source.
+        self.retired_selector = selector is not None or bool(subtypes)
         #: "Whenever a creature you control is dealt damage, put a +1/+1
         #: counter on **it**." (MEC-11's Rite of Passage) — an untargeted
         #: "it" here is *not* the ability's own source (Rite of Passage
@@ -299,7 +260,7 @@ class AddCountersEffect(GameEffect):
             self.target_spec = TargetSpec(kind=self.group_player)
         #: "When this Aura enters, put a +1/+1 counter on **enchanted creature**." (Level Up) — the host this Aura is attached to, not a target.
         self.attached_host = target_kind == "attached_permanent"
-        if self.selector is None and target_kind is not None and not self.attached_host:
+        if target_kind is not None and not self.attached_host:
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, any_number=any_number,
                 creature_filter=creature_filter,
@@ -322,6 +283,24 @@ class AddCountersEffect(GameEffect):
         return "harmful" if self.kind in ("-1/-1", "stun") else "beneficial"
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.retired_selector:
+            return  # ENG-61: a retired named selector selects nothing (never the source, never everything)
+        if self.choose_existing_kind:
+            from copy import copy as copy_effect
+            target = targets[0] if targets else self.source
+            if target is None:
+                return
+            # Class levels are stored in counters for UI compatibility,
+            # but are designations rather than counters (RULE 717.2).
+            options = [{"kind": kind, "count": 1} for kind, count in target.counters.items()
+                       if count > 0 and kind != "class_level"]
+            if not options:
+                return
+            chosen = copy_effect(self)
+            chosen.choose_existing_kind = False
+            chosen.kind_options = options
+            context.engine._request_counter_kind_choice(chosen, context, targets)
+            return
         if self.kind_options:
             context.engine._request_counter_kind_choice(self, context, targets)
             return
@@ -364,27 +343,6 @@ class AddCountersEffect(GameEffect):
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
                 context.add_counters(target, amount, self.kind, source=self.source)
-            return
-        if self.selector in _ADD_COUNTERS_SELECTORS:
-            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
-            from .. import combat  # local: combat↔effects cycle
-
-            controller_id = getattr(self.source, "controller_id", None)
-            affects = _ADD_COUNTERS_SELECTOR_AFFECTS.get(self.selector, "creatures_you_control")
-            for obj in group_selector_objects(context.state, controller_id, affects, src=self.source):
-                if self.subtypes is not None:
-                    sub = obj.card.type_line.partition("—")[2].strip().lower().split()
-                    if not any(s in sub for s in self.subtypes):
-                        continue
-                # "put a -1/-1 counter on each **nonblack** creature."
-                # (Midnight Banshee) — a `matches_object_filter` dict
-                # (``{"without_color": "B"}``) narrowing the mass group,
-                # the same key the single-target branch already honours.
-                if self.creature_filter and not combat.matches_object_filter(
-                    obj, self.creature_filter, state=context.state
-                ):
-                    continue
-                context.add_counters(obj, amount, self.kind, source=self.source)
             return
         if self.attached_host:
             host_id = getattr(self.source, "attached_to", None)
@@ -485,6 +443,13 @@ class AddCountersEffect(GameEffect):
                 members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
                 if self.group_other:
                     members = [o for o in members if o is not self.source]
+                if self.creature_filter:
+                    from .. import combat  # local: combat<->effects cycle
+
+                    members = [
+                        o for o in members
+                        if combat.matches_object_filter(o, self.creature_filter, state=context.state)
+                    ]
                 if self.choose_one:
                     context.engine._request_counter_recipient_choice(self, amount, members)
                     return
@@ -550,7 +515,10 @@ class RenownEffect(GameEffect):
             return
         context.add_counters(self.source, self.amount, "+1/+1", source=self.source)
         self.source.renowned = True
-        context.fire_event(GameEvent(EventType.RENOWNED, instance_id=self.source.instance_id))
+        context.fire_event(GameEvent(
+            EventType.RENOWNED, instance_id=self.source.instance_id, controller_id=self.source.controller_id,
+            object=self.source.name, object_types=sorted(self.source.type_words),
+        ))
 
 
 class EmpowerJaceEffect(GameEffect):
@@ -647,6 +615,10 @@ class AmassEffect(GameEffect):
             made = context.create_token(player.id, card, 1) or []
             context.created_objects.extend(made)
             army = made[0] if made else None
+        elif army not in context.created_objects:
+            # RULE 701.47a: the Army that received the counters is "the amassed Army" a following "when you do" payoff
+            # names (PAR-286), whether this instruction made it or found it.
+            context.created_objects.append(army)
         if army is not None:
             context.add_counters(army, count, "+1/+1", source=self.source)
 
@@ -800,6 +772,12 @@ class GrantUntilEffect(GameEffect):
                 expected = context.resolving_source_incarnation
                 chosen = [self.source] if (self.source is not None and
                     (expected is None or self.source.zone_incarnation == expected)) else []
+            elif self.previous_subject and self.referent == "trigger_subject":
+                event = context.trigger_event or {}
+                obj = context.state.find_object(event.get("instance_id"))
+                visit = event.get("zone_incarnation")
+                chosen = [obj] if (obj is not None and obj.zone == Zone.STACK
+                    and (visit is None or obj.zone_incarnation == visit)) else []
             elif self.previous_subject:
                 # The previous clause's pick — or, when it created rather than chose ("Create a token that's
                 # a copy of …. It gains haste."), what it made (`PumpEffect.previous_subject`'s fallback).
@@ -1493,9 +1471,6 @@ class GoadEffect(GameEffect):
     printed default of "until your next turn".
     """
 
-    #: ``"suspected_creatures"`` — "goad all suspected creatures" (Nelly Borca, MEC-104): every
-    #: creature on the battlefield carrying the RULE 701.60 designation, whoever controls it.
-    _SELECTORS = frozenset({"creatures_opponents_control", "suspected_creatures"})
     _REFERENTS = frozenset({"previous", "created"})
 
     def __init__(
@@ -1504,14 +1479,16 @@ class GoadEffect(GameEffect):
         target_kind: Optional[str] = "creature",
         optional: bool = False,
         count: Any = 1,
-        selector: Optional[str] = None,
+        selector: "Optional[dict[str, Any]]" = None,
         count_selector: Optional[str] = None,
         referent: str = "previous",
         permanent: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
-        self.selector = selector if selector in self._SELECTORS else None
+        # ENG-61: the mass group is a structured ``{zone, of, filter}`` selector ("goad all creatures your opponents
+        # control", "goad all suspected creatures" = ``{"filter": {"is_suspected": True}}``); the named strings are retired.
+        self.selector = dict(selector) if isinstance(selector, dict) else None
         self.referent = referent if referent in self._REFERENTS else "previous"
         self.permanent = bool(permanent)
         self.target_spec = (
@@ -1538,10 +1515,6 @@ class GoadEffect(GameEffect):
         controller = _controller_of(self.source, context)
         goader_id = controller.id if controller is not None else None
         if goader_id is None:
-            return
-        if self.selector == "suspected_creatures":
-            for obj in [o for o in context.state.battlefield if o.is_creature and o.is_suspected]:
-                context.goad(obj, goader_id, permanent=self.permanent)
             return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -1750,13 +1723,12 @@ class RemoveSuspectedEffect(GameEffect):
         elif self.self_subject:
             objs = [self.source] if self.source is not None else []
         elif self.previous_selector:
+            from .attachments_transforms import previous_group_objects
+
+            # The group the previous clause named ("goad all creatures your opponents control. ... unsuspect them"),
+            # replayed through the one group reader (a structured selector or a damaged-set sentinel).
             selector = context.previous_selector
-            objs = [
-                o for o in context.state.battlefield
-                if selector == "creatures_opponents_control"
-                and getattr(o, "is_creature", False)
-                and o.controller_id != getattr(self.source, "controller_id", None)
-            ]
+            objs = previous_group_objects(context, self.source, selector) if selector else []
         else:
             objs = list(context.state.battlefield)
         objs = [o for o in objs if getattr(o, "is_suspected", False)]
@@ -2992,7 +2964,10 @@ class PumpEffect(GameEffect):
             # RULE 702.83a Exalted: pump the object the firing event names.
             event = context.trigger_event or {}
             obj = context.state.find_object(event.get(self.trigger_event_key))
-            if obj is not None:
+            expected_visit = event.get("instance_zone_incarnation") if self.trigger_event_key == "instance_id" else None
+            if obj is not None and obj.zone == Zone.BATTLEFIELD and (
+                expected_visit is None or obj.zone_incarnation == expected_visit
+            ):
                 self._pump_one(obj)
                 context.recompute()
             return
@@ -3049,12 +3024,17 @@ class PumpEffect(GameEffect):
 
                 group = previous_group_objects(context, self.source, selector)
             else:
-                controller_id = getattr(self.source, "controller_id", None)
+                controller_id = getattr(_controller_of(self.source, context), 'id', None)
                 if self.group_player is not None:
                     chosen = targets[0] if targets else None
                     if chosen is None or getattr(chosen, "instance_id", None) is not None:
                         return  # the player target is gone / illegal: nothing to scope the group to
                     controller_id = chosen.id
+                    # RULE 608.2c: "Untap them" names the creatures *that player* controlled, not the ability
+                    # controller's: hand the next clause the player-scoped group (`TapEffect`'s own idiom).
+                    from .attachments_transforms import PLAYER_SCOPED_GROUP_KEY
+
+                    context.previous_selector = {PLAYER_SCOPED_GROUP_KEY: selector, "controller_id": controller_id}
                 group = group_selector_objects(context.state, controller_id, selector, src=self.source)
             if self.subtypes is not None:
                 group = [
@@ -3244,8 +3224,7 @@ class HealEffect(GameEffect):
     healed" — remove all marked damage (`RulesEngine.heal`) from the chosen
     permanent(s).
 
-    ``selector`` (a `continuous.group_selector_objects` name — "all_
-    creatures", "creatures_you_control", …) heals a group; otherwise the
+    ``selector`` (a structured `continuous.group_selector_objects` selector) heals a group; otherwise the
     RULE 115 ``targets``; otherwise, with neither, ``self.source`` (a bare
     "heal all damage from ~"). No amount — see `RulesEngine.heal`.
     """
@@ -3601,6 +3580,7 @@ class CreateTokenEffect(GameEffect):
         creators: str = "you",
         tapped: bool = False,
         attacking: bool = False,
+        attacks_event_player: bool = False,
         legendary: bool = False,
         pt_amount: Optional[dict] = None,
         extra_counters: Optional[dict[str, Any]] = None,
@@ -3616,8 +3596,12 @@ class CreateTokenEffect(GameEffect):
         is_land: bool = False,
         then_trigger: Optional[list[dict[str, Any]]] = None,
         then_trigger_condition: Optional[dict[str, Any]] = None,
+        counts_by_player: Optional[dict[str, int]] = None,
+        simultaneous_creators: bool = False,
     ) -> None:
         super().__init__(source)
+        self.counts_by_player = counts_by_player
+        self.simultaneous_creators = simultaneous_creators
         #: "…a 2/2 black Horror **enchantment creature** token" (Phenomenon Investigators).
         self.is_enchantment = bool(is_enchantment)
         #: "create a tapped Planet **land** token named New Planet with \"{T}: Add …\"" (RULE 111.10/205.3i).
@@ -3702,6 +3686,9 @@ class CreateTokenEffect(GameEffect):
         #: the fresh token into the current combat via `RulesEngine.put_onto_
         #: battlefield_attacking` right after it enters.
         self.attacking = bool(attacking)
+        #: PAR-286, RULE 508.4 / 506.3: "…tapped and attacking **that player**" (Seraphic Greatsword) -- the token
+        #: attacks the player the firing attack event names (``defending_player_id``), not an auto-chosen defender.
+        self.attacks_event_player = bool(attacks_event_player)
         self.legendary = bool(legendary)
         #: "…create an Incubator token with two +1/+1 counters on it…"
         #: (Glissa, Herald of Predation's Incubate) — ``{"kind": "+1/+1",
@@ -3875,6 +3862,17 @@ class CreateTokenEffect(GameEffect):
             creator_ids = [pid] if pid is not None else []
         else:
             creator_ids = [controller_id]
+        if self.simultaneous_creators:
+            from .battlefield_batches import start_token_batch
+
+            creators = set(creator_ids)
+            groups = [
+                (p.id, card, count if self.counts_by_player is None else
+                 self._measured(self.counts_by_player.get(p.id, 0), context, None))
+                for p in context.state.living_players_apnap() if p.id in creators
+            ]
+            start_token_batch(context, groups, self.source)
+            return
         self._create_for_players(context, creator_ids, card, count, per_opp_defenders, context.created_objects)
 
     def _create_for_players(self, context, creator_ids, card, count, defenders, created_sink):
@@ -3910,8 +3908,15 @@ class CreateTokenEffect(GameEffect):
                 )
                 defender_picks.append((token, opp_id))
         elif self.attacking:
+            event_defender = (context.trigger_event or {}).get("defending_player_id") if self.attacks_event_player else None
             for token in made:
-                context.engine.put_onto_battlefield_attacking(token)
+                if event_defender is not None:
+                    named = context.state.player_by_id(event_defender)
+                    context.engine.put_onto_battlefield_attacking(
+                        token, defender={"kind": "player", "id": event_defender, "label": getattr(named, "name", event_defender)},
+                    )
+                else:
+                    context.engine.put_onto_battlefield_attacking(token)
                 defender = getattr(token, "combat_defender", None) or {}
                 defender_picks.append((token, defender.get("id") if defender.get("kind") == "player" else None))
         if self.extra_counters:
@@ -3956,7 +3961,10 @@ class CreateTokenEffect(GameEffect):
             # synthesize its RULE 702-text triggered ability, the same
             # `attach_keyword` + `_keyword_triggered_abilities` pair a
             # printed keyword line goes through at bind-on-load.
-            from ..binding.core import parametric_keyword_triggered_abilities  # effects↔binder cycle
+            from ..binding.core import (  # effects↔binder cycle
+                parametric_keyword_replacements,
+                parametric_keyword_triggered_abilities,
+            )
 
             for pk in self.parametric_keywords:
                 name, n = str(pk.get("name") or ""), pk.get("n")
@@ -3967,6 +3975,8 @@ class CreateTokenEffect(GameEffect):
                     token.triggered_abilities.extend(
                         parametric_keyword_triggered_abilities(token, name, int(n))
                     )
+                    # RULE 702.64a: a token "with absorb N" prevents damage to itself like a printed instance.
+                    token.replacement_effects.extend(parametric_keyword_replacements(token, name, int(n)))
         # The referent for a following "the tokens are …" clause.
         payload["created_sink"].extend(made)
         if self.defender_planeswalker and defender_picks:
@@ -4030,12 +4040,18 @@ class CopyPermanentEffect(GameEffect):
         other_opponents: bool = False,
         require_exiled_trigger_subject: bool = False,
         attack_iteration_player: bool = False,
+        add_ability_lines: Optional[list[str]] = None,
+        remove_keywords: Optional[list[str]] = None,
+        only_types: Optional[list[str]] = None,
     ) -> None:
         super().__init__(source)
+        self.only_types = list(only_types or [])
         #: "…a token that's a copy of ~ that's tapped and attacking **that player or a planeswalker they
         #: control**" (Myriad, RULE 702.116a): inside a `for_each` over players, the copy attacks the iteration
         #: player, and its controller may then pick one of that player's planeswalkers instead (RULE 508.4a).
         self.attack_iteration_player = bool(attack_iteration_player)
+        self.add_ability_lines = list(add_ability_lines or [])
+        self.remove_keywords = list(remove_keywords or [])
         self.require_exiled_trigger_subject = bool(require_exiled_trigger_subject)
         self.count = count
         self.controller_id = controller_id
@@ -4203,6 +4219,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4239,6 +4256,7 @@ class CopyPermanentEffect(GameEffect):
                     not_legendary=self.not_legendary,
                     set_power=self.set_power, set_toughness=self.set_toughness,
                     set_colors=self.set_colors, add_colors=self.add_colors,
+                    add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
                     add_keywords=self.add_keywords + (["Haste"] if self.haste else []),
                 )
                 context.created_objects.extend(made)
@@ -4269,12 +4287,18 @@ class CopyPermanentEffect(GameEffect):
             if self.referent == "previous":
                 prev = list(context.previous_targets)
                 target = prev[0] if prev else None
+                if self.require_exiled_trigger_subject and (target is None or target.zone != Zone.EXILE):
+                    return
             elif self.referent == "iteration":
                 target = getattr(context, "iteration_item", None)
             elif self.referent == "trigger_event":
                 event = context.trigger_event
                 iid = (event or {}).get("instance_id")
                 target = context.state.find_object(iid) if iid is not None else None
+                expected = (event or {}).get("subject_zone_incarnations", {}).get("instance_id")
+                if expected is not None and (target is None or target.zone_incarnation != expected):
+                    # RULE 608.2h/400.7: copy the old battlefield visit, not a returned card.
+                    target = context.state.zone_visit_sources.get((iid, expected))
                 if self.require_exiled_trigger_subject and not any(
                     o.instance_id == iid and o.zone == Zone.EXILE
                     for o in context.previous_targets
@@ -4304,6 +4328,17 @@ class CopyPermanentEffect(GameEffect):
                     self.source.linked_exile_id = None
             else:
                 target = self.source
+        if target is not None and target is self.source and self.target_spec is None and self.referent == "source":
+            visit = context.resolving_source_incarnation
+            if visit is not None and target.zone_incarnation != visit:
+                # RULE 608.2h: a granted self-copy trigger retains the original source visit. Only battlefield
+                # departures are snapshotted; a card exiled from its graveyard as the activation cost has none,
+                # and its copiable values are the card's own (RULE 707.2).
+                retained = context.state.zone_visit_sources.get((target.instance_id, visit))
+                resolving = context.resolving_stack_item
+                paid_by_leaving = (resolving is not None and resolving.category == "activated_ability"
+                                   and target.zone_incarnation == visit + 1)
+                target = retained if retained is not None or not paid_by_leaving else target
         if target is None:
             return
         controller_id = self.controller_id or _controller_of(self.source, context).id
@@ -4330,7 +4365,9 @@ class CopyPermanentEffect(GameEffect):
             add_types=self.add_types, add_subtypes=self.add_subtypes, not_legendary=self.not_legendary,
             set_power=self.set_power, set_toughness=self.set_toughness,
             set_colors=self.set_colors, add_colors=self.add_colors,
+            add_ability_lines=self.add_ability_lines, remove_keywords=self.remove_keywords,
             add_keywords=self.add_keywords + (["Haste"] if self.haste else []), on_created=payload,
+            only_types=self.only_types or None,
         )
 
     def _finish_creation(self, context, made, payload):
@@ -4437,6 +4474,7 @@ class EnterAsCopyReplacement(GameEffect):
         max_mana_value_from_mana_spent: bool = False,
         not_legendary: bool = False,
         set_name: Optional[str] = None,
+        name_first_letter: Optional[str] = None,
         until_end_of_turn: bool = False,
         creature_filter: Optional[dict[str, Any]] = None,
         token_add_subtypes: Optional[list[str]] = None,
@@ -4468,6 +4506,7 @@ class EnterAsCopyReplacement(GameEffect):
         #: `RulesEngine._resolve_enter_as_copy` *after* the copied card's abilities are bound (binding is
         #: keyed by name, so renaming first would bind this card's own entry instead of the copied one's).
         self.set_name = str(set_name) if set_name else None
+        self.name_first_letter = str(name_first_letter) if name_first_letter else None
         #: "…of any creature on the battlefield with mana value less than
         #: or equal to the amount of mana spent to cast ~." (Mockingbird) —
         #: `GameObject.mana_spent_to_cast`, read live when the choice is
@@ -4716,11 +4755,15 @@ class ChooseNumberReplacement(GameEffect):
     unenumerable answer space) and stamps the parsed integer onto
     `GameObject.chosen_number` — read back by `continuous.cast_prohibited`'s
     ``max_mana_value="chosen_number"`` sentinel.
+    A printed ``minimum``/``maximum`` range instead supplies finite options;
+    the continuation enforces those bounds, including after clone/undo.
     """
 
-    def __init__(self, description: str = "") -> None:
+    def __init__(self, description: str = "", minimum: int = 0, maximum: Optional[int] = None) -> None:
         super().__init__(None)
         self.description = description
+        self.minimum = max(0, int(minimum))
+        self.maximum = max(self.minimum, int(maximum)) if maximum is not None else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
@@ -4737,13 +4780,15 @@ class ChooseEnterCounterReplacement(GameEffect):
     a fixed "enters with").
     """
 
-    def __init__(self, options: Optional[list[dict[str, Any]]] = None, description: str = "") -> None:
+    def __init__(self, options: Optional[list[dict[str, Any]]] = None, description: str = "",
+                 escape_only: bool = False) -> None:
         super().__init__(None)
         self.options = [
             {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
             for o in (options or [])
         ]
         self.description = description
+        self.escape_only = bool(escape_only)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         return None  # consulted by RulesEngine._offer_enter_choices, not applied
@@ -4772,12 +4817,14 @@ class _BecomeCopyBase(GameEffect):
         retain_trigger_index: Optional[int] = None,
         add_ability_lines: Optional[list[str]] = None,
         copy_of_sacrificed: bool = False,
+        copy_of_revealed: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         #: "…becomes a copy of the sacrificed creature" (The Ever-Changing 'Dane): the copiable values the cost's sacrifice
         #: stamped on the source (`RulesEngine.note_sacrificed`, RULE 608.2h last-known information).
         self.copy_of_sacrificed = bool(copy_of_sacrificed)
+        self.copy_of_revealed = bool(copy_of_revealed)
         #: RULE 707.9a: "…except it has "<ability>"" — oracle lines that become part of the copy's copiable values
         #: (`Card.as_copy`), so a later copy of this object copies them too.
         self.add_ability_lines = list(add_ability_lines or [])
@@ -4789,7 +4836,7 @@ class _BecomeCopyBase(GameEffect):
         self.set_name = str(set_name) if set_name else None
         # ``exact_mana_value`` ("with mana value X", The Mycosynth Gardens): an int or the "x" sentinel.
         self.target_spec = (
-            None if self.previous_subject or self.copy_of_sacrificed else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
+            None if self.previous_subject or self.copy_of_sacrificed or self.copy_of_revealed else TargetSpec(kind=target_kind, exact_mana_value=exact_mana_value, optional=optional)
         )
         self.add_types = list(add_types or [])
         self.add_subtypes = list(add_subtypes or [])
@@ -4800,6 +4847,9 @@ class _BecomeCopyBase(GameEffect):
 
     def _subject(self, context: GameContext, targets: Optional[list[Any]]) -> Any:
         """The object copied: an earlier clause's pick / the trigger's subject (``previous_subject``) or this effect's target."""
+        if self.copy_of_revealed:
+            revealed = context.revealed_card
+            return revealed if revealed is not None and revealed.card.is_creature else None
         if self.copy_of_sacrificed:
             card = getattr(self.source, "sacrificed_cost_copiable_card", None)
             return None if card is None else SimpleNamespace(card=card, _front_card=card)
@@ -4831,7 +4881,10 @@ class _BecomeCopyBase(GameEffect):
             # RULE 707.9a: "it has this ability" is part of the copy's copiable values, not a bound object
             # carried over beside them.
             kept_lines, own = copy_mechanics.keep_as_copiable(obj, own)
-            added_lines.extend(line for line in kept_lines if line not in added_lines)
+            # RULE 707.9a: a line the copied object already carries as copiable (a copy of a copy of this very
+            # permanent) is that same "this ability", not a second one.
+            inherited = getattr(getattr(target, "card", None), "granted_ability_lines", ())
+            added_lines.extend(line for line in kept_lines if line not in added_lines and line not in inherited)
         do_copy(
             obj, target, self.add_types or None, self.add_subtypes or None,
             add_keywords=self.add_keywords or None, not_legendary=self.not_legendary,
@@ -4858,6 +4911,10 @@ class BecomeCopyUntilEndOfTurnEffect(_BecomeCopyBase):
     """
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.copy_of_revealed and (self.source is None or self.source.zone != Zone.BATTLEFIELD
+                or context.resolving_source_incarnation not in (None, self.source.zone_incarnation)):
+            # RULE 400.7: this resolving trigger belongs to the departed visit.
+            return
         target = self._subject(context, targets)
         if target is None or self.source is None or target is self.source:
             return
@@ -4870,6 +4927,10 @@ class BecomeCopyOfTargetUntilEndOfTurnEffect(GameEffect):
     `BecomeCopyUntilEndOfTurnEffect` (whose copier is always the source): ``targets[0]`` becomes a copy of
     ``targets[1]`` (RULE 707.2), reverted at cleanup (RULE 514.2) through the same `become_copy_until_end_of_turn`
     snapshot. The two requirements are announced together via ``extra_target_specs`` (RULE 115.1, printed order).
+
+    With ``group_word``, each matching permanent the resolving controller
+    controls copies the sole target instead. The group is captured at
+    resolution, without targeting its members (Gwyndala, the Progeny).
     """
 
     def __init__(
@@ -4878,13 +4939,29 @@ class BecomeCopyOfTargetUntilEndOfTurnEffect(GameEffect):
         target_kind: str = "artifact_you_control",
         copy_target_kind: str = "artifact_or_creature_you_control",
         add_types: Optional[list[str]] = None,
+        group_word: Optional[str] = None,
     ) -> None:
         super().__init__(source)
-        self.target_spec = TargetSpec(kind=target_kind)
-        self.extra_target_specs = (TargetSpec(kind=copy_target_kind, distinct_from_others=True),)
+        self.group_word = group_word
+        self.target_spec = TargetSpec(kind=copy_target_kind if group_word else target_kind)
+        if not group_word:
+            self.extra_target_specs = (TargetSpec(kind=copy_target_kind, distinct_from_others=True),)
         self.add_types = list(add_types or [])
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.group_word:
+            from .. import continuous
+            target = targets[0] if targets else None
+            controller = _controller_of(self.source, context)
+            if target is None or controller is None:
+                return
+            # RULE 611.2c/707.2: capture the affected group now; recipients
+            # are not targets and retain their own token status/attachments.
+            copiers = [obj for obj in context.state.permanents_controlled_by(controller.id)
+                       if continuous.matches_permanent_word(obj, self.group_word)]
+            for obj in copiers:
+                context.become_copy_until_end_of_turn(obj, target, self.add_types or None)
+            return
         objs = [t for t in (targets or [])]
         if len(objs) < 2 or objs[0] is None or objs[1] is None or objs[0] is objs[1]:
             return  # a target became illegal — nothing becomes a copy of nothing (RULE 608.2b)

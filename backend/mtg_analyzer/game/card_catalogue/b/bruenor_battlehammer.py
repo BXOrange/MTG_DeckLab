@@ -17,7 +17,7 @@ def _bruenor_battlehammer() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "power": 2, "toughness": 0,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 2, "toughness": 0,
                 "power_count": "equipment_attached_to_self",
             })],
         )

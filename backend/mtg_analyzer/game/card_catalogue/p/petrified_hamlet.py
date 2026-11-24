@@ -37,14 +37,13 @@ def _specs() -> list[AbilitySpec]:
                 EffectSpec(
                     'activation_prohibition',
                     {
-                        'affects': 'all_permanents',
-                        'card_name_from_source': True,
+                        'affects': {"zone": "battlefield", "of": "any", "filter": {"name_from_source": True}},
                         'except_mana_abilities': True,
                     },
                 ),
                 EffectSpec(
                     'grant_mana_ability',
-                    {'affects': 'all_lands', 'card_name_from_source': True, 'mana': [{'C': 1}]},
+                    {'affects': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'land', 'name_from_source': True}}, 'mana': [{'C': 1}]},
                 ),
             ],
         ),

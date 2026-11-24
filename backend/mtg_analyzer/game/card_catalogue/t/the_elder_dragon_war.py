@@ -19,7 +19,7 @@ def _the_elder_dragon_war() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("damage", {"amount": 2, "selector": "each_creature"}),
+            [EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
              EffectSpec("damage", {"amount": 2, "selector": "each_opponent"})],
             trigger={"event": EventType.SAGA_CHAPTER, "chapter": [1]},
         ),

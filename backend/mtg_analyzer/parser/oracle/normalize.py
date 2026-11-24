@@ -140,6 +140,9 @@ _ABILITY_WORD_RE = re.compile(
     # RULE 207.2c, the dice-rolling ability words (PAR-147): "Wild Magic Surge — Whenever ~ attacks, roll a d20." and
     # its Baldur's Gate / Commander Legends siblings. Pure labels; the trigger (and results table) behind them is
     # an ordinary one once the label is gone.
+    # "Descend 4 — As long as there are four or more permanent cards in your graveyard, …" / "Descend 8 — …"
+    # (Lost Caverns of Ixalan): RULE 207.2c label; the numbered form is not a keyword slug Scryfall's list strips.
+    r"|descend (?:4|8)"
     r"|psionic spells|wild magic surge|sneak attack|siege monster|cone of cold|focus beam|perfect illumination"
     r"|dark (?:one|1)'s own luck)\s*—\s*",
     re.MULTILINE,
@@ -299,7 +302,14 @@ _PLURAL_SELF_HEAD_RE = re.compile(
 )
 
 
+#: PAR-311: the same plural-name verb in a static/replacement clause ("The Belligerent and Useless Island enter the
+#: battlefield tapped"). A single ``~`` is never followed by a bare plural "enter the battlefield", so it only occurs
+#: for a multi-part name.
+_PLURAL_SELF_ENTER_RE = re.compile(r"(?<![\w~])~ enter (?=the battlefield\b)")
+
+
 def _fold_plural_self_verbs(text: str) -> str:
+    text = _PLURAL_SELF_ENTER_RE.sub("~ enters ", text)
     return _PLURAL_SELF_HEAD_RE.sub(
         lambda m: f"{m.group('lead')} ~ " + re.sub(
             r"[a-z]+", lambda w: _PLURAL_SELF_VERBS.get(w.group(0), w.group(0)), m.group("verbs"),
@@ -420,6 +430,35 @@ def _rank_surname_form(name: str) -> Optional[str]:
     return f"{words[0]} {words[-1]}"
 
 
+#: PAR-311: a printed name that ends in punctuation ("Kill! Maim! Burn!", "M.O.D.O.K.", "Fear, Fire, Foes!") has no ``\b``
+#: after its last character, so the plain word-boundary fold missed every self-reference to it. The boundary is
+#: therefore built from the name's own edge characters: ``\b`` only where the edge is a word character, otherwise a
+#: lookaround that refuses to continue into another word character.
+def _name_form_re(form: str) -> "re.Pattern[str]":
+    lead = r"\b" if re.match(r"\w", form[0]) else r"(?<!\w)"
+    tail = r"\b" if re.match(r"\w", form[-1]) else r"(?!\w)"
+    return re.compile(lead + re.escape(form) + tail)
+
+
+#: PAR-311 / RULE 201.4: a name that is also a rules verb ("Regenerate", "Destroy the Evidence" -> "Destroy") is only the
+#: card where it denotes the object. "<verb> target ..." is the instruction itself, and a name occupying a whole line
+#: ("Storm" in "Storm of Memories" once the reminder is stripped) is the keyword, never a self-reference: a line of
+#: just ``~`` is not rules text, and "~ target" is not a clause any card prints.
+_NAME_IS_VERB_AFTER = re.compile(r"\s+target\b")
+
+
+def _alone_on_line(text: str, match: "re.Match[str]") -> bool:
+    before = text[: match.start()].rpartition("\n")[2]
+    after = text[match.end():].partition("\n")[0]
+    return not before.strip() and not after.strip()
+
+
+def _fold_name_match(text: str, match: "re.Match[str]") -> str:
+    if _NAME_IS_VERB_AFTER.match(text[match.end():]):
+        return match.group(0)
+    return SELF
+
+
 def _fold_self_name(text: str, name: Optional[str]) -> str:
     """Replace the card's own name (and its short/front-face form) with `SELF`.
 
@@ -448,9 +487,30 @@ def _fold_self_name(text: str, name: Optional[str]) -> str:
             forms.add(form[2:])
     for form in sorted(forms, key=len, reverse=True):  # longest first
         if form:
-            text = re.sub(r"\b" + re.escape(form) + r"\b", SELF, text)
+            text = _name_form_re(form).sub(lambda m: _fold_name_match(text, m), text)
     text = _fold_given_name_prefix(text, name)
+    text = _fold_first_name_trigger_subject(text, name)
     return text
+
+
+#: PAR-286, RULE 201.4: a comma-less two-word legendary ("Elanor Gardner", "Hurska Sweet-Tooth") names itself by its first
+#: name where it is the subject of a trigger head. Only that position folds: the printed word is a given name, but a first
+#: name can equal a creature type or a common word elsewhere in the text, and a trigger head is where the card can only
+#: mean itself. Matched case-sensitively against the printed text ("When Elanor enters").
+_FIRST_NAME_TRIGGER_VERBS = (
+    "enters", "attacks", "dies", "blocks", "becomes", "deals", "is dealt", "leaves", "is turned face up", "transforms",
+    "mutates", "is put", "enters or attacks",
+)
+_FIRST_NAME_TRIGGER_TAIL = r"(?=\s+(?:" + "|".join(re.escape(v) for v in _FIRST_NAME_TRIGGER_VERBS) + r")\b)"
+
+
+def _fold_first_name_trigger_subject(text: str, name: str) -> str:
+    first = name.split(",")[0].split("//")[0].strip()
+    words = first.split()
+    if "," in name or len(words) < 2 or not words[0].isalpha() or not words[0][0].isupper():
+        return text
+    pattern = re.compile(r"\b((?:When|Whenever|when|whenever) )" + re.escape(words[0]) + _FIRST_NAME_TRIGGER_TAIL)
+    return pattern.sub(lambda m: m.group(1) + SELF, text)
 
 
 #: A given-name-prefix occurrence *not* to fold: preceded by a tribal/scope
@@ -516,12 +576,47 @@ def _fold_given_name_prefix(text: str, name: str) -> str:
             return m.group(0)
         if _PREFIX_TYPE_AFTER.match(text[m.end():]):
             return m.group(0)
+        if _NAME_IS_VERB_AFTER.match(text[m.end():]) or _alone_on_line(text, m):
+            return m.group(0)  # PAR-311: "Destroy target land", a bare "Storm" keyword line
         return SELF
 
     # Runs inside `_fold_self_name`, before `normalize` lowercases — `pat`
     # relies on that printed case to stay case-sensitive (see the
     # docstring's "turn"/"start" collision note).
     return pat.sub(_sub, text)
+
+
+#: PAR-318 / PAR-311 / RULE 201.4, 608.2c: a Universes Beyond character card refers to itself by a gendered pronoun
+#: ("Whenever ~ attacks, he gets +1/+0", "put a +1/+1 counter on him", "~ enters with a counter on her", "return him to his
+#: owner's hand"). Every handler reads the neuter "it/its/itself", so the pronoun is folded to that -- but only on a line
+#: that already names the card itself (`SELF`) and never where the pronoun can name a player: the pre-2011 "he or she" /
+#: "his or her" spelling (RULE 102 players, not the card) keeps the whole line untouched (modern oracle writes
+#: "they" for a player, so a bare "he/she" is always a character).
+_GENDERED_AMBIGUOUS_LINE_RE = re.compile(
+    r"\b(?:he or she|his or her|him or her|himself or herself|she or he|her or his|her or him)\b"
+)
+_GENDERED_SUBJECT_RE = re.compile(r"\b(?:he|she)(?:'s)?\b")
+_GENDERED_REFLEXIVE_RE = re.compile(r"\b(?:himself|herself)\b")
+#: "her" is ambiguous between the object ("put a counter on her") and the possessive ("her additional cost"); it is the
+#: object only before the end of the clause or a word that cannot start a noun phrase, otherwise it is possessive.
+_GENDERED_HER_OBJECT_END = (
+    r"(?=\s*(?:$|[.,;:)\"—]|(?:to|from|on|onto|into|in|with|and|then|until|for|at|this|if|unless|or|as|by|that|before|"
+    r"after|instead|where|deals?|gains?|gets?|loses?|has|have)\b))"
+)
+_GENDERED_OBJECT_RE = re.compile(r"\b(?:him|her" + _GENDERED_HER_OBJECT_END + r")\b")
+_GENDERED_POSSESSIVE_RE = re.compile(r"\b(?:his|her)\b")
+
+
+def _fold_gendered_self_pronouns(text: str) -> str:
+    def fold_line(line: str) -> str:
+        if SELF not in line or _GENDERED_AMBIGUOUS_LINE_RE.search(line):
+            return line
+        line = _GENDERED_SUBJECT_RE.sub(lambda m: "it's" if m.group(0).endswith("'s") else "it", line)
+        line = _GENDERED_REFLEXIVE_RE.sub("itself", line)
+        line = _GENDERED_OBJECT_RE.sub("it", line)
+        return _GENDERED_POSSESSIVE_RE.sub("its", line)
+
+    return "\n".join(fold_line(line) for line in text.split("\n"))
 
 
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
@@ -545,6 +640,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = text.lower()
     text = _fold_self_reference(text)
     text = _fold_plural_self_verbs(text)
+    text = _fold_gendered_self_pronouns(text)
     text = _strip_ability_words(text)
     text = _strip_unregistered_keyword_labels(text, keywords)
     text = _rewrite_infinity_ability(text)

@@ -13,7 +13,7 @@ def _lord_of_the_undead() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("anthem", {
-            "power": 1, "toughness": 1, "affects": "all_creatures", "exclude_self": True, "subtype": "Zombie",
+            "power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "subtype": "Zombie", "not_reference": True}},
         })]),
         AbilitySpec(
             "activated",

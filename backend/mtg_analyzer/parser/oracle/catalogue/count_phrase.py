@@ -46,7 +46,7 @@ _ZONE_SUFFIXES: list[tuple[str, dict[str, str]]] = [
 
 _OF_FOR_CONTROLLER = {"you": "you", "not_you": "opponents"}
 _MODIFIED_ADJECTIVE = re.compile(r"\bmodified (?=(?:creature|permanent)s?\b)")
-_ZONE_COUNTER_TAIL = re.compile(r" with (?P<q>an? [a-z+/\-0-9]+ counters? on (?:it|them))$")
+_ZONE_COUNTER_TAIL = re.compile(r" with (?P<q>(?:an? )?[a-z+/\-0-9]+ counters? on (?:it|them))$")
 _DIFFERENT = re.compile(r"\s+with different (?P<what>powers|toughnesses|names|mana values)")
 _DISTINCT_KEYS = {
     "powers": "power", "toughnesses": "toughness", "names": "name", "mana values": "mana_value",
@@ -73,6 +73,9 @@ _ENTERED_THIS_TURN = re.compile(r"\s+that entered (?:the battlefield )?this turn
 #: "cards in exile **that have an adventure**" (Howling Galefang) — the `has_adventure` filter key.
 _HAS_ADVENTURE = re.compile(r"\s+that (?:has|have) an adventure$")
 _BLOCKING_IT = re.compile(r"\s+blocking (?:it|~)$")
+#: PAR-284 / RULE 301.5, 303.4: "the number of Equipment / Auras **attached to ~ / it**" -- attachments whose host is the
+#: reference object (`attached_to_reference`, read by `combat.matches_object_filter`).
+_ATTACHED_TO_REFERENCE = re.compile(r"\s+attached to (?:it|~)$")
 #: RULE 506.3 / 509.1a: the combat relations a source names *as itself* (``~``), read at the end of combat
 #: step (RULE 511.1) while the blocks are still on the board — "creatures blocking ~" (The Wretched), "creatures
 #: blocking or blocked by ~" (Greater Werewolf, Kjeldoran Frostbeast), "creatures blocked by ~" (Wall of Nets) and,
@@ -98,6 +101,9 @@ _TWO_ZONES = re.compile(
 _NUMBER_WORDS = {
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
     "nine": 9, "ten": 10,
+    # PAR-283: the larger counts real cards spell out ("thirteen or more creatures", "thirty or more artifacts").
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30,
 }
 NUMBER_WORD_PATTERN = r"(?:\d+|" + "|".join(_NUMBER_WORDS) + r")"
 
@@ -106,7 +112,76 @@ def number_value(text: str) -> int:
     return int(text) if text.isdigit() else _NUMBER_WORDS[text]
 
 
+#: RULE 105.2 / 202.2: "permanents you control **that are exactly two colors**" (Niv-Mizzet, Guildpact) -- the
+#: `color_count` filter key `combat.matches_object_filter` reads.
+_EXACTLY_N_COLORS = re.compile(rf"\s+that are exactly (?P<n>{NUMBER_WORD_PATTERN}) colors?$")
+
+
 _DIFFERENTLY_NAMED_PREFIX = "differently named "
+
+
+#: RULE 205.3m: the relative clause that turns a creature count into a largest-shared-creature-type count.
+_SHARE_TYPE_TAILS = (" that share a creature type", " that have a creature type in common")
+#: "the greatest number of creatures you control that have a creature type in common" (Basalt Ravager, Skemfar Shadowsage)
+#: is the same largest-group count, said with its own superlative.
+_GREATEST_SHARED_NUMBER = re.compile(r"^the greatest number of (?P<phrase>.+)$")
+
+
+#: PAR-284 milestone 17 (RULE 102.2 / 608.2h): player-scoped count phrases -- "opponents who control more lands than you",
+#: "opponent who was dealt damage this turn", "your opponents with 4 or more cards in hand", "opponent who has 3 or more
+#: poison counters", "opponent who drew 2 or more cards this turn" -> ``{"players": "opponents" | "players", "where":
+#: {"kind": ..., ...}}``, the selector `game/player_counts.players_matching_count` evaluates. `parse_count_phrase` tries it
+#: first, so "for each ...", "the number of ..." and "where X is ..." all reach it.
+#: "opponent" / "opponents" / "player" / "players", with the optional "your" the "the number of" spelling carries.
+_SUBJECT = r"^(?:your )?(?P<who>opponents?|players?)"
+_REL = r"(?: (?:who|that))"
+#: The predicate tail -> the `player_counts._PREDICATES` row it names. Each pattern captures what its row needs.
+_TAILS: list[tuple["re.Pattern[str]", str]] = [
+    (re.compile(rf"{_REL} (?:was|were) dealt (?P<combat>combat )?damage this turn$"), "dealt_damage_this_turn"),
+    # PAR-292 M10: "at least 2 more lands than you" (Surveyor's Scope) is a margin of 2; a bare "more" is a margin of 1.
+    (re.compile(
+        rf"{_REL} controls? (?:at least (?P<margin>{NUMBER_WORD_PATTERN}) )?(?P<compare>more|fewer) (?P<what>.+) than you(?: do)?$"),
+     "controls_compared"),
+    (re.compile(rf"(?:{_REL} (?:has|have)|(?: with)) (?P<n>{NUMBER_WORD_PATTERN}) or more cards in (?:their )?hand$"), "hand_size"),
+    (re.compile(rf"{_REL} (?:has|have) (?P<n>{NUMBER_WORD_PATTERN}) or more (?P<counter>[a-z]+) counters?$"), "counters"),
+    (re.compile(rf"{_REL} drew (?P<n>{NUMBER_WORD_PATTERN}) or more cards this turn$"), "drew_this_turn"),
+    (re.compile(
+        rf"{_REL} had (?P<n>{NUMBER_WORD_PATTERN}) or more lands enter the battlefield under their control this turn$"),
+     "lands_entered_this_turn"),
+]
+
+
+def parse_players_matching(text: str) -> Optional[dict[str, Any]]:
+    """A "<opponents|players> who <predicate>" count phrase -> its player-count selector, or ``None``."""
+    subject = re.match(_SUBJECT, text)
+    if subject is None:
+        return None
+    tail = text[subject.end():]
+    scope = "opponents" if subject.group("who").startswith("opponent") else "players"
+    for pattern, kind in _TAILS:
+        m = pattern.match(tail)
+        if m is None:
+            continue
+        where: dict[str, Any] = {"kind": kind}
+        groups = m.groupdict()
+        if kind == "dealt_damage_this_turn":
+            where["combat"] = bool(groups["combat"])
+        elif kind == "controls_compared":
+            # RULE 102.2: "players who control more lands than you" (Oreskos Explorer) ranges over every player; the
+            # controller never controls more (or fewer) than themselves, so it reads like the opponent scope.
+            selector = parse_count_phrase(f"{groups['what']} you control")
+            if (not isinstance(selector, dict) or selector.get("of") != "you" or selector.get("zone") != "battlefield"
+                    or {"distinct", "aggregate", "terms", "counters_on", "players"} & set(selector)):
+                return None
+            where.update(compare=groups["compare"], selector=selector)
+            if groups["margin"]:
+                where["margin"] = number_value(groups["margin"])
+        else:
+            where["min"] = number_value(groups["n"])
+            if kind == "counters":
+                where["counter"] = groups["counter"]
+        return {"players": scope, "where": where}
+    return None
 
 
 def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
@@ -114,6 +189,9 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     text = text.strip().lower()
     if not text:
         return None  # an empty phrase would count every permanent
+    players = parse_players_matching(text)
+    if players is not None:
+        return players
     # RULE 201.2: "differently named lands you control" counts distinct names -- the same selector as
     # "lands you control with different names" (Astute Terraformer, Deep Space Scan).
     if text.startswith(_DIFFERENTLY_NAMED_PREFIX):
@@ -121,6 +199,14 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if inner is None or "distinct" in inner or "terms" in inner:
             return None
         return {**inner, "distinct": "name"}
+    # PAR-318 / RULE 205.3m: "creatures ... that share a creature type" is the size of the largest group of the counted
+    # objects with one creature type in common (Graxiplon), a selector-level ``share``.
+    share_tail = next((tail for tail in _SHARE_TYPE_TAILS if text.endswith(tail)), None)
+    if share_tail is not None:
+        inner = parse_count_phrase(text[:-len(share_tail)])
+        if inner is None or {"distinct", "aggregate", "terms", "counters_on", "share"} & set(inner):
+            return None
+        return {**inner, "share": "creature_type"}
     doors = _UNLOCKED_DOORS.match(text)
     if doors is not None:
         return _door_selector(doors.group("phrase"), {"aggregate": "sum", "value": "unlocked_doors"})
@@ -135,6 +221,15 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
         if first is None or second is None or first.get("zone") == second.get("zone"):
             return None
         return {"terms": [first, second]}
+    mixed = _BATTLEFIELD_AND_GRAVEYARD.fullmatch(text)
+    if mixed is not None:
+        # PAR-284 milestone 23: "<things> you control and each <things> card in your graveyard" (Moon-Vigil Adherents,
+        # Multani, Desmond Miles) -- the two places are disjoint (RULE 400.1), so the count is the sum of both halves.
+        halves = [parse_count_phrase(mixed.group("battlefield")), parse_count_phrase(mixed.group("graveyard"))]
+        if any(h is None or "distinct" in h or "aggregate" in h or h.get("zone") != z
+               for h, z in zip(halves, ("battlefield", "graveyard"))):
+            return None
+        return {"terms": halves}
     name_tail = re.search(r" with the same name as (.+)$", text)
     name_extra = None
     if name_tail:
@@ -185,10 +280,22 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if blocking is not None:
         extra["blocking_source"] = True
         text = text[: blocking.start()].strip()
+    attached = _ATTACHED_TO_REFERENCE.search(text) if " with " not in text else None  # "... with an X attached to it" is a `has_attachment` qualifier
+    if attached is not None:
+        if extra.get("not_reference"):
+            # "... attached to ~ other than ~" excludes the *granting Aura*, not the host (Animal Friend); the one
+            # reference this filter has is the host, so the exclusion cannot be stated.
+            return None
+        extra["attached_to_reference"] = True
+        text = text[: attached.start()].strip()
     shares = _SHARES_TYPE_WITH_IT.search(text)
     if shares is not None:
         extra["shares_creature_type_with_reference"] = True
         text = text[: shares.start()].strip()
+    exactly = _EXACTLY_N_COLORS.search(text)
+    if exactly is not None:
+        extra["color_count"] = number_value(exactly.group("n"))
+        text = text[: exactly.start()].strip()
     that_are = _THAT_ARE.search(text)
     if that_are is not None:
         restated = parse_object_phrase(that_are.group("what"), plural=True)
@@ -204,7 +311,12 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     # that trails the zone words; lifted off and ANDed into the filter like the other trailing tails.
     zone_counter = _ZONE_COUNTER_TAIL.search(text)
     if zone_counter is not None and any(text[: zone_counter.start()].endswith(z) for z, _ in _ZONE_SUFFIXES):
-        qualifier = parse_qualifier(zone_counter.group("q"))
+        counter_text = zone_counter.group("q")
+        if not counter_text.startswith(("a ", "an ")):
+            # PAR-284 milestone 18: "cards you own in exile with study counters on them" (Kianne) -- the bare plural
+            # means "at least one study counter", the article form the qualifier grammar reads.
+            counter_text = "a " + counter_text.replace(" counters on them", " counter on it").replace(" counter on them", " counter on it")
+        qualifier = parse_qualifier(counter_text)
         if qualifier is None:
             return None
         extra.update(qualifier)
@@ -314,6 +426,10 @@ _THERE_ARE = re.compile(r"^there (?:are|is) (?P<rest>.+)$")
 #: PAR-245: "your opponents control no creatures" -- the collective reading only for "no" ("an opponent controls a
 #: creature" would need a per-opponent reading this grammar does not express).
 _OPPONENTS_CONTROL_NO = re.compile(r"^your opponents control no (?P<phrase>.+)$")
+#: "an artifact card is in your graveyard" (Windwright Mage): the existence form of "there is a X card in your graveyard".
+_CARD_IN_YOUR_GRAVEYARD = re.compile(r"^(?P<head>an? .+? cards?) (?:is|are) in your graveyard$")
+#: "an instant card and a sorcery card are in your graveyard" (Bloodfire Enforcers): each half must hold.
+_TWO_CARDS_IN_YOUR_GRAVEYARD = re.compile(r"^(?P<left>an? [a-z]+ card) and (?P<right>an? [a-z]+ card) are in your graveyard$")
 _OPPONENT_MORE = re.compile(r"^an opponent controls more (?P<phrase>.+?) than you$")
 _YOU_MOST = re.compile(r"you control (?P<direction>more|fewer) (?P<phrase>.+?) than each other player")
 
@@ -330,6 +446,14 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
     linked_exists = re.fullmatch(r"(?P<head>an? .+?) (?:is|are) exiled with (?P<source>~|it)", text)
     if linked_exists:
         text = f"there is {linked_exists['head']} exiled with {linked_exists['source']}"
+    both_cards = _TWO_CARDS_IN_YOUR_GRAVEYARD.fullmatch(text)
+    if both_cards is not None:
+        halves = [parse_count_condition(f"there is {half} in your graveyard")
+                  for half in (both_cards["left"], both_cards["right"])]
+        return {"kind": "all", "conditions": halves} if all(halves) else None
+    in_graveyard = _CARD_IN_YOUR_GRAVEYARD.fullmatch(text)
+    if in_graveyard is not None:
+        text = f"there is {in_graveyard['head']} in your graveyard"
     m = _YOU_MOST.fullmatch(text)
     if m is not None:
         selector = parse_count_phrase(m['phrase'])
@@ -390,16 +514,33 @@ def parse_count_condition(text: str) -> Optional[dict[str, Any]]:
 _UNLOCKED_DOORS = re.compile(r"^unlocked doors among (?P<phrase>.+)$")
 _DOOR_NAMES = re.compile(r"^different names among unlocked doors of (?P<phrase>.+)$")
 _AMONG_DISTINCT = re.compile(
-    r"^the number of (?P<what>card types|colors|creature types) among (?P<phrase>.+)$"
+    r"^the number of (?P<what>card types|permanent types|colors|creature types|different mana values|different powers"
+    r"|different toughnesses|different color pairs) among (?P<phrase>.+)$"
 )
-_DISTINCT_AMONG_KEYS = {"card types": "card_type", "colors": "color", "creature types": "creature_type"}
+#: PAR-284 milestone 18 / RULE 702: "the number of abilities from among flying, first strike, ..., and vigilance found
+#: among creatures you control" (Odric, Blood-Cursed) -- each listed ability counts once however many creatures have it.
+_ABILITIES_AMONG = re.compile(r"^the number of abilities from among (?P<list>[a-z, ]+?),? and (?P<last>[a-z ]+) found among (?P<phrase>.+)$")
+#: RULE 601.2i: "... among permanents you control **and spells you've cast this turn**" adds the cast spells' values.
+_AND_SPELLS_CAST = " and spells you've cast this turn"
+#: RULE 202.3: "different mana values" counts distinct mana values (`continuous._DISTINCT_KEYS`), the others distinct
+#: members of a per-object set (`continuous._DISTINCT_SET_KEYS`).
+_DISTINCT_AMONG_KEYS = {
+    "card types": "card_type", "permanent types": "permanent_type", "different color pairs": "color_pair", "colors": "color", "creature types": "creature_type", "different mana values": "mana_value",
+    # RULE 208.1 / 209.1: distinct power / toughness values (Celebrate the Harvest, Rival's Duel-style counts).
+    "different powers": "power", "different toughnesses": "toughness",
+}
 _AGGREGATE = re.compile(
-    r"^the (?P<agg>greatest|total) (?P<value>mana value|power|toughness) "
+    r"^the (?P<agg>greatest|total) (?P<value>mana value|power and/or toughness|power|toughness) "
     r"(?:among|of) (?P<phrase>.+)$"
 )
 _AGGREGATE_KEYS = {"greatest": "max", "total": "sum"}
+#: "<things> you control and <things> in your graveyard": the two places one aggregate may range over.
+_BATTLEFIELD_AND_GRAVEYARD = re.compile(
+    r"^(?P<battlefield>.+? you control) and (?:each )?(?P<graveyard>.+? in your graveyard)$"
+)
+_AGGREGATE_TWO_PLACES = re.compile(r"^(?P<battlefield>.+? you control) and (?P<graveyard>.+? in your graveyard)$")
 _COUNTERS_ON = re.compile(
-    r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters on (?P<on>.+)$"
+    r"^the number of (?:(?P<kind>\+1/\+1|-1/-1|[a-z]+) )?counters (?:on|among) (?P<on>.+)$"
 )
 _NUMBER_OF = re.compile(r"^the (?:total )?number of (?P<phrase>.+)$")
 _DEVOTION_TERM = re.compile(r"^your devotion to (?P<color>white|blue|black|red|green)$")
@@ -420,6 +561,11 @@ _DIFFERENTLY_NAMED = re.compile(r"^the number of differently named (?P<phrase>.+
 #: Terms with no noun phrase to parse → the named `continuous.count_selector`
 #: they already are.
 _NAMED_TERMS: dict[str, str] = {
+    "the number of times ~ has mutated": "times_mutated",  # RULE 702.140c
+    "the number of times you descended this turn": "times_descended_this_turn",  # RULE 700.11, The Mycotyrant
+    "the number of card types among spells you've cast this turn": "card_types_among_spells_cast_this_turn",
+    "the number of colors among spells you've cast this turn": "colors_among_spells_cast_this_turn",
+    "the number of card types among permanents you've sacrificed this turn": "card_types_among_permanents_sacrificed_this_turn",
     "the number of basic land types among lands you control": "basic_land_types_among_lands_you_control",
     "your life total": "your_life_total",
     "the greatest mana value among your commanders": "greatest_commander_mana_value",
@@ -431,8 +577,22 @@ _NAMED_TERMS: dict[str, str] = {
     "the amount of life you gained this turn": "life_gained_this_turn",
     "the amount of life you lost this turn": "life_lost_this_turn",
     "the number of experience counters you have": "experience_counters_you_have",
+    "the amount of {e} you have": "energy_counters_you_have",  # PAR-284 / RULE 107.14 (Razorfield Ripper)
     "the number of dilemmas you've faced this turn": "dilemmas_faced_this_turn",  # RULE 700.17
     "the number of opponents you attacked this turn": "opponents_attacked_this_turn",  # Battlefront
+    # PAR-284 milestone 23 / RULE 506.1: the same distinct-defender count over one combat phase (Custodi Soulcaller).
+    "the number of players you attacked this combat": "opponents_attacked_this_combat",
+    "the number of opponents you attacked this combat": "opponents_attacked_this_combat",
+    "the number of creatures attacking you": "creatures_attacking_you",  # PAR-284 / RULE 506.2 (Sentry Bot)
+    # RULE 702.179 (speed) / RULE 903.8 (commander tax): a player's own speed and the greatest {2}-per-cast tax among
+    # the commanders they have cast (`continuous.count_selector`).
+    "your speed": "your_speed",
+    "your highest commander tax among your commanders": "highest_commander_tax",
+    "the number of opponents being attacked": "players_being_attacked",  # PAR-284 / RULE 506.2 (Dimir Strandcatcher)
+    # PAR-314 / RULE 702.33d + 702.33e: the Kicker/Multikicker payment count on the object the ability belongs to
+    # ("where X is the number of times ~ was kicked", "equal to twice the number of times it was kicked").
+    "the number of times it was kicked": "source_kicker_count",
+    "the number of times ~ was kicked": "source_kicker_count",
     # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
     "the number of colors of mana spent to cast this spell": "converge",
 }
@@ -440,7 +600,43 @@ _NAMED_TERMS: dict[str, str] = {
 #: sacrifice (a cost, or "you may sacrifice a creature. When you do, …") stamped on its source
 #: (`RulesEngine.note_sacrificed` → `continuous.count_selector`'s ``sacrificed_cost_*``).
 SACRIFICED_TERM = r"the sacrificed (?:creature|permanent|artifact|land)'?s (?:power|toughness|mana value)"
-_SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land)'?s (?P<what>power|toughness|mana value)$")
+#: MEC-173 / RULE 608.2h: "the total power of the sacrificed creatures" (Corpse Cobble) -- the creatures an additional
+#: cost sacrificed, each measured as it left (`game/cost_referents.py`); `gate._cost_referents_ok` demands such a cost.
+_SACRIFICED_CREATURES_TOTAL = re.compile(
+    r"^the total (?P<what>power|toughness|mana value) of the sacrificed creatures$")
+_SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land|enchantment|planeswalker)'?s (?P<what>power|toughness|mana value)$")
+#: MEC-145 / RULE 608.2h: "the discarded card's mana value", "the power of the exiled card", "the toughness of the
+#: creature tapped this way" -- one object the ability's own cost moved (`game/cost_referents.py` snapshots it as it moved).
+
+_REFERENT_NOUN = r"(?:card|creature|permanent|artifact|land)"
+_REFERENT_STAT = r"(?P<what>power|toughness|mana value)"
+_COST_REFERENT_POSSESSIVE = re.compile(
+    rf"^the (?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
+)
+_COST_REFERENT_OF = re.compile(
+    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}"
+    rf"|{_REFERENT_NOUN} (?:you )?(?P<kind_after>exiled|discarded|tapped)(?: this way)?"
+    rf"|(?P<tapped>creature) tapped this way)$"
+)
+#: "the number of card types the discarded card has" (Mount Velus Manticore): the RULE 205.2a type count of the object.
+_COST_REFERENT_TYPE_COUNT = re.compile(rf"^the number of card types (?:the|that) (?P<kind>discarded|exiled) {_REFERENT_NOUN} has$")
+
+
+def parse_cost_referent_term(text: str) -> Optional[str]:
+    """The ``cost_referent_<kind>_<stat>`` count selector a single-object referent phrase names, or ``None``."""
+    types = _COST_REFERENT_TYPE_COUNT.match(text)
+    if types is not None:
+        return f"cost_referent_{types.group('kind')}_card_types"
+    m = _COST_REFERENT_POSSESSIVE.match(text)
+    kind = m.group("kind") if m else None
+    if m is None:
+        m = _COST_REFERENT_OF.match(text)
+        if m is None:
+            return None
+        kind = m.group("kind") or m.group("kind_after") or "tapped"
+    return f"cost_referent_{kind}_{m.group('what').replace(' ', '_')}"
+
+
 #: "`<N>` plus …" (Allosaurus Rider) and "twice …" (Territorial Maro).
 _PLUS_PREFIX = re.compile(rf"^(?P<n>{NUMBER_WORD_PATTERN}) plus (?P<rest>.+)$")
 _TWICE_PREFIX = "twice "
@@ -466,6 +662,12 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _SACRIFICED.match(text)
     if m is not None:
         return "sacrificed_cost_" + m.group("what").replace(" ", "_")
+    m = _SACRIFICED_CREATURES_TOTAL.match(text)
+    if m is not None:
+        return "cost_referent_sacrificed_creature_" + m.group("what").replace(" ", "_")
+    referent = parse_cost_referent_term(text)
+    if referent is not None:
+        return referent
     m = _DEVOTION_TERM.match(text) or _MANA_SYMBOLS_TERM.match(text)
     if m is not None:
         return f"devotion_to_{m.group('color')}"
@@ -482,21 +684,44 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
         if selector is None or "distinct" in selector:
             return None
         return {**selector, "distinct": "name"}
-    m = _AMONG_DISTINCT.match(text)
+    m = _ABILITIES_AMONG.match(text)
     if m is not None:
         selector = parse_count_phrase(m.group("phrase"))
+        listed = [part.strip() for part in m.group("list").split(",") if part.strip()] + [m.group("last").strip()]
+        if selector is None or "distinct" in selector or selector.get("zone") != "battlefield" or len(set(listed)) != len(listed):
+            return None
+        return {**selector, "distinct": "keyword", "keywords": listed}
+    m = _AMONG_DISTINCT.match(text)
+    if m is not None:
+        phrase = m.group("phrase")
+        with_spells = m.group("what") in ("colors", "card types") and phrase.endswith(_AND_SPELLS_CAST)
+        if with_spells:
+            phrase = phrase[: -len(_AND_SPELLS_CAST)]
+        selector = parse_count_phrase(phrase)
         if selector is None or "distinct" in selector:
             return None
-        return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")]}
+        return {**selector, "distinct": _DISTINCT_AMONG_KEYS[m.group("what")], **({"with_spells_cast_this_turn": True} if with_spells else {})}
     m = _AGGREGATE.match(text)
     if m is not None:
+        two_places = _AGGREGATE_TWO_PLACES.match(m.group("phrase"))
+        if two_places is not None:
+            # PAR-284 milestone 23: "the greatest power among creatures you control and creature cards in your
+            # graveyard" -- the battlefield and the graveyard are disjoint (RULE 400.1), so a sum adds the halves and a
+            # greatest value is the larger of the two halves' own greatest values.
+            halves = [parse_count_phrase(two_places.group("battlefield")), parse_count_phrase(two_places.group("graveyard"))]
+            if any(h is None or "distinct" in h or "aggregate" in h or h.get("zone") != z
+                   for h, z in zip(halves, ("battlefield", "graveyard"))):
+                return None
+            value = m.group("value").replace(" and/or ", "_or_").replace(" ", "_")
+            terms = [{**h, "aggregate": _AGGREGATE_KEYS[m.group("agg")], "value": value} for h in halves]
+            return {"terms": terms, **({"combine": "max"} if m.group("agg") == "greatest" else {})}
         selector = parse_count_phrase(m.group("phrase"))
         if selector is None or "distinct" in selector:
             return None
         return {
             **selector,
             "aggregate": _AGGREGATE_KEYS[m.group("agg")],
-            "value": m.group("value").replace(" ", "_"),
+            "value": m.group("value").replace(" and/or ", "_or_").replace(" ", "_"),
         }
     m = _COUNTERS_ON.match(text)
     if m is not None:
@@ -513,6 +738,10 @@ def parse_amount_term(text: str) -> "Optional[str | dict[str, Any]]":
     m = _NUMBER_OF.match(text)
     if m is not None:
         return parse_count_phrase(m.group("phrase"))
+    m = _GREATEST_SHARED_NUMBER.match(text)
+    if m is not None:
+        selector = parse_count_phrase(m.group("phrase"))
+        return selector if selector is not None and selector.get("share") else None
     return None
 
 

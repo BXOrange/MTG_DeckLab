@@ -51,7 +51,7 @@ def _glissa_herald_of_predation() -> list[AbilitySpec]:
                         "add_subtypes": ["Phyrexian"], "power": 0, "toughness": 0,
                     })],
                     [EffectSpec("pump", {
-                        "selector": "creatures_you_control_of_type_phyrexian",
+                        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "phyrexian"}},
                         "keywords": ["first_strike", "deathtouch"],
                     })],
                 ],

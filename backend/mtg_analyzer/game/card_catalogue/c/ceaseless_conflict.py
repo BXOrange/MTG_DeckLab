@@ -15,7 +15,7 @@ def _ceaseless_conflict() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("destroy", {"selector": "all_creatures"}),
+                EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
                 EffectSpec("create_token", {
                     "token_name": "Spirit", "power": 3, "toughness": 2,
                     "colors": ["R", "W"], "subtypes": ["Spirit"],

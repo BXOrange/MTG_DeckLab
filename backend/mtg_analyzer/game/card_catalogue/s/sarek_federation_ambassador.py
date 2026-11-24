@@ -36,7 +36,7 @@ def _sarek_federation_ambassador() -> list[AbilitySpec]:
                     "effects": [{"type": "draw", "params": {"count": "$n"}}],
                 }),
                 EffectSpec("add_counters", {
-                    "kind": "+1/+1", "selector": "each_creature_you_control", "count": COUNTERS_PER_CREATURE,
+                    "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "count": COUNTERS_PER_CREATURE,
                 }, condition={
                     "kind": "amount_compare", "op": "ge", "left": drawn,
                     "right": {"kind": "fixed", "amount": CARDS_FOR_COUNTERS},

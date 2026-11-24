@@ -55,3 +55,12 @@ from . import kira_nerys_firebrand  # noqa: F401
 from . import kongming_s_contraptions  # noqa: F401
 
 from . import kosei_penitent_warlord  # noqa: F401
+
+from . import kitsune_mystic_autumn_tail_kitsune_sage  # noqa: F401
+from . import king_of_the_oathbreakers  # noqa: F401
+from . import keeper_of_the_secret_lair  # noqa: F401
+
+from . import kai_winn_faithless_leader  # noqa: F401
+from . import kaya_spirits_justice  # noqa: F401
+from . import knollspine_invocation  # noqa: F401
+from . import krovikan_sorcerer  # noqa: F401

@@ -40,9 +40,11 @@ from ..costs import (
 from ..effects.core import ActivatedAbility
 from ..mana_abilities import (
     hand_mana_abilities_for,
+    self_damage_amount,
     is_snow_source_for,
     mana_abilities_for,
     mana_source_kind_for,
+    mana_source_land_subtypes,
     option_label,
     resolve_options,
     restriction_predicate_for_activation,
@@ -87,6 +89,7 @@ class ManaMixin:
         color_split: Optional[dict[str, int]] = None,
         sacrifice_choice: Optional[int] = None,
         x: int = 0,
+        cost_land: Optional[list[int]] = None,
     ) -> dict[str, int]:
         """Activate one of a permanent's mana abilities (RULE 605) — the
         fast, no-stack path.
@@ -125,10 +128,24 @@ class ManaMixin:
             # the "unless they're mana abilities" rider, which
             # `activation_prohibited` skips for this call.
             raise ValueError(f"{source.name}'s abilities can't be activated")
+        activated_source_name = source.name
+        source_incarnation = source.zone_incarnation
         abilities = mana_abilities_for(source, state=self.state)
         if not 0 <= ability_index < len(abilities):
             raise ValueError(f"{source.name} has no mana ability #{ability_index}")
         ability = abilities[ability_index]
+        copy_template = mana_abilities_for(source, state=self.state, resolve_amounts=False)[ability_index]
+        untapped_cost_land = None
+        if ability.cost_land_options:
+            if not 0 <= option_index < len(ability.cost_land_options):
+                raise ValueError('invalid land/mana option')
+            selected = ability.cost_land_options[option_index]
+            if cost_land is not None and list(map(int, cost_land)) != [selected['instance_id'], selected['zone_incarnation']]:
+                raise ValueError('the chosen cost land is no longer the offered battlefield visit')
+            if tap_choices is not None and list(map(int, tap_choices)) != [selected['instance_id']]:
+                raise ValueError('mana option does not match the land chosen for the cost')
+            tap_choices = [selected['instance_id']]
+            untapped_cost_land = (selected['instance_id'], selected['zone_incarnation'])
         cost = ability.cost
         x = max(int(x or 0), 0) if ability.x_scaled else 0
         # RULE 602.5d, printed on a mana ability itself (Vivi Ornitier's
@@ -164,10 +181,32 @@ class ManaMixin:
             if not 0 <= option_index < len(ability.options):
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
-        self._pay_activation_cost(
-            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
-            is_mana_ability=True,
-        )
+        source_subtypes = mana_source_land_subtypes(source)
+        with self.state.simultaneous():  # RULE 118.3 / 603.2c (BUG-76): one cost's objects leave together, one event
+            self._pay_activation_cost(
+                player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+                is_mana_ability=True,
+            )
+        # RULE 602.2 / 605.3b: activation completes before its immediate
+        # resolution. Copy listeners remember the ability, not its produced mana.
+        from ..effects.copied_mana_ability import CopiedManaAbilityEffect
+        from ..copy_event_state import freeze
+
+        recipe = StackItem(kind='ability', controller_id=player.id, source=source,
+                           category='activated_ability', x=x, cant_be_copied=cost.cant_be_copied,
+                           effects=[CopiedManaAbilityEffect(
+                               source, copy_template, source_incarnation, x,
+                               getattr(source, 'last_cost_exiled_object_mv', None),
+                               getattr(source, 'sacrificed_cost_mana_value', None),
+                               untapped_cost_land=untapped_cost_land,
+                           )], description=activated_source_name + ' mana ability')
+        recipe.source_zone_incarnation = source_incarnation
+        self.state.copiable_stack_recipes[recipe.stack_id] = freeze(self.rules, recipe)
+        activation_event = self.state.fire_event(GameEvent(
+            EventType.MANA_ABILITY_ACTIVATED, player_id=player.id, controller_id=player.id,
+            instance_id=source.instance_id, object=activated_source_name,
+            ability_source_incarnation=source_incarnation, stack_id=recipe.stack_id,
+        ))
         if ability.source_counters_before_mana:
             # RULE 608.2c: apply replacements to the counter placement first;
             # the later Add reads the resulting count, not a predicted increment.
@@ -211,6 +250,8 @@ class ManaMixin:
             # `_pay_activation_cost` just sacrificed (RULE 608.2h last-known mana value, stamped on the source).
             produced = {color: source.sacrificed_cost_mana_value or 0 for color in produced}
         restriction = ability.restriction
+        if restriction is not None and restriction.get("your_commander"):
+            restriction = {**restriction, "owner_id": player.id}
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
             # type" names no fixed type at parse time — resolve it here,
@@ -248,6 +289,8 @@ class ManaMixin:
         player.mana_pool.add_many(
             produced, restriction=restriction, source_kind=mana_source_kind_for(source),
             is_snow=is_snow_source_for(source),
+            source_subtypes=(mana_source_land_subtypes(source)
+                             if source.zone_incarnation == source_incarnation else source_subtypes),
             rider=build_rider(ability.spend_rider, source) if ability.spend_rider else None,
         )
         if ability.next_cast_rider:
@@ -256,7 +299,7 @@ class ManaMixin:
             # RULE 605.1a: a mana ability may have effects besides producing
             # mana (the painland/Elves-of-Deep-Shadow "deals N damage to
             # you" rider) — applied right alongside it, no stack involved.
-            self.rules.deal_damage(player, ability.self_damage, source=source)
+            self.rules.deal_damage(player, self_damage_amount(ability, self.state, player.id), source=source)
         if ability.self_rad_counters:
             # RULE 729's own rider (Harold and Bob's granted ability) —
             # same "applied right alongside, no stack" treatment.
@@ -266,6 +309,7 @@ class ManaMixin:
                 self.rules.add_counters(source, amount, kind, source=source)
         for kind, amount in ability.player_counters.items():
             self.rules.add_player_counters(player, amount, kind, source=source)
+        activation_event.data['produced'] = dict(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)
         # RULE 605.1: a "whenever ~ is tapped for mana" trigger (Price of
@@ -340,7 +384,7 @@ class ManaMixin:
         if ability.next_cast_rider:
             arm_next_cast_rider(self.state, source, ability.next_cast_rider)
         if ability.self_damage:
-            self.rules.deal_damage(player, ability.self_damage, source=source)
+            self.rules.deal_damage(player, self_damage_amount(ability, self.state, player.id), source=source)
         if ability.self_rad_counters:
             self.rules.add_player_counters(player, ability.self_rad_counters, "rad", source=source)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
@@ -362,6 +406,8 @@ class ManaMixin:
         *,
         allows_restriction=None,
         reserved_ids=(),
+        reserved_permanents=(),
+        reserved_life=0,
     ) -> list[dict[str, int]]:
         """Find a tap plan (`game/mana_potential.py`'s `find_tap_plan`) for
         ``cost`` — or, if omitted, ``source``'s own effective cast cost — and
@@ -383,7 +429,10 @@ class ManaMixin:
             if source is None:
                 raise ValueError("auto_tap_for needs a source or an explicit cost")
             cost = self.effective_cast_cost(player, source, x, kicked=kicked, kicker_x=kicker_x)
-        plan = mana_potential.find_tap_plan(self, player, cost, allows_restriction=allows_restriction, reserved_ids=reserved_ids)
+        plan = mana_potential.find_tap_plan(
+            self, player, cost, allows_restriction=allows_restriction,
+            reserved_ids=reserved_ids, reserved_permanents=reserved_permanents, reserved_life=reserved_life,
+        )
         if plan is None:
             raise ValueError("no untapped mana sources can pay this cost")
         produced: list[dict[str, int]] = []

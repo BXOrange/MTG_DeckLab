@@ -237,7 +237,8 @@ def test_basic_landcycling_keyword_is_resolved_with_its_cost():
         ["Basic landcycling"],
     )
     (spec,) = parse_keywords(card)
-    assert spec.keyword == {"name": "cycling", "cost": "{2}"}
+    # MEC-168: a type-restricted cycling keeps its searched quality (the binder builds the search).
+    assert spec.keyword == {"name": "cycling", "cost": "{2}", "quality": "basic land"}
 
 
 def test_islandcycling_keyword_is_resolved_with_its_cost():
@@ -248,7 +249,7 @@ def test_islandcycling_keyword_is_resolved_with_its_cost():
         ["Islandcycling"],
     )
     (spec,) = parse_keywords(card)
-    assert spec.keyword == {"name": "cycling", "cost": "{2}"}
+    assert spec.keyword == {"name": "cycling", "cost": "{2}", "quality": "island"}
 
 
 def test_megamorph_still_resolves_onto_morph():

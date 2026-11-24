@@ -133,7 +133,7 @@ def test_caged_sun_shaped_chosen_color_anthem_is_modeled():
     result = parse_oracle(card)
     assert result.unclaimed == []
     static = next(s for s in result.specs if s.ability_kind == "static")
-    assert static.effects[0].params["color_from_source"] is True
+    assert static.effects[0].params["affects"]["filter"]["color_from_source"] is True
 
 
 def test_a_thran_portal_shaped_self_type_change_is_modeled():
@@ -173,7 +173,7 @@ def test_all_creatures_mass_removal_spell_is_modeled():
     result = parse_oracle(card)
     assert result.unclaimed == []
     spell = next(s for s in result.specs if s.ability_kind == "spell_effect")
-    assert spell.effects[0].params["selector"] == "all_creatures"
+    assert spell.effects[0].params["selector"] == {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}
     assert (spell.effects[0].params["power"], spell.effects[0].params["toughness"]) == (-2, -2)
 
 
@@ -278,7 +278,7 @@ def test_all_creatures_mass_pump_selector_applies_board_wide():
     b = _bf(state, _creature("B", type_line="Creature — Bear"), controller="p2")
     from mtg_analyzer.game.effects.core import PumpEffect
 
-    PumpEffect(power=-2, toughness=-2, selector="all_creatures", source=a).apply(engine.context)
+    PumpEffect(power=-2, toughness=-2, selector={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, source=a).apply(engine.context)
     assert (a.temp_power, a.temp_toughness) == (-2, -2)
     assert (b.temp_power, b.temp_toughness) == (-2, -2)
 
@@ -371,7 +371,9 @@ def test_choose_creature_type_with_missing_answer_defaults_to_first_option():
     assert chooser.chosen_type == "Bear"  # only option on the board, so it's "first"
 
 
-def test_choose_creature_type_with_no_creatures_anywhere_does_not_pause():
+def test_choose_creature_type_with_no_creatures_anywhere_offers_every_creature_type():
+    # RULE 205.3m: any creature type may be named, so an empty board falls back to the whole vocabulary
+    # instead of skipping the choice.
     card = artifact_permanent(
         "Type Chooser", cost="{1}", oracle_text="As ~ enters, choose a creature type."
     )
@@ -386,9 +388,12 @@ def test_choose_creature_type_with_no_creatures_anywhere_does_not_pause():
     eng.cast_spell(p1, chooser)
     eng.resolve_until_stable()
 
-    assert eng.state.pending_choice is None
+    choice = eng.state.pending_choice
+    assert choice["kind"] == "choose_creature_type" and choice["options"]
+    pick = choice["options"][0]["id"]
+    eng.resolve_pending_choice(pick)
     assert chooser in eng.state.battlefield
-    assert chooser.chosen_type is None
+    assert chooser.chosen_type == pick
 
 
 def test_choose_color_end_to_end_via_cast():

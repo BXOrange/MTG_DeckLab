@@ -90,12 +90,18 @@ def active_graveyard_cast_grants(player: "Player", state: "GameState") -> list[G
     off_battlefield = [*player.graveyard, *player.exile]
     # RULE 114.4: emblem permissions function in the command zone.
     for obj in [*on_battlefield, *player.emblems, *off_battlefield]:
-        for effect in getattr(obj, "static_effects", None) or []:
+        effects = list(getattr(obj, "static_effects", None) or [])
+        if obj in on_battlefield:
+            effects.extend(getattr(obj, "_granted_static_abilities", ()))
+        for effect in effects:
             if not isinstance(effect, GraveyardCastPermissionEffect):
                 continue
             if effect.expires_turn is None and obj in off_battlefield:
                 continue
-            if effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
+            if effect.outside_game:
+                if (obj.loses_all_abilities or obj.cross_zone_play_used_turn == state.internal_turn.number):
+                    continue
+            elif effect.once_per_turn and not effect.per_permanent_type and getattr(obj, "graveyard_casts_this_turn", 0):
                 continue
             if effect.expires_turn is not None and effect.expires_turn != state.internal_turn.number:
                 continue

@@ -18,6 +18,7 @@ the answer back through its ``$chosen_*`` placeholder, so the pick is frozen int
 
 from __future__ import annotations
 
+import copy
 import re
 from typing import Any, Optional
 
@@ -35,6 +36,7 @@ from ..subgrammars import (
     target_quality_filter,
     TARGET,
 )
+from ..named_groups import OF_YOU, battlefield_group
 from ...spec import CHOSEN_COLOR_SENTINEL, CHOSEN_COLORS_SENTINEL, CHOSEN_LAND_TYPE_SENTINEL, EffectSpec
 from ..clause_reading import ClauseReading, REVEALED, REVEALED_REFERENT
 from .shared import compile_clause, EffectHandler, ANY_NUMBER_TARGET_CAP, SELF_SUBJECT
@@ -98,8 +100,8 @@ _BODY = (
 #: "vehicles you control become artifact creatures" -- a plural group with no quantifier, so the shared object phrase
 #: (which wants "each" / "all") does not read it. Group -> the `affects` selector (and subtype) of its statics.
 _GROUPS: dict[str, dict[str, Any]] = {
-    "vehicles you control": {"affects": "permanents_you_control", "subtype": "vehicle"},
-    "artifacts you control": {"affects": "artifacts_you_control"},
+    "vehicles you control": {"affects": battlefield_group(OF_YOU, None, subtype="vehicle")},
+    "artifacts you control": {"affects": battlefield_group(OF_YOU, "artifact")},
 }
 _SUBJECT = (
     rf"(?:(?P<may>you may have )?(?:{TARGET}|(?P<extra>{_EXTRA_TARGET_ALT})|(?P<own>~))|(?P<group>{'|'.join(_GROUPS)})|(?P<multi>1 or more target creatures))"
@@ -313,7 +315,7 @@ def _becomes(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             return None
     if m.group("group"):
         for static in statics:
-            static["params"].update(_GROUPS[m.group("group")])
+            static["params"].update(copy.deepcopy(_GROUPS[m.group("group")]))
     params: dict[str, Any] = {"static": statics[0], "duration": duration, **subject}
     if len(statics) > 1:
         params["extra_statics"] = statics[1:]

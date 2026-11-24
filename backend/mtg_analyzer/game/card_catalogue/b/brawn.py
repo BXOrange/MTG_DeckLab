@@ -20,7 +20,7 @@ def _brawn() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "keywords": ["trample"],
                 "active_if": {
                     "kind": "control_count",

@@ -30,6 +30,7 @@ def _genesis_hydra() -> list[AbilitySpec]:
                 "count": "x", "action": "library_to_battlefield", "optional": True, "max_picks": 1,
                 "criteria": {"type": list(_NONLAND_PERMANENT_TYPES), "max_mana_value": "x"},
                 "rest_destination": "library_shuffled",
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
             trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "self"}},
         ),

@@ -249,7 +249,7 @@ def test_each_other_creature_you_control_pump_group():
         reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("pump", {
         "power": 1, "toughness": 1, "keywords": ["trample"],
-        "selector": "other_creatures_you_control",
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}},
     })]
 
 
@@ -371,7 +371,8 @@ def test_reveal_top_all_land_cards_to_hand():
         reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("inspect_top_choose", {
         "count": 3, "action": "library_to_hand", "max_picks": "all", "optional": False,
-        "criteria": {"type": "land"}, "rest_destination": "library_bottom_random",
+        "criteria": {"type": "land"}, "rest_destination": "library_bottom_order",
+        "reveal": True,  # BUG-79, RULE 701.20a: "reveal the top 3 cards"
     })]
 
 
@@ -412,7 +413,7 @@ def test_destroy_all_with_that_spells_mana_value_parses():
     assert parse_effect_body(
         "destroy all permanents with that spell's mana value", reading=ClauseReading(self_subject=True),
     ) == [EffectSpec("destroy", {
-        "selector": "all_permanents", "filter": {"mana_value_from_trigger_event": True},
+        "group": {"zone": "battlefield", "of": "any", "filter": {}}, "filter": {"mana_value_from_trigger_event": True},
     })]
 
 

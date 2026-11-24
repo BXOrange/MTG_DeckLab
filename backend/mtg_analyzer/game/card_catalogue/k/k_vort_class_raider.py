@@ -39,7 +39,7 @@ def _k_vort_class_raider() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "keywords": ["hexproof"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["hexproof"],
                 "active_if": {"kind": "your_turn"},
             })],
         ),

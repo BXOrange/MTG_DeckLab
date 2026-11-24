@@ -28,6 +28,10 @@ from mtg_analyzer.game import targeting
 #: opaque kind fails this test and forces the "can this be a frame?"
 #: question — which is the whole point of S0b.
 IRREDUCIBLE_KINDS = frozenset({
+    # PAR-285 M17: a battlefield creature or any graveyard creature card (Angel of Serenity), and the suspended-card
+    # unions (Timebender, Timecrafting, Dust of Moments): each spans two zones, so none is a battlefield frame.
+    "creature_or_any_graveyard_creature", "permanent_or_suspended_card",
+    "permanent_with_time_counter_or_suspended_card",
     # attachment legality (equip/fortify/reconfigure/enchant) off the
     # source's own parametric keywords
     "permanent",
@@ -215,7 +219,11 @@ class TestDispatchIsStructural:
         # battlefield and every graveyard, so it can be neither a battlefield frame nor a graveyard-family kind.
         # Bumped 17 -> 18 for `exiled_creature_card` (Espers to Magicite): a creature card in exile, which is
         # neither a battlefield frame nor a graveyard-family kind.
-        assert branches <= 18, (
+        # Bumped 18 -> 20 (PAR-285 M17): `creature_or_any_graveyard_creature` spans the battlefield and every graveyard
+        # (like `spell_nonland_permanent_or_graveyard_card`), and one branch serves the two suspended-card kinds
+        # (`permanent_or_suspended_card`, `permanent_with_time_counter_or_suspended_card`), whose pool is the
+        # exile-zone suspended cards plus a battlefield half.
+        assert branches <= 20, (
             f"{branches} name branches left in legal_targets; the frame "
             f"dispatch was supposed to absorb them"
         )

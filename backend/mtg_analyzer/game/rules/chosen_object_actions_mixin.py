@@ -233,13 +233,17 @@ class ChosenObjectActionsMixin:
                 self.grant_damage_multiplier_from_source(obj)
             else:
                 self.prevent_damage_from_source(obj, "all")
-        elif action in ("exile", "exile_face_down_linked", "exile_until_source_leaves"):
+        elif action in ("exile", "exile_face_down", "exile_face_down_linked", "exile_until_source_leaves"):
             if action == "exile_until_source_leaves":
                 from ..effects.exile_control import ExileEffect
 
                 ExileEffect(source=source, until_source_leaves=True).apply(self.context, [obj])
             else:
                 self.exile(obj)
+            if action == "exile_face_down":
+                # RULE 406.3: "exile one of them face down" (PAR-292 M12). Set after the move, which clears the
+                # flag. No viewer list: the legacy default shows a face-down exiled card to its owner only.
+                obj.face_down_in_exile = True
             if action == "exile_face_down_linked":
                 obj.face_down_in_exile = True
                 obj.face_down_exile_viewers = {player.id}
@@ -310,11 +314,13 @@ class ChosenObjectActionsMixin:
                 else "battlefield_tapped" if action.endswith("_tapped") else "battlefield",
                 entry_specs=entry_specs,
             )
-        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn"):
+        elif action in ("grant_temp_play_same_turn", "grant_temp_play_next_turn", "grant_temp_play_standing"):
             self._grant_temp_play_permission(
                 obj, player, source.name if source is not None else None,
                 action.endswith("_same_turn"), None,
             )
+            if action == "grant_temp_play_standing":
+                self.state.temp_play_permission_standing.add(obj.instance_id)
         elif action in ("library_to_hand", "reveal_library_to_hand"):
             # MEC-72 (Eclipsed Flamekin): move the picked card from library to hand.
             if action == "reveal_library_to_hand":
@@ -458,6 +464,7 @@ class ChosenObjectActionsMixin:
             # RULE 702.94a: the pairing is recorded on both creatures.
             source.paired_with = obj.instance_id
             obj.paired_with = source.instance_id
+            source.paired_controller_id = obj.paired_controller_id = source.controller_id
         elif action == "library_top":
             owner = self.state.player_by_id(obj.owner_id) or player
             self._remove_from_current_zone(owner, obj)

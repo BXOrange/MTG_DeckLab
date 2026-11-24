@@ -184,6 +184,8 @@ class TurnLoopMixin:
         # the outgoing player is still active (its "last combat" record belongs to them, not the next player).
         self._finish_end_combat()
         self.state.end_steps_this_turn = 0
+        self.state.main_phases_this_turn = 0
+        self.state.pending_extra_combats.clear()  # RULE 500.8: additions belong only to the outgoing turn.
         self.state.first_turn_draw_step_skipped = False
         self.state.pending_extra_end_steps = 0
         # RULE 606.3: loyalty usage expires every turn, including an
@@ -246,6 +248,8 @@ class TurnLoopMixin:
                 skip = next((e for e in candidate.player_effects if isinstance(e, StaticEffect) and e.skips_step("turn")), None)
                 if skip is None:
                     self.state.extra_turn_resume_player_id = self.state.players[normal_index].id if is_extra else None
+                    if is_extra:
+                        self.state.players_begun_extra_turn.add(candidate.id)
                     break
                 if skip.duration == "once":
                     candidate.player_effects.remove(skip)
@@ -413,9 +417,20 @@ class TurnLoopMixin:
         # effect queued since the last advance (`ExtraCombatPhaseEffect`) —
         # done here, not where it's queued, since only `GameEngine` (not the
         # effect that requested it) can see `_turn_steps`/`_cursor`.
-        while self.state.pending_extra_combats:
-            request = self.state.pending_extra_combats.pop(0)
+        requests = self.state.pending_extra_combats
+        self.state.pending_extra_combats = []
+        for request in requests:
             if isinstance(request, dict):
+                if request.get("after_second_main"):
+                    # RULE 505.1b: wait for the second actual main phase,
+                    # including inserted phases; a phase already over cannot
+                    # receive a new addition retroactively (RULE 500.8).
+                    if self.state.main_phases_this_turn < 2:
+                        self.state.pending_extra_combats.append(request)
+                        continue
+                    current = self._turn_steps[max(0, self._cursor - 1)][0] if self._turn_steps else None
+                    if getattr(current, "main_phase_number", None) != 2 or current.skipped:
+                        continue
                 self.insert_additional_combat_phase(**request)
             else:
                 self.insert_additional_combat_phase(request)
@@ -517,6 +532,9 @@ class TurnLoopMixin:
             return
         if step.name == "end":
             self.state.end_steps_this_turn += 1
+        if phase.name in {"precombat_main", "postcombat_main"} and step is phase.steps[0]:
+            self.state.main_phases_this_turn += 1
+            phase.main_phase_number = self.state.main_phases_this_turn
         if step.name == "draw":
             self.state.pending_turn_step = {"phase": phase.name, "step": step.name,
                                             "gives_priority": step.gives_priority}
@@ -530,14 +548,17 @@ class TurnLoopMixin:
         # beginning-of-step triggers against the resulting characteristics.
         if step.name in ("end", "upkeep") and durations.sweep(self.state, "end_step" if step.name == "end" else "upkeep"):
             self.recompute_continuous_effects()
-        self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name))
+        self.state.fire_event(GameEvent(EventType.STEP_BEGIN, step=step.name, phase=phase.name,
+                                       main_phase_number=getattr(phase, 'main_phase_number', None)))
         if phase.steps and step is phase.steps[0] and getattr(phase, "untap_controller_id", None):
-            # RULE 603.7: Moraug's delayed trigger belongs to this specific combat.
+            # RULE 603.7: the delayed trigger belongs to this specific combat.
             from ..effects.attachments_transforms import TapEffect
             self.state.stack.append(StackItem(
                 kind="ability", controller_id=phase.untap_controller_id,
-                effects=[TapEffect(selector="creatures_you_control", untap=True)],
-                description="Moraug: Kreaturen enttappen", category="triggered_ability",
+                effects=[TapEffect(selector=getattr(phase, "untap_selector", None)
+                                  or {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
+                                  untap=True)],
+                description="Zusätzlicher Kampf: Kreaturen enttappen", category="triggered_ability",
             ))
         self._fire_delayed_triggers(step.name)
         self._execute_step_body(step)
@@ -634,7 +655,9 @@ class TurnLoopMixin:
 
     def insert_additional_combat_phase(self, main_phase_too: bool = False, *,
                                        after_current_phase: bool = False,
-                                       untap_controller_id: Optional[str] = None) -> None:
+                                       untap_controller_id: Optional[str] = None,
+                                       after_second_main: bool = False,
+                                       untap_selector: Optional[dict] = None) -> None:
         """RULE 500.4-adjacent "after this combat phase, there is an
         additional combat phase[, followed by an additional main phase]"
         (Combat Celebrant/Godo/Aurelia/Xenagos-shaped triggered abilities;
@@ -666,8 +689,8 @@ class TurnLoopMixin:
         if not steps:
             return
         insert_at = len(steps)
-        if after_current_phase:
-            # RULE 500.8: main-phase landfall inserts before the ordinary combat.
+        if after_current_phase or after_second_main:
+            # RULE 500.8: insert directly after the selected current phase.
             current = steps[max(0, self._cursor - 1)][0]
             insert_at = self._cursor
             while insert_at < len(steps) and steps[insert_at][0] is current:
@@ -689,6 +712,7 @@ class TurnLoopMixin:
         )
         new_steps = [(new_combat, s) for s in new_combat.steps]
         new_combat.untap_controller_id = untap_controller_id
+        new_combat.untap_selector = untap_selector
         if main_phase_too:
             new_main = GamePhase("postcombat_main", [GameStep("main2", rule="505")])
             new_steps.append((new_main, new_main.steps[0]))
@@ -783,10 +807,13 @@ class TurnLoopMixin:
         # Reads `state.battlefield` directly, not `permanents_controlled_by`,
         # since that filters phased-out objects out.
         battlefield = list(self.state.battlefield)
+        phase_in_blocked = continuous.phase_in_prohibited(self.state)
         phase_in = [
             obj for obj in battlefield
             if obj.phased_out and obj.phased_out_with is None
+            and obj.phase_in_source_visit is None
             and obj.controller_id == active.id
+            and not phase_in_blocked
         ]
         phase_out = [
             obj for obj in battlefield
@@ -933,6 +960,7 @@ class TurnLoopMixin:
         # every creature's flag is stale. Same for RULE 702.179d's
         # once-per-turn speed-increase limiter, per player.
         for obj in self.state.permanents():
+            obj.encore_defender_id = None
             obj.attacked_this_turn = False
             obj.times_attacked_this_turn = 0
         for pl in self.state.players:
@@ -1128,6 +1156,12 @@ class TurnLoopMixin:
             if obj.temp_protections:
                 obj.temp_protections.clear()
                 ended_effects = True
+            if obj.temp_cant_be_target_of_opponents:
+                obj.temp_cant_be_target_of_opponents = False  # PAR-324, RULE 514.2: "this turn" ends
+                ended_effects = True
+            if obj.temp_cant_be_target_of_spell_colors:
+                obj.temp_cant_be_target_of_spell_colors.clear()  # BUG-77, RULE 514.2: Autumn's Veil's "this turn" ends
+                ended_effects = True
             if obj.temp_granted_activated_abilities:
                 obj.temp_granted_activated_abilities.clear()
                 ended_effects = True
@@ -1189,6 +1223,7 @@ class TurnLoopMixin:
             ended_effects = True
         # "You can't attack that player this turn." (Call for Aid) — RULE
         # 514.2, a state-level "this turn" bar rather than a per-object one.
+        self.state.players_cant_attack_this_turn.clear()
         self.state.no_attack_pairs_this_turn.clear()
         self.state.no_attack_planeswalker_subtypes_this_turn.clear()
         if ended_effects:
@@ -1200,6 +1235,8 @@ class TurnLoopMixin:
         # mirroring the regeneration-shield sweep above but on
         # `Player.player_effects` instead of a permanent's own.
         for player in self.state.players:
+            player.player_effects = [effect for effect in player.player_effects
+                                     if not getattr(effect, "player_hexproof", False)]
             if any(getattr(e, "damage_prevention_shield", False) for e in player.player_effects):
                 player.player_effects = [
                     e for e in player.player_effects
@@ -1288,6 +1325,14 @@ class TurnLoopMixin:
             # RULE 611.2: shared "end of your next turn" clock (`game/durations.py`).
             return not durations.owners_next_turn_has_ended(self.state, holder_id, granted_turn)
 
+        lapsed = [iid for iid, turn in self.state.temp_play_permissions.items()
+                  if not _permission_still_active(iid, turn)]
+        for iid in lapsed:
+            # RULE 614.1 / 400.7: a window's "if that spell would be put into a graveyard, exile it instead" rider
+            # (PAR-325) belongs to that window; an uncast card that is still in exile carries none past it.
+            lapsed_obj = self.state.find_object(iid)
+            if lapsed_obj is not None and lapsed_obj.zone == Zone.EXILE:
+                lapsed_obj.exile_after_free_cast = False
         self.state.temp_play_permissions = {
             iid: turn for iid, turn in self.state.temp_play_permissions.items()
             if _permission_still_active(iid, turn)
@@ -1329,6 +1374,7 @@ class TurnLoopMixin:
         # own "until your next turn" survival above) — cleared unconditionally.
         self.state.next_spell_flash_grants.clear()
         self.state.next_spell_cascade_grants.clear()
+        self.state.next_undaunted_grants.clear()
         if self.state.temp_flashback_grants:
             self.state.temp_flashback_grants = {}
         # A free-cast flag granted alongside a graveyard permission (The Ur-Sphinx) expires with it.
@@ -1494,11 +1540,10 @@ class TurnLoopMixin:
         # (like a cast payment) it stays there for responses; only a solo-played trigger settles straight away.
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
+        pending = self.state.pending_choice
         self.rules.resolve_choice(answer)
-        if choice_kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
-            from ..physical_properties import resume_cast
-            resume_cast(self)
-            return  # An announcement leaves the spell available for responses.
+        if self._resume_paused_announcement(choice_kind, pending):
+            return
         if self.state.turn_based_draws is not None:
             return self.resolve_until_stable()
         if choice_kind == 'untap_cap_selection':
@@ -1520,6 +1565,18 @@ class TurnLoopMixin:
         if self.interactive_priority and self.state.priority_player is not None:
             return self._finish_resolution_interactive()
         self.resolve_until_stable()
+
+    def _resume_paused_announcement(self, kind, pending) -> bool:
+        """Finish an announcement through its ordinary action entry point."""
+        if kind == "combat_payment":
+            from ..combat_payments import resume_declaration
+            resume_declaration(self, pending)
+            return True
+        if kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
+            from ..physical_properties import resume_cast
+            resume_cast(self)
+            return True
+        return False
 
     def _finish_resolution_interactive(self) -> None:
         """Finish the object whose resolution just paused on a choice, nothing more.

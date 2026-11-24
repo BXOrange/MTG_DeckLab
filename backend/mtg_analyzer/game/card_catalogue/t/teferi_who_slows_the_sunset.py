@@ -14,7 +14,7 @@ def _teferi_who_slows_the_sunset() -> list[AbilitySpec]:
     rest), then `gain_life`. Both emblem abilities modify turn-based actions:
     simultaneous untapping and a draw after the active player's draw, without priority.
     """
-    untap_all = AbilitySpec("static", [EffectSpec("untap_each_untap_step", {"affects": "permanents_you_control"})])
+    untap_all = AbilitySpec("static", [EffectSpec("untap_each_untap_step", {"affects": {"zone": "battlefield", "of": "you", "filter": {}}})])
     draw_each_opponent_draw_step = AbilitySpec("static", [EffectSpec("opponent_draw_step", {})])
     return [
         AbilitySpec(

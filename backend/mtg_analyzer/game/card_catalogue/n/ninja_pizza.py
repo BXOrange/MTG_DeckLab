@@ -8,7 +8,7 @@ def _ninja_pizza() -> list[AbilitySpec]:
     """Foods gain a sacrifice mana ability; create a Food each second main phase."""
     return [
         AbilitySpec("static", [EffectSpec("grant_mana_ability", {
-            "affects": "permanents_you_control", "object_filter": {"subtype": "food"},
+            "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'subtype': 'food'}}, 
             "granted_mana_cost": "{T}, sacrifice ~",
             "mana": [{color: 1} for color in "WUBRG"],
         })]),

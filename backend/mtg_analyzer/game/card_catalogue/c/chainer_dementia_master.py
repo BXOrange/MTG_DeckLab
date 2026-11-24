@@ -24,7 +24,7 @@ def _chainer_dementia_master() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"affects": "all_creatures", "subtype": "nightmare", "power": 1, "toughness": 1})],
+            [EffectSpec("anthem", {"affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "subtype": "nightmare"}}, "power": 1, "toughness": 1})],
         ),
         AbilitySpec(
             "activated",
@@ -45,7 +45,7 @@ def _chainer_dementia_master() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("exile", {"selector": "all_creatures", "filter": {"subtype": "nightmare"}})],
+            [EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"subtype": "nightmare"}})],
             trigger={"event": EventType.LEAVES_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
     ]

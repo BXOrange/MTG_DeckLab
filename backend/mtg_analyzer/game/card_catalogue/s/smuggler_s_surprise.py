@@ -16,7 +16,7 @@ def _smuggler_s_surprise() -> list[AbilitySpec]:
                     "count": 2, "optional": True, "action": "return_from_graveyard_to_hand",
                 })],
                 [EffectSpec("put_from_hand_onto_battlefield", {"criteria": {"type": "creature"}, "count": 2})],
-                [EffectSpec("pump", {"selector": "creatures_you_control", "creature_filter": {"min_power": 4}, "keywords": ["hexproof", "indestructible"]})],
+                [EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "creature_filter": {"min_power": 4}, "keywords": ["hexproof", "indestructible"]})],
             ],
             "descriptions": ["Mill four, recover up to two creature or land cards.", "Put up to two creature cards from your hand onto the battlefield.", "Creatures with power 4 or greater gain hexproof and indestructible."],
         }),

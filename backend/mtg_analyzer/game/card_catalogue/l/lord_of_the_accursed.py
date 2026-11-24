@@ -15,7 +15,7 @@ def _lord_of_the_accursed() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "power": 1, "toughness": 1, "affects": "other_creatures_you_control", "subtype": "Zombie",
+                "power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "subtype": "Zombie"}},
             })],
         ),
         AbilitySpec(

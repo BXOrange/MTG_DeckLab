@@ -9,7 +9,7 @@ def _realm_razer() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec('triggered', [EffectSpec('exile', {
-            'selector': 'all_lands', 'track_exiled_with': True,
+            'group': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'land'}}, 'track_exiled_with': True,
         })], trigger={'event': EventType.ENTERS_BATTLEFIELD, 'condition': {'subject': 'self'}}),
         AbilitySpec('triggered', [EffectSpec('return_all_exiled_with', {'tapped': True})],
                     trigger={'event': EventType.LEAVES_BATTLEFIELD, 'condition': {'subject': 'self'}}),

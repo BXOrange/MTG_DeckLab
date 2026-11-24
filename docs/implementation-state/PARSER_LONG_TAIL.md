@@ -14,9 +14,57 @@ PAR-12. Parser recognition alone is not proof of gameplay support.
 
 ## Where coverage stands
 
-Measured on 2026-11-12 at PARSER_VERSION 911: **25,162 / 35,444 cards (71.0%)**,
-including authored cards; 1,337 permanently unsupported records.
-Commander-legal coverage: **24,624 / 32,595 (75.5%)**.
+Full-cache axis scan on 2026-11-16 at PARSER_VERSION 912 (`find_fragments.py --all-cards --axes`):
+**8,875 open cards / 13,777 open sentences** of 35,493 (25,281 covered, 1,337 permanently
+unsupported); Commander-legal 7,738 open of 32,643. Sentence classes: 11,597 CORE (no single-axis
+repair), 1,429 MOD, 383 HEAD, 249 REF, 119 BIND. MOD is a vocabulary gap, not a missing slot:
+686 of 707 leading-`if` sentences and 161 of 181 `for each` sentences claim once a known-good
+filler replaces the modifier; only `with <quality>` (55 of 149) and `from <zone>` (44 of 52) are
+refused by the row itself. Every open sentence is assigned to one package; the packages are
+tickets PAR-281–311 in [BACKLOG.md](BACKLOG.md), which carries the completeness rule.
+After that scan the owner excluded ante permanently (nine cards; 1,346 unsupported, 8,866 open)
+and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
+cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
+
+Measured on 2026-11-23 at PARSER_VERSION 1054: **26,990 / 35,444 cards (76.1%)**,
+including authored cards; 1,346 permanently unsupported records.
+Commander-legal coverage: **26,418 / 32,595 (81.0%)**.
+MEC-164–166 and the PAR-292 M15 merge add 16 covered cards over the previous 1044 snapshot.
+MEC-161–163 add 17 modeled cards with zero coverage losses against version 1043.
+MEC-154–160 add 46 modeled cards with zero coverage losses against version 1032.
+MEC-151–153 add four modeled cards through Plot, Enlist and Outlast, with zero coverage losses against version 1031.
+MEC-150 adds 13 modeled cards with zero coverage losses against version 1024.
+MEC-148 adds four parser-modeled cards with zero coverage losses against version 1022.
+MEC-147 adds four parser-modeled cards with zero coverage losses against version 1021.
+MEC-146 adds eight parser-modeled cards with zero coverage losses against version 1020.
+MEC-173 adds eight parser-modeled cards with zero coverage losses against version 1019.
+ENG-67 adds zone-aware unearth and miracle grants: +6 MODELED.
+ENG-66 makes granted keyword triggers real: +2 MODELED, 1 hollow claim withdrawn (Barbara Wright); BUG-75 records 53 printed-keyword cards counted MODELED without engine behaviour.
+ENG-65 adds the alternative-cost payment choice: +4 covered (Thwart, Tidal Bore, Delraich, Demon of Death's Gate).
+ENG-64 adds the trigger-subject group reference: +3 parser-modeled, +1 authored (Faces of the Past).
+PAR-290 closes the restrictions: **+95 newly covered names** across versions 1008–1009 (18 group
+"can't block this turn" cards corrected to bind later entrants); residue in `singletons.md`.
+PAR-289 closes the continuous statics: **+185 newly covered names** across versions 1004–1007
+(two wrong land-type scopes corrected: Koth of the Hammer, Mu Yanling, Sky Dancer); residue in
+PAR-326, ENG-66–68, MEC-157–160 and `singletons.md`.
+PAR-288 closes the small modifiers ("at random", "instead", "up to one"): **+21 newly covered
+names**, one wrong gate corrected (Flare of Faith); residue in PAR-325, MEC-156, ENG-65 and
+`singletons.md`.
+PAR-287 closes the cross-sentence referents: **+54 newly parser-modeled names** (+52 covered,
+6 wrong referents corrected) across versions 998–1002; residue in PAR-321–324, `singletons.md`
+and the Un-set block.
+PAR-286 closes the trigger and cost heads: **+98 covered names** across versions 987–997
+(one wrong earlier claim withdrawn); residue in MEC-151–155, VIS-22, `singletons.md` and the Un-set block.
+PAR-285 closes the shared object filters: **165 newly covered names (+22 authored cards now
+parser-modeled), zero coverage losses** across versions 970–986; residue routed in the backlog,
+`singletons.md` and the parked Un-set block.
+PAR-284 closes the shared amount vocabulary: **320 newly parser-modeled names,
+zero coverage losses** across versions 946–969. The closing milestone adds 16 names;
+remaining card-specific and other grammar gaps are routed in the backlog and singleton list.
+PAR-320 adds per-player fractional and X edicts, ordered life/discard/sacrifice sequences,
+filtered optional sacrifices and unable riders. Its complete recorded residue is covered
+through the shared grammar and ten catalogue entries: **44 additional covered names,
+34 newly parser-modeled names, zero coverage losses** against v944.
 The separate raw-record audit before PAR-279 included 48 Sticker inserts: **24,015 / 32,116**
 raw records. Removing the exact 168 permanently excluded names gives supported
 coverage **24,015 / 31,948 (75.2%)**, with **7,933 actionable unmodeled records**.

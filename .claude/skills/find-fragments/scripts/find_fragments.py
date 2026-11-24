@@ -59,6 +59,7 @@ def _find_backend() -> Path:
 BACKEND = _find_backend()
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "scripts"))  # commander_tail_report helpers
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # fragment_axes, also when loaded by path
 
 from commander_tail_report import (  # noqa: E402
     _PROV,
@@ -80,6 +81,8 @@ from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  #
 from mtg_analyzer.services.coverage_db import commander_legal_names  # noqa: E402
 from mtg_analyzer.services.raw_card_store import RawCardStore  # noqa: E402
 
+import fragment_axes  # noqa: E402  (sibling module of this script)
+
 #: A template must occur on at least this many cards to enter the greedy walk.
 MIN_SHARED_CARDS = 2
 
@@ -91,6 +94,15 @@ MIN_SHARED_CARDS = 2
 SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+(?=[a-z0-9{+−•~\-])")
 
 _CLAIM_CACHE: dict[str, bool] = {}
+
+#: Appended to every output name of a whole-cache run (`--all-cards`), so it
+#: never overwrites the Commander-legal scan of the same day and version.
+ALL_CARDS_SUFFIX = "-vollpool"
+_scope_suffix = ""
+
+
+def output_stem(day: str) -> str:
+    return f"offene-fragmente-{day}-v{PARSER_VERSION}{_scope_suffix}"
 
 
 def split_sentences(clause: str) -> list[str]:
@@ -430,7 +442,7 @@ def rank_slot_combos(atoms: list[tuple[str, str]], pool_cards, open_names: set[s
 
 def write_slots(ranked: list[dict], stats: dict[str, int], n_cards: int, out_dir: Path,
                 top: int, day: str) -> Path:
-    path = out_dir / f"offene-fragmente-{day}-v{PARSER_VERSION}-slots.md"
+    path = out_dir / f"{output_stem(day)}-slots.md"
     lines = [f"# Slot-Kombinationen — Parser {PARSER_VERSION} ({day})", "",
              f"{stats['atoms']} offene Atome aus {n_cards} Karten; {stats['with_backreference']} mit "
              f"Rückbezug, davon {stats['pronoun_rescued']} mit Stand-in-Antezedens claimbar "
@@ -446,7 +458,7 @@ def write_slots(ranked: list[dict], stats: dict[str, int], n_cards: int, out_dir
 
 
 def write_ngrams(kept: list[dict], out_dir: Path, top: int, day: str) -> Path:
-    path = out_dir / f"offene-fragmente-{day}-v{PARSER_VERSION}-phrasen.md"
+    path = out_dir / f"{output_stem(day)}-phrasen.md"
     lines = [f"# Blocker-Phrasen — Parser {PARSER_VERSION} ({day})", "",
              "Phrase kommt überwiegend in offenen Karten vor (`share` = Anteil offener Karten "
              "an allen Karten mit der Phrase). `nur` = Karten, deren sämtliche offenen Sätze die "
@@ -567,7 +579,7 @@ def rank_templates(rows: list[dict], key: str = "template") -> list[dict]:
 
 def write_outputs(rows, remeasure, totals, out_dir: Path, top: int, samples: int, day: str):
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"offene-fragmente-{day}-v{PARSER_VERSION}"
+    stem = output_stem(day)
     jsonl = out_dir / f"{stem}.jsonl"
     with jsonl.open("w", encoding="utf-8") as fh:
         for row in rows:
@@ -620,6 +632,19 @@ def commander_legal_names_cached() -> set[str]:
         return set(commander_legal_names(raw_store))
 
 
+def load_pool(card_db: Path, all_cards: bool) -> list:
+    """The scanned pool: Commander-legal cards, or the whole cache with `--all-cards`."""
+    cards = CardDatabase(card_db).list_cards()
+    if not cards:
+        # A `Card`/schema change wipes the disposable cache on open (BACKLOG "DB" gotcha).
+        sys.exit(f"card cache is empty: {card_db}\n"
+                 "reseed offline with: python scripts/import_bulk.py --reseed-only")
+    if all_cards:
+        return cards
+    legal = commander_legal_names_cached()
+    return [c for c in cards if c.name in legal]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
@@ -635,35 +660,54 @@ def main() -> None:
                     help="with --ngrams: delete each top phrase from its sentences and re-check the remainder")
     ap.add_argument("--from-jsonl", type=Path, default=None,
                     help="skip the scan; regroup an existing fragments JSONL")
+    ap.add_argument("--all-cards", action="store_true",
+                    help=f"scan the whole card cache, not only Commander-legal cards (outputs get '{ALL_CARDS_SUFFIX}')")
+    ap.add_argument("--axes", action="store_true",
+                    help="classify every open sentence by blocking axis, assign it to a work package and "
+                         "fail if any open card is left unassigned (several extra minutes)")
     args = ap.parse_args()
+    global _scope_suffix
+    _scope_suffix = ALL_CARDS_SUFFIX if args.all_cards else ""
     if args.from_jsonl:
         rows = [json.loads(line) for line in args.from_jsonl.read_text(encoding="utf-8").splitlines()]
         remeasure, totals = [], {"pool": 0, "covered": 0, "never_supported": 0, "open": len({r["card"] for r in rows})}
     else:
-        cards = CardDatabase(args.card_db).list_cards()
-        with RawCardStore() as raw_store:
-            legal = commander_legal_names(raw_store)
-        cards = [c for c in cards if c.name in legal]
+        cards = load_pool(args.card_db, args.all_cards)
         if args.limit is not None:
             cards = cards[:args.limit]
         rows, remeasure, totals = collect_fragments(cards)
     day = date.today().isoformat()
     if args.ngrams or args.ablate:
-        legal_names = commander_legal_names_cached()
-        pool = [c for c in CardDatabase(args.card_db).list_cards() if c.name in legal_names]
+        pool = load_pool(args.card_db, args.all_cards)
         phrases = rank_ngrams(rows, pool)
         if args.ablate:
             ablate(rows, phrases[:args.top])
         print(f"phrases -> {write_ngrams(phrases, args.out_dir, args.top, day)}")
     if args.slots:
-        legal_names = commander_legal_names_cached()
-        pool = [c for c in CardDatabase(args.card_db).list_cards() if c.name in legal_names]
+        pool = load_pool(args.card_db, args.all_cards)
         atoms, stats = open_atoms(rows)
         ranked = rank_slot_combos(atoms, pool, {r["card"] for r in rows})
         print(f"slots -> {write_slots(ranked, stats, len({c for c, _ in atoms}), args.out_dir, args.top, day)}")
     jsonl, md = write_outputs(rows, remeasure, totals, args.out_dir, args.top, args.samples, day)
     print(f"PARSER_VERSION {PARSER_VERSION}: {totals}")
     print(f"{len(rows)} fragments -> {jsonl}\nsummary -> {md}")
+    if args.axes:
+        legal_names = commander_legal_names_cached() if args.all_cards else None
+        parked = None
+        if args.all_cards:
+            with RawCardStore() as raw_store:
+                parked = {raw["name"]: package for raw in raw_store.iter_raw()
+                          if (package := fragment_axes.parked_package(raw))}
+        assignments = fragment_axes.assign(rows, CompositionProbe(_PROV), legal_names, parked)
+        scope = "gesamter Cache" if args.all_cards else "Commander-legal"
+        table, report = fragment_axes.write_axes(assignments, remeasure, totals, args.out_dir, output_stem(day), scope)
+        print(f"assignment -> {table}\naxes -> {report}")
+        # A regrouped JSONL carries no wrapper-only cards, so only a real scan can check the card total.
+        open_cards = None if args.from_jsonl or args.limit is not None else totals["open"]
+        problems = fragment_axes.check_complete(assignments, remeasure, open_cards)
+        if problems:
+            sys.exit("Zuordnung unvollständig:\n" + "\n".join(problems[:20]))
+        print(f"Zuordnung vollständig: {len({a['card'] for a in assignments} | set(remeasure))} Karten")
 
 
 if __name__ == "__main__":

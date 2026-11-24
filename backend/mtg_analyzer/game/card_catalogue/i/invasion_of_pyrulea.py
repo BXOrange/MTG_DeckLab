@@ -25,7 +25,7 @@ def _gargantuan_slabhorn() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('grant_keyword', {"affects": 'permanents_you_control', "exclude_self": True, "object_filter": {'transformed': True}, "keywords": ['trample'], "ward_cost": '{2}'})],
+            [EffectSpec('grant_keyword', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'not_reference': True, 'transformed': True}}, "keywords": ['trample'], "ward_cost": '{2}'})],
             raw_text='',
         ),
     ]

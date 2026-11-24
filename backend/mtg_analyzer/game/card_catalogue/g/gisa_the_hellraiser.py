@@ -17,7 +17,7 @@ def _gisa_the_hellraiser() -> list[AbilitySpec]:
     """
     skeletons = {"zone": "battlefield", "of": "you", "filter": {
         "card_type": "creature", "subtype": "skeleton", "without_subtype": "zombie"}}
-    zombies = {"affects": "creatures_you_control", "subtype": "Zombie"}
+    zombies = {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Zombie"}}}
     return [
         AbilitySpec(
             "triggered",

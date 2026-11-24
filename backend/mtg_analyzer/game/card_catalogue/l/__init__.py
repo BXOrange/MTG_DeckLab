@@ -64,3 +64,14 @@ from . import lazav_wearer_of_faces  # noqa: F401
 from . import leyline_of_the_guildpact  # noqa: F401
 from . import licia_sanguine_tribune  # noqa: F401
 from . import live_long_and_prosper  # noqa: F401
+
+from . import leyline_of_combustion  # noqa: F401
+
+from . import loki_god_of_mischief  # noqa: F401
+from . import last_laugh  # noqa: F401
+from . import la_forge_thoughtful_as_ever  # noqa: F401
+
+from . import lwaxana_troi_charming_guest  # noqa: F401
+from . import lieutenant_nyota_uhura  # noqa: F401
+
+from . import lich  # noqa: F401

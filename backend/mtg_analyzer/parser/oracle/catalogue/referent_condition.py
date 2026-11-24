@@ -72,6 +72,8 @@ _COLOR_RE = re.compile(
     rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) (?P<color>white|blue|black|red|green)"
 )
 _ATTACKING_RE = re.compile(rf"{_SUBJECT} (?P<neg>isn'?t|wasn'?t|is not|was not|is|was) attacking")
+#: RULE 508.1: "if it didn't attack this turn" (Aggression) -- the per-object ``attacked_this_turn`` history flag.
+_ATTACKED_THIS_TURN_RE = re.compile(rf"{_SUBJECT} (?P<neg>didn'?t|did not|has not|hasn'?t)? ?(?:attack|attacked) this turn")
 _ENTERED_RE = re.compile(
     rf"{_SUBJECT} (?P<neg>didn'?t enter|did not enter|entered|enters) (?:the battlefield )?this turn"
 )
@@ -158,6 +160,9 @@ def parse_referent_condition(text: str) -> Optional[dict[str, Any]]:
     m = _CAST_RE.fullmatch(phrase)
     if m is not None:
         return _negated({"kind": "flag", "flag": "was_cast"}, m.group("neg"))
+    m = _ATTACKED_THIS_TURN_RE.fullmatch(phrase)
+    if m is not None:
+        return _negated({"kind": "source_attacked_this_turn"}, m.group("neg"))
 
     m = _COUNTER_RE.fullmatch(phrase)
     if m is not None:

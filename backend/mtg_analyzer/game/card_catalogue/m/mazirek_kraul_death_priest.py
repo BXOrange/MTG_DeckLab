@@ -12,7 +12,7 @@ def _mazirek_kraul_death_priest() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("add_counters", {"selector": "each_creature_you_control"})],
+            [EffectSpec("add_counters", {"group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
             trigger={"event": EventType.SACRIFICE, "condition": {"other": True}},
         ),
     ]

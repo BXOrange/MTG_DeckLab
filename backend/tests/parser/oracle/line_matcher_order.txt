@@ -28,6 +28,7 @@ composed_cast
 cycle_trig
 caused_discard_replacement
 caused_discard
+self_discard
 exert_bare
 exert_trig
 exert_player_trig
@@ -40,7 +41,9 @@ alt_cost_sacrifice_type
 alt_cost_return_two
 alt_cost_pay_life_if_control_land
 alt_cost_pay_mana_if_attacking
+alt_cost_sacrifice_if_your_turn
 alt_cost_pay_mana_if_you_attacked
+alt_cost_pay_mana_if_condition
 alt_cost_pay_mana
 alt_cost_sacrifice_if_control_land
 alt_cost_tap_creature_if_control_land
@@ -58,6 +61,7 @@ declare_attackers_if_attacked
 combat_cast_only
 before_blockers_cast_only
 cast_only_if_another_color
+cast_only_window_or_condition
 conditional_flash_for_mana
 flash_then_cleanup_sac
 conditional_flash_board_state
@@ -66,6 +70,7 @@ saga_chapter
 loyalty_ability
 activated_ability
 phase_trigger
+defending_player_trigger
 triggered_ability
 permanent_standing_line
 spell_cost_static

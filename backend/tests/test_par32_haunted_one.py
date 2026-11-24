@@ -28,11 +28,12 @@ def test_haunted_one_registered_with_tapped_trigger_and_selector():
     assert specs is not None and len(specs) == 1
     (grant,) = specs[0].effects
     assert grant.type == "grant_triggered_ability"
-    assert grant.params["affects"] == "commander_creatures_you_own"
+    assert grant.params["affects"]["filter"] == {
+        "card_type": "creature", "is_commander": True, "owned_by_you": True}
     assert grant.params["trigger_event"] == "TAPPED"
     (pump,) = grant.params["grant_effects"]
     assert pump["type"] == "pump"
-    assert pump["params"]["selector"] == "self_and_shared_creature_type_you_control"
+    assert pump["params"]["selector"]["filter"]["any_of"][0] == {"is_reference": True}
     assert pump["params"]["power"] == 2 and pump["params"]["toughness"] == 0
     assert pump["params"]["keywords"] == ["undying"]
 

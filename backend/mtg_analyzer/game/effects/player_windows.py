@@ -34,21 +34,39 @@ class MiracleCastEffect(GameEffect):
 
 
 class RestrictTargetPlayerThisTurnEffect(GameEffect):
-    """RULE 611.2: fix the player when the targeted spell resolves."""
+    """RULE 611.2: fix the player when the targeted spell resolves.
 
-    def __init__(self, spell_types=None, activations=False, source=None):
+    ``selector="defending_player"`` (PAR-315, RULE 508.1b / 506.2: Xantid Swarm's "defending player can't cast spells this
+    turn") names no target: the player is the one the firing combat event names, else the one the source attacks, and
+    nobody when neither is known."""
+
+    #: The only untargeted player this effect accepts (clamped: any other value is ignored).
+    DEFENDING_SELECTOR = "defending_player"
+
+    def __init__(self, spell_types=None, activations=False, source=None, selector=None, land_plays=False, casts=True):
         super().__init__(source)
         self.spell_types = spell_types
         self.activations = activations
-        self.target_spec = TargetSpec(kind='player')
+        #: PAR-290 / RULE 305.1: "target player can't play lands this turn" (Solfatara) — a `land_play_prohibition`
+        #: instead of (``casts=False``) or beside the cast bar.
+        self.land_plays = land_plays
+        self.casts = casts
+        self.selector = selector if selector == self.DEFENDING_SELECTOR else None
+        self.target_spec = None if self.selector else TargetSpec(kind='player')
 
     def apply(self, context, targets=None):
+        if self.selector:
+            from .core import _combat_defending_player, _defending_player_of
+            player = _combat_defending_player(context) or _defending_player_of(self.source, context)
+            targets = [player] if player is not None else []
         if not targets:
             return
         params = {'scope': 'all', 'player_id': targets[0].id}
         if self.spell_types:
             params['spell_types'] = list(self.spell_types)
-        payloads = [{'type': 'cast_prohibition', 'params': params}]
+        payloads = [{'type': 'cast_prohibition', 'params': params}] if self.casts else []
+        if self.land_plays:
+            payloads.append({'type': 'land_play_prohibition', 'params': {'scope': 'all', 'player_id': targets[0].id}})
         if self.activations:
             payloads.append({'type': 'activation_prohibition', 'params': {
                 'player_id': targets[0].id, 'except_mana_abilities': True}})
@@ -102,7 +120,8 @@ class _AfterSourceSacrificeEffect(GameEffect):
 
 
 EffectRegistry.register('restrict_target_player_this_turn', lambda p: RestrictTargetPlayerThisTurnEffect(
-    p.get('spell_types'), bool(p.get('activations', False))))
+    p.get('spell_types'), bool(p.get('activations', False)), selector=p.get('selector'),
+    land_plays=bool(p.get('land_plays', False)), casts=bool(p.get('casts', True))))
 EffectRegistry.register('sacrifice_source_then', lambda p: SacrificeSourceThenEffect(p.get('then_specs')))
 
 
@@ -307,3 +326,60 @@ EffectRegistry.register('exile_hand_may_play_owner_draws', lambda p: ExileHandMa
 EffectRegistry.register('reveal_creatures_give_opponents', lambda p: RevealCreaturesGiveOpponentsEffect())
 
 EffectRegistry.register("miracle_cast", lambda p: MiracleCastEffect(p["cost"], p["incarnation"], bool(p.get("granted", False))))
+
+
+class TimedPlayerProhibitionEffect(GameEffect):
+    """RULE 611.2a: a player rule with a fixed name, controller and duration."""
+
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        if params.get("bounce_owner"):
+            self.target_spec = TargetSpec(kind="creature_you_dont_control")
+
+    def apply(self, context, targets=None):
+        from .core import StaticAbility, _controller_of
+
+        state = context.state
+        controller = self.params.get("controller_id") or _controller_of(self.source, context).id
+        scope = self.params.get("scope", "all")
+        if self.params.get("choose_name"):
+            followup = {**self.params, "choose_name": False, "restricted_name": "named_card",
+                        "controller_id": controller}
+            context.engine._request_name_card(
+                state.player_by_id(controller), [{"type": "timed_player_prohibition", "params": followup}],
+                self.source, card_filter={"without_type": "land"} if self.params.get("nonland") else None,
+            )
+            return
+
+        restrictions = {"scope": scope, "effect_controller_id": controller}
+        for key in ("spell_types", "hand_only", "restricted_name"):
+            if key in self.params:
+                restrictions[key] = self.params[key]
+
+        if self.params.get("bounce_owner"):
+            if not targets:
+                return
+            obj = targets[0]
+            restrictions.update(player_id=obj.owner_id, restricted_name=" // ".join(obj.names))
+            # Capture the permanent's name before its zone visit changes (RULE 400.7).
+            context.return_to_hand(obj)
+
+        if self.params.get("during_next_turn"):
+            for player in state.living_players():
+                if player.id != controller:
+                    state.floating_statics.append(StaticAbility(
+                        "cast_prohibition", params={**restrictions, "scope": "all", "player_id": player.id,
+                                                     "during_next_turn": True},
+                        duration="during_player_next_turn",
+                        duration_data={"player_id": player.id, "turn": state.internal_turn.number},
+                    ))
+            return
+
+        for layer in ("cast_prohibition", "land_play_prohibition") if self.params.get("land_plays") else ("cast_prohibition",):
+            state.floating_statics.append(StaticAbility(
+                layer, params=dict(restrictions), duration="your_next_turn", duration_data={"player_id": controller},
+            ))
+
+
+EffectRegistry.register("timed_player_prohibition", TimedPlayerProhibitionEffect)

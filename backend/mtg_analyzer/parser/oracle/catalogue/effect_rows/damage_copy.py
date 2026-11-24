@@ -7,6 +7,7 @@ import re
 
 from typing import Any, Optional
 from ..count_phrase import parse_count_phrase
+from ..named_groups import mass_damage_params
 from ..quantifier_scope import object_set
 from ..characteristic_phrase import parse_object_phrase
 from ..referent_condition import PRONOUN_NOUN_ALT
@@ -1453,10 +1454,19 @@ def _damage_target_two_color(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("damage", params)]
 
 
+def _mass_damage(selector: str, params: dict[str, Any], selector_filter: Optional[dict] = None) -> dict[str, Any]:
+    """``params`` with a retired mass-damage ``selector`` name (``each_creature``, ``each_creature_and_player``, ...)
+    rewritten to the structured ``group`` (`named_groups.mass_damage_params`); any other selector stays as is."""
+    mass = mass_damage_params(selector, selector_filter)
+    if mass is None:
+        return {**params, "selector": selector, **({"selector_filter": selector_filter} if selector_filter else {})}
+    return {**params, **mass}
+
+
 def _damage_selector(m: re.Match[str]) -> list[EffectSpec]:
     selector = SELECTOR_WORD_MAP[m.group("selector")]
     n = m.group("n").lower()
-    params: dict[str, Any] = {"amount": "x" if n == "x" else int(n), "selector": selector}
+    params: dict[str, Any] = _mass_damage(selector, {"amount": "x" if n == "x" else int(n)})
     if m.group("selector") == _SPELL_CONTROLLER_PHRASE:
         params[EVENT_PLAYER_EVENTS_KEY] = [BECOMES_TARGET_EVENT]
     # PAR-128: an X amount ("deals x damage to each creature and each player" — Crypt Rats).
@@ -1479,10 +1489,7 @@ def _damage_target_and_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [
         EffectSpec("damage", {"amount": int(m.group("n")), "target_kind": kind}),
-        EffectSpec("damage", {
-            "amount": int(m.group("n2")),
-            "selector": SELECTOR_WORD_MAP[m.group("selector")],
-        }),
+        EffectSpec("damage", _mass_damage(SELECTOR_WORD_MAP[m.group("selector")], {"amount": int(m.group("n2"))})),
     ]
 
 
@@ -1594,10 +1601,9 @@ def _damage_plus_additional(m: re.Match[str], reading: ClauseReading) -> Optiona
 
 
 def _damage_that_much_selector(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("damage", {
-        "amount_from_trigger_event": "that_much",
-        "selector": SELECTOR_WORD_MAP[m.group("selector")],
-    })]
+    return [EffectSpec("damage", _mass_damage(
+        SELECTOR_WORD_MAP[m.group("selector")], {"amount_from_trigger_event": "that_much"},
+    ))]
 
 
 #: "~ deals 2 damage to itself." (Goblin Bangchuckers / Kaboomist, Stuffy Doll) - the source
@@ -1656,11 +1662,9 @@ def _damage_each_creature_keyword(m: re.Match[str]) -> list[EffectSpec]:
         else "each_creature_and_planeswalker" if m.group("and_pw")
         else "each_creature_opponents_control" if m.group("opp") else "each_creature"
     )
-    return [EffectSpec("damage", {
-        "amount": count_or_x_of(n),
-        "selector": selector,
-        "selector_filter": {key: m.group("kw").lower()},
-    })]
+    return [EffectSpec("damage", _mass_damage(
+        selector, {"amount": count_or_x_of(n)}, {key: m.group("kw").lower()},
+    ))]
 
 
 #: "~ deals 2 damage to each creature dealt damage this turn." (Inflame) — the `each_creature` mass selector narrowed
@@ -1676,15 +1680,15 @@ _DAMAGE_EACH_CREATURE_KICKED_RE = compile_clause(
 
 
 def _damage_each_damaged_creature(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "selector": "each_creature", "selector_filter": {"damaged_this_turn": True},
-    })]
+    return [EffectSpec("damage", _mass_damage(
+        "each_creature", {"amount": int(m.group("n"))}, {"damaged_this_turn": True},
+    ))]
 
 
 def _damage_each_creature_kicked(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "amount_if_kicked": int(m.group("n2")), "selector": "each_creature",
-    })]
+    return [EffectSpec("damage", _mass_damage(
+        "each_creature", {"amount": int(m.group("n")), "amount_if_kicked": int(m.group("n2"))},
+    ))]
 
 
 #: "~ deals damage to that player equal to the number of noncreature
@@ -1729,10 +1733,10 @@ _DAMAGE_EACH_OPPONENT_AND_CREATURES_EXILE_RE = compile_clause(
 
 
 def _damage_each_opponent_and_creatures_exile(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("damage", {
-        "amount": int(m.group("n")), "selector": "each_opponent_and_their_creatures",
-        "amount_if_cast_from_exile": int(m.group("n2")),
-    })]
+    return [EffectSpec("damage", _mass_damage(
+        "each_opponent_and_their_creatures",
+        {"amount": int(m.group("n")), "amount_if_cast_from_exile": int(m.group("n2"))},
+    ))]
 
 
 def _damage_each_opponent_and_creatures(m: re.Match[str]) -> list[EffectSpec]:
@@ -1740,7 +1744,7 @@ def _damage_each_opponent_and_creatures(m: re.Match[str]) -> list[EffectSpec]:
         "each_opponent_and_their_creatures_and_planeswalkers" if m.group("pw")
         else "each_opponent_and_their_creatures"
     )
-    return [EffectSpec("damage", {"amount": int(m.group("n")), "selector": selector})]
+    return [EffectSpec("damage", _mass_damage(selector, {"amount": int(m.group("n"))}))]
 
 
 #: RULE 202.2f/700.6 "it deals damage to each opponent equal to your
@@ -1890,6 +1894,17 @@ def _amass(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _AMASS_RE = compile_clause(rf"amass (?P<subtype>[a-z]+) {NUMBER}")
 
 
+#: RULE 701.47a (MEC-145, Goblin Plate Mail): "amass Goblins 1, then attach ~ to the amassed Army." The Army the amass fed
+#: is in `GameContext.created_objects` (`AmassEffect`), which is what `attach`'s ``target_kind="created"`` mode reads.
+def _amass_then_attach(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [*_amass(m), EffectSpec("attach", {"target_kind": "created"})]
+
+
+_AMASS_THEN_ATTACH_RE = compile_clause(
+    rf"amass (?P<subtype>[a-z]+) {NUMBER}(?:,)? then attach (?:~|this equipment) to the amassed army"
+)
+
+
 #: PAR-243: "amass Orcs X" with a measured X ("... where X is that excess damage"). The literal ``"x"`` count is only
 #: ever claimed after a `bind` replaced it with the measurement (`gate._amass_x_ok` refuses a surviving one), because
 #: `AmassEffect` has no announced-{X} reading of its own.
@@ -1946,6 +1961,7 @@ ROWS: list[EffectHandler] = [
     # Tried before the untyped row below since a real type word always
     # parses here first (the untyped row's bare NUMBER can never see it —
     # a type word isn't a digit — so the ordering is purely cosmetic).
+    EffectHandler("amass_then_attach", _AMASS_THEN_ATTACH_RE, _amass_then_attach),
     EffectHandler("amass", _AMASS_RE, _amass),
     EffectHandler("amass_x", _AMASS_X_RE, _amass_x),
     EffectHandler("empower_jace", compile_clause(rf"empower jace {COUNT_X}"),

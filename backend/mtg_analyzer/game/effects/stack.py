@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .core import GameEffect, _apply_effects_partitioned
 from .. import continuations
+from ..targeting import SPELL_FILTER_EXTRA_KEYS, stack_source_matches
 from ._runtime import install, register
 
 install(globals())
@@ -38,6 +39,7 @@ class CounterSpellEffect(GameEffect):
         suspend_instead: Optional[int] = None,
         on_pay_effect_specs: Optional[list[dict]] = None,
         unless_pays_extra_selector: Optional[str] = None,
+        unless_pays_generic: Optional[int] = None,
         target_kind: str = "spell",
         tap_lands_empty_pool_if_unpaid: bool = False,
         exile_then_cast_free: bool = False,
@@ -51,6 +53,8 @@ class CounterSpellEffect(GameEffect):
         resolve_if_color: Optional[str] = None,
         max_mana_value: Optional[int] = None,
         min_mana_value: Optional[int] = None,
+        max_power_or_toughness: Optional[int] = None,
+        spell_filter_extra: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -97,6 +101,9 @@ class CounterSpellEffect(GameEffect):
         #: party size the tax scales with, not the target's controller who
         #: actually pays it).
         self.unless_pays_extra_selector = unless_pays_extra_selector
+        #: PAR-284: a measured generic amount ("pays {1} for each card in your hand", "pays {X}, where X is its mana value"),
+        #: bound by the enclosing `bind` once the counter resolves (RULE 107.3a: X is a number fixed on resolution).
+        self.unless_pays_generic = unless_pays_generic
         #: "…unless its controller pays {4}. **If they do**, you incubate 2."
         #: (Assimilate Essence) — serialized `EffectSpec` dicts applied only
         #: on the branch where the target's controller *pays* the
@@ -136,8 +143,15 @@ class CounterSpellEffect(GameEffect):
             spell_filter["max_mana_value"] = max_mana_value if isinstance(max_mana_value, dict) else int(max_mana_value)
         if min_mana_value is not None:
             spell_filter["min_mana_value"] = int(min_mana_value)
+        # PAR-281 (Stern Scolding): "counter target creature spell with power or toughness 2 or less" -- either
+        # printed stat of the spell meets the ceiling (RULE 208/209, a spell on the stack has its printed values).
+        if max_power_or_toughness is not None:
+            spell_filter["max_power_or_toughness"] = int(max_power_or_toughness)
         if color:
             spell_filter["color"] = color
+        # PAR-285: "red or green" / "nonblue" / "nonartifact" / "non-Faerie" -- the keys `targeting.SPELL_FILTER_EXTRA_KEYS`
+        # names, read back by `targeting._spell_matches_filter`.
+        spell_filter.update({k: v for k, v in (spell_filter_extra or {}).items() if k in SPELL_FILTER_EXTRA_KEYS})
         # "counter target spell **with the chosen name**" (Declaration of Naught, MEC-134): the name the source stamped as it
         # entered, read when the targets are offered (`targeting._legal_targets_for`).
         if name_from_source:
@@ -154,6 +168,8 @@ class CounterSpellEffect(GameEffect):
         return "harmful"
 
     def _unless_pays_cost(self, context: GameContext) -> Optional[str]:
+        if isinstance(self.unless_pays_generic, int) and not isinstance(self.unless_pays_generic, bool):
+            return f"{{{max(self.unless_pays_generic, 0)}}}"  # RULE 107.1b: a negative amount is 0
         if not self.unless_pays_extra_selector:
             return self.unless_pays
         from .. import continuous  # function-scoped: avoid an import cycle
@@ -264,10 +280,10 @@ class CounterAbilityEffect(GameEffect):
     """
 
     def __init__(self, target: Any = None, source: Optional["GameObject"] = None,
-                 target_kind: str = "ability") -> None:
+                 target_kind: str = "ability", source_filter: Optional[dict[str, Any]] = None) -> None:
         super().__init__(source)
         self.target = target
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, stack_source_filter=dict(source_filter) if source_filter else None)
 
     def target_polarity(self) -> Optional[str]:
         return "harmful"
@@ -278,6 +294,11 @@ class CounterAbilityEffect(GameEffect):
             # RULE 608.2b / 602.1: narrow the resolving stack item as well as its offer.
             item = context.engine._stack_item_for(target)
             if item is None or item.kind != "ability" or item.category != "activated_ability":
+                return
+        if self.target_spec.stack_source_filter:
+            # RULE 608.2b / 113.7a: the source restriction ("from an artifact source") is part of the target's legality.
+            item = context.engine._stack_item_for(target)
+            if item is None or not stack_source_matches(item.source, self.target_spec.stack_source_filter):
                 return
         if target is not None:
             context.counter_ability(target)
@@ -296,11 +317,12 @@ class CopyTargetAbilityEffect(GameEffect):
     """
 
     def __init__(self, source: Optional["GameObject"] = None, choose_new_targets: bool = False,
-                 count: Any = "x", target_kind: str = "ability_you_control") -> None:
+                 count: Any = "x", target_kind: str = "ability_you_control",
+                 source_filter: Optional[dict[str, Any]] = None) -> None:
         super().__init__(source)
         self.choose_new_targets = choose_new_targets
         self.count = count
-        self.target_spec = TargetSpec(kind=target_kind)
+        self.target_spec = TargetSpec(kind=target_kind, stack_source_filter=dict(source_filter) if source_filter else None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or not targets:
@@ -312,6 +334,8 @@ class CopyTargetAbilityEffect(GameEffect):
         if (item is None or item.kind != "ability" or controller_id is None
                 or self.target_spec.kind == "ability_you_control" and item.controller_id != controller_id):
             return  # RULE 608.2b: the ability left the stack, or isn't one you control
+        if not stack_source_matches(item.source, self.target_spec.stack_source_filter):
+            return  # RULE 608.2b / 113.7a: the target no longer has the required source
         resolving = context.resolving_stack_item
         announced_x = resolving.x if resolving is not None else getattr(self.source, "x_paid", 0)
         count = announced_x if self.count == "x" else self.count
@@ -347,6 +371,7 @@ class CopySpellEffect(GameEffect):
         target_kind: str = "spell",
         spell_from_trigger_event: Optional[str] = None,
         controller_from_trigger_event: Optional[str] = None,
+        controller_from_target: bool = False,
         count_selector: Optional[str] = None,
         count_from_trigger_event: Optional[str] = None,
         max_mana_value: Optional[int] = None,
@@ -367,6 +392,7 @@ class CopySpellEffect(GameEffect):
         self.count_from_trigger_event = count_from_trigger_event
         self.spell_from_trigger_event = spell_from_trigger_event
         self.controller_from_trigger_event = controller_from_trigger_event
+        self.controller_from_target = controller_from_target
         spell_filter = dict(spell_filter or {})
         if card_types:
             spell_filter["card_types"] = list(card_types)
@@ -411,6 +437,12 @@ class CopySpellEffect(GameEffect):
             )
             if controller_id is None:
                 return
+            # RULE 707.10: each instructed player controls their own copy.
+            if self.controller_from_target:
+                from ...models.game.player import Player
+                controller_id = next((p.id for p in (targets or []) if isinstance(p, Player)), None)
+                if controller_id is None:
+                    return
             n = self._copies(context, controller_id)
             if n > 0:
                 if recipe_id is not None:
@@ -905,8 +937,13 @@ class CounterUnlessPayEffect(GameEffect):
         cost: str = "",
         source: Optional["GameObject"] = None,
         target_kind: Optional[str] = None,
+        unless_pays_generic: Optional[int] = None,
     ) -> None:
         super().__init__(source)
+        # PAR-284 / RULE 107.3a: "unless that player pays {X}, where X is <amount>" -- the measured generic cost,
+        # written by the enclosing `bind`; a negative measurement is 0 (RULE 107.1b).
+        if isinstance(unless_pays_generic, int) and not isinstance(unless_pays_generic, bool):
+            cost = f"pay {{{max(unless_pays_generic, 0)}}}"
         self.cost_text = cost
         # Usually this effect resolves off a BECOMES_TARGET event.  A small
         # direct-counter family (Perplex) instead names a spell as a normal
@@ -1125,6 +1162,12 @@ class BecomeSaddledEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is not None:
             self.source.saddled_until_turn = context.state.internal_turn.number
+            # RULE 702.171b: the permanent "becomes saddled" as its Saddle ability resolves.
+            context.fire_event(GameEvent(
+                EventType.BECAME_SADDLED, instance_id=self.source.instance_id,
+                controller_id=self.source.controller_id, object=self.source.name,
+                object_types=sorted(self.source.type_words),
+            ))
 
 
 class GrantSkipExtraTurnsEffect(GameEffect):
@@ -1214,6 +1257,9 @@ class MillEffect(GameEffect):
     link) rather than a RULE 603.1 group-trigger's firing object.
     `LoseLifeEffect.selector` of the same name already exists for this exact
     referent (Parasitic Impetus) — this is its `MillEffect` sibling.
+
+    ``selector="event_damaged_player"`` (PAR-287, Sword of Body and Mind) is "that player" under a damage-to-a-player
+    head: the player the DAMAGE event names as its recipient (`LifeGain` shares the selector name).
     """
 
     def __init__(
@@ -1249,6 +1295,9 @@ class MillEffect(GameEffect):
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         context.latest_milled_visits = []
+        if self.selector == "each_player":
+            context.engine._request_shared_mill(self._measured(self.count, context, targets))
+            return
         if self.any_number_of_players:
             milled = []
             visits = []
@@ -1274,6 +1323,11 @@ class MillEffect(GameEffect):
             player = _event_player(context, key="player_id")
         elif self.selector == "event_controller":
             player = _event_player(context)
+        elif self.selector == "event_damaged_player":
+            # RULE 120.3 / 603.7c: "whenever equipped creature deals combat damage to a player, ... **that player** mills
+            # ten cards" (Sword of Body and Mind) -- the player the damage event hit (``target_id``), never the
+            # equipment's controller or an earlier clause's referent.
+            player = _event_player(context, key="target_id")
         elif self.selector == "previous_subject_controller":
             # "Counter target spell … . Clash … . If you win, **that
             # spell's controller** mills four cards." (Broken Ambitions) —

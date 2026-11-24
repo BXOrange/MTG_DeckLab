@@ -18,14 +18,14 @@ def _akromas_memorial() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "keywords": ["flying", "first_strike", "vigilance", "trample", "haste"],
             })],
         ),
         AbilitySpec(
             "static",
             [EffectSpec("grant_protection_static", {
-                "affects": "creatures_you_control", "protections": ["black", "red"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "protections": ["black", "red"],
             })],
         ),
     ]

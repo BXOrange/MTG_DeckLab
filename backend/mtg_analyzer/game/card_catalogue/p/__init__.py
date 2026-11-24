@@ -97,3 +97,13 @@ from . import peel_from_reality  # noqa: F401
 from . import prosper_tome_bound  # noqa: F401
 from . import portal_mage  # noqa: F401
 from . import party_thrasher  # noqa: F401
+
+from . import pharika_s_spawn  # noqa: F401
+
+from . import polukranos_unchained  # noqa: F401
+from . import progenitor_s_icon  # noqa: F401
+
+from . import peace_in_our_time  # noqa: F401
+from . import painbringer  # noqa: F401
+
+from . import possessed_portal  # noqa: F401

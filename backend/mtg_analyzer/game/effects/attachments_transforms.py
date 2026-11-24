@@ -1,42 +1,19 @@
 """Tapping, combat restrictions, attachments, transformations, and phasing."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, entry_counter_amounts, group_reference_object
 from .counters_tokens import GrantUntilEffect, PumpEffect
 from ._runtime import install, register
 
 install(globals())
 
-#: Selectors accepted by ``TapEffect`` for untargeted mass tap/untap actions.
-#: Kept next to the effect rather than the facade so its implementation owns
-#: both the validation vocabulary and the operation it validates.
-_TAP_SELECTORS: frozenset[str] = frozenset(
-    {
-        "creatures_you_control",
-        "permanents_you_control",
-        "nonland_permanents_you_control",
-        "other_creatures_you_control",
-        "attacking_creatures",
-        "lands_you_control",
-    }
-)
-
 def _is_valid_tap_selector(selector: "Optional[str | dict]") -> bool:
+    """``TapEffect.selector``: a structured battlefield selector (`{"zone","of","filter"}`, PAR-128: "tap all
+    creatures your opponents control") or the "those creatures" replay of the previous clause (ENG-61: the named
+    mass selectors were retired)."""
     if isinstance(selector, dict):
-        # PAR-128: a structured battlefield selector (`{"zone","of","filter"}`,
-        # PARSER_VERSION 473) — "tap all creatures your opponents control".
         return selector.get("zone", "battlefield") == "battlefield"
-    if selector in _TAP_SELECTORS or selector == "previous_selector":
-        return True
-    # "…untap it and all Samurai you control." (Godo, Bandit Warlord) /
-    # "Untap all Forests you control." (Woodland Guidance) —
-    # `continuous.group_selector_objects`'s own subtype-scoped branches
-    # already handle any such name; this just widens the whitelist to admit
-    # them rather than growing `_TAP_SELECTORS` one subtype at a time.
-    return bool(selector) and selector.startswith(
-        ("creatures_you_control_of_type_", "lands_you_control_of_type_",
-         "creatures_you_control_of_color_")
-    )
+    return selector == "previous_selector"
 
 
 #: `GameContext.previous_selector` value naming "the creatures the previous
@@ -46,13 +23,6 @@ DAMAGED_GROUP_SENTINEL = "damaged_this_way"
 #: `GameContext.previous_selector` value for a mass effect scoped to a chosen player
 #: (`TapEffect.selector_player`): ``{PLAYER_SCOPED_GROUP_KEY: <selector>, "controller_id": <player>}``.
 PLAYER_SCOPED_GROUP_KEY = "scoped_selector"
-#: The creature-only mass damage selectors a following "those creatures" may
-#: replay (`DealDamageEffect.selector`); player-inclusive ones stay out.
-PREVIOUS_GROUP_DAMAGE_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature", "each_other_creature", "each_creature_opponents_control"}
-)
-
-
 def previous_group_objects(context: GameContext, source: Optional["GameObject"], selector: str) -> list[Any]:
     """The battlefield objects ``selector`` (a `GameContext.previous_selector`
     value) names — the damaged set for `DAMAGED_GROUP_SENTINEL`, else
@@ -110,7 +80,7 @@ class TapEffect(GameEffect):
     condition`'s `"attached_permanent"` *trigger*-subject concept — this is
     the same idea applied to an effect's *target* instead.
 
-    ``selector`` (see `_TAP_SELECTORS`) is a fourth mode — "untap all
+    ``selector`` (see `_is_valid_tap_selector`) is a fourth mode — "untap all
     creatures you control" (Village Bell-Ringer's ETB) — untargeted, acting
     on every object `continuous.group_selector_objects` picks out for the
     effect's own controller, rather than a single target/self/attached host.
@@ -272,11 +242,11 @@ class TapEffect(GameEffect):
 
             target = object_for(self.target_operand, context, self.source, targets)
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
             return
         if self.previous_subject:
             for one in list(context.previous_targets):
-                context.set_tapped(one, tapped=not self.untap)
+                context.set_tapped(one, tapped=not self.untap, by_effect=True)
             return
         if self.selector is not None:
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
@@ -309,10 +279,15 @@ class TapEffect(GameEffect):
                 selector = context.previous_selector
                 if not selector:
                     return
+            reference, reference_ok = (None, True) if self.selector == "previous_selector" else (
+                group_reference_object(context, selector, self.source))
+            if not reference_ok:
+                return  # ENG-64: a reference that cannot be found selects nothing, never the source's own "it"
             group = (
                 previous_group_objects(context, self.source, selector)
                 if self.selector == "previous_selector"
-                else group_selector_objects(context.state, controller_id, selector, src=self.source)
+                else group_selector_objects(
+                    context.state, controller_id, selector, src=self.source, reference=reference)
             )
             if self.subtypes is not None:
                 group = [
@@ -322,10 +297,12 @@ class TapEffect(GameEffect):
                         for s in self.subtypes
                     )
                 ]
-            for obj in group:
-                if self.remove_from_combat:
-                    self._remove_from_combat(context, obj)
-                context.set_tapped(obj, tapped=not self.untap)
+            # RULE 603.2c: one "tap all" instruction taps its whole group at once (one `TAPPED` batch).
+            with context.state.simultaneous():
+                for obj in group:
+                    if self.remove_from_combat:
+                        self._remove_from_combat(context, obj)
+                    context.set_tapped(obj, tapped=not self.untap, by_effect=True)
             if self.remove_from_combat:
                 context.previous_targets = list(group)
             if self.selector_player is not None and self.selector != "previous_selector":
@@ -339,7 +316,7 @@ class TapEffect(GameEffect):
             host_id = getattr(self.source, "attached_to", None)
             target = context.state.find_object(host_id) if host_id is not None else None
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
                 # "Tap enchanted creature. … put three stun counters on **it**." (Kitnap, PAR-135): the
                 # host is what the next clause's pronoun names, though nothing *targeted* it.
                 context.previous_targets = [target]
@@ -349,7 +326,7 @@ class TapEffect(GameEffect):
             obj_id = (event or {}).get(self.trigger_event_key)
             target = context.state.find_object(obj_id) if obj_id is not None else None
             if target is not None:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
             return
         if self.target_spec is not None and (
             self.target_spec.count_selector or self.target_spec.effective_count != 1
@@ -364,7 +341,7 @@ class TapEffect(GameEffect):
                 else _chosen_targets(targets, self.target_spec.effective_count, self.target)
             )
             for one in chosen:
-                context.set_tapped(one, tapped=not self.untap)
+                context.set_tapped(one, tapped=not self.untap, by_effect=True)
             return
         target = (targets[0] if targets else None) or self.target
         if self._source_mode:
@@ -379,9 +356,9 @@ class TapEffect(GameEffect):
             elif self.untap_if_yours:
                 controller = _controller_of(self.source, context)
                 mine = controller is not None and getattr(target, "controller_id", None) == controller.id
-                context.set_tapped(target, tapped=not mine)
+                context.set_tapped(target, tapped=not mine, by_effect=True)
             else:
-                context.set_tapped(target, tapped=not self.untap)
+                context.set_tapped(target, tapped=not self.untap, by_effect=True)
 
 
 class SkipNextUntapEffect(GameEffect):
@@ -676,11 +653,16 @@ class CantBlockEffect(GameEffect):
         count: int = 1,
         optional: bool = False,
         previous_subject: bool = False,
+        creature_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.selector = selector
         self.filter = dict(filter or {})
+        #: PAR-285: the target's own quality slot ("with power less than or equal to ~'s power", "without
+        #: flying") -- RULE 115.1 restricts what may be chosen, `targeting` reads it on announce and again on
+        #: resolution (RULE 608.2b).
+        self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "…If it's a creature, **it** can't block this turn." (Searing
         #: Barb) — no RULE 115 target of its own; acts on whatever the
         #: previous clause targeted (`GameContext.previous_targets`), the
@@ -689,7 +671,7 @@ class CantBlockEffect(GameEffect):
         self.target_spec = (
             None
             if (selector or previous_subject)
-            else TargetSpec(kind=target_kind, count=count, optional=optional)
+            else TargetSpec(kind=target_kind, count=count, optional=optional, creature_filter=self.creature_filter)
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -979,6 +961,10 @@ class AttachEffect(GameEffect):
     (`GameContext.created_objects`, RULE 608.2's "the tokens/it" referent —
     see `RenownEffect`/goad's own use of the same list), not a chosen or
     printed-source permanent.
+
+    ``target_kind="source"`` names the original source visit without
+    targeting it. ``mover="created_all"`` attaches all tokens made by the
+    preceding instruction (Gwyndala, the Progeny).
     """
 
     def __init__(
@@ -1003,12 +989,13 @@ class AttachEffect(GameEffect):
         #: this ability's source: "create an Aura token … attached to target
         #: creature" (Scriv, the Obligator).  This is deliberately a narrow
         #: RULE 608.2 pronoun, matching `target_kind="created"` above.
-        self.mover = mover if mover in {"created", "created_after_first", "target"} else None
+        self.mover = mover if mover in {"created", "created_all", "created_after_first", "target"} else None
+        self._source_mode = target_kind == "source"
         self._created_mode = target_kind in {"created", "first_created"}
         self._first_created_mode = target_kind == "first_created"
         if self._created_mode and self.mover == "target" and mover_kind is not None:
             self.target_spec = TargetSpec(kind=mover_kind, optional=mover_optional)
-        elif not self._created_mode:
+        elif not self._created_mode and not self._source_mode:
             # "Equip commander {N}" (RULE 702.6e, Commander's Plate,
             # MEC-43) — a *second*, cheaper Equip ability restricted to
             # only ever attach to a commander (`creature_filter={
@@ -1018,7 +1005,13 @@ class AttachEffect(GameEffect):
             self.target_spec = TargetSpec(kind=target_kind, creature_filter=creature_filter)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self._created_mode:
+        if self._source_mode:
+            target = self.source
+            visit = context.resolving_source_incarnation
+            if (target is None or target not in context.state.permanents()
+                    or (visit is not None and target.zone_incarnation != visit)):
+                return  # RULE 400.7: a new source visit is not "attach it to ~".
+        elif self._created_mode:
             created = getattr(context, "created_objects", None)
             target = (created[0] if self._first_created_mode else created[-1]) if created else None
         else:
@@ -1027,6 +1020,8 @@ class AttachEffect(GameEffect):
         if self.mover == "created":
             created = getattr(context, "created_objects", None)
             mover = created[-1] if created else None
+        elif self.mover == "created_all":
+            mover = list(context.created_objects)
         elif self.mover == "created_after_first":
             created = list(getattr(context, "created_objects", None) or [])
             mover = created[1:]
@@ -1419,10 +1414,8 @@ class ReturnSelfFromGraveyardToBattlefieldEffect(GameEffect):
             return
         context.return_from_graveyard(self.source, destination, attach_to=host, controller_id=controller_id)
         if self.extra_counters:
-            context.add_counters(
-                self.source, int(self.extra_counters.get("count", 1) or 1),
-                str(self.extra_counters.get("kind", "+1/+1")), source=self.source,
-            )
+            for kind, count in entry_counter_amounts(self.extra_counters, "+1/+1").items():
+                context.add_counters(self.source, count or 1, kind, source=self.source)
         if self.attacking:
             context.engine.put_onto_battlefield_attacking(self.source)
 
@@ -1731,10 +1724,8 @@ class PhaseOutEffect(GameEffect):
     (etc.) targets some other permanent instead, same alternative
     `TransformEffect` offers.
 
-    Any Aura/Equipment attached to the phasing-out permanent becomes
-    unattached rather than phasing out together with it (RULE 702.26e-
-    family simplification — no card needing a multi-permanent phase chain
-    yet, see docs/implementation-state/BACKLOG.md).
+    Attached permanents phase out indirectly and retain their attachment
+    links (RULE 702.26g).
     """
 
     def __init__(
@@ -1747,9 +1738,21 @@ class PhaseOutEffect(GameEffect):
         self_target: bool = False,
         count: int = 1,
         count_selector: Optional[str] = None,
+        trigger_subject: bool = False,
+        selector: "Optional[str | dict[str, Any]]" = None,
+        until_source_leaves: bool = False,
+        tap_on_return: bool = False,
+        untap_first: bool = False,
+        counter_for_phased: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.target = target
+        self.trigger_subject = trigger_subject
+        self.selector = selector
+        self.until_source_leaves = until_source_leaves
+        self.tap_on_return = tap_on_return
+        self.untap_first = untap_first
+        self.counter_for_phased = counter_for_phased
         #: "Put a +1/+1 counter on target creature. **It** phases out."
         #: (Slip Out the Back) — the same `GameContext.previous_targets`
         #: pronoun `FightEffect`/`GrantUntilEffect.previous_subject` already
@@ -1774,12 +1777,88 @@ class PhaseOutEffect(GameEffect):
             )
 
     def _phase_out_one(self, context: GameContext, target: Any) -> None:
-        target.phased_out = True
-        for obj in context.state.battlefield:
-            if obj.attached_to == target.instance_id:
-                obj.attached_to = None
+        self._phase_out_many(context, [target])
+
+    def _phase_out_many(self, context: GameContext, targets: list[Any]) -> None:
+        from ..combat import blocking_attacker_ids
+
+        battlefield = context.state.permanents()
+        group = [target for target in targets if target in battlefield]
+        if not group:
+            return
+        if self.untap_first:
+            with context.state.simultaneous():
+                for obj in group:
+                    context.engine.set_tapped(obj, False)
+        source_visit = None
+        if self.until_source_leaves:
+            # RULE 610.4b/c: if the named battlefield visit has already
+            # ended, finish the preceding instructions and skip phasing.
+            source = self.source
+            if (source not in context.state.battlefield or
+                    context.resolving_source_incarnation not in (None, source.zone_incarnation)):
+                return
+            source_visit = (source.instance_id, source.zone_incarnation)
+        directly_selected = set(group)
+        # RULE 702.26g: retain links and return all indirect attachments
+        # with the directly phased-out root, even through an Aura chain.
+        seen = {obj.instance_id for obj in group}
+        for host in group:
+            for obj in context.state.permanents():
+                if obj.attached_to == host.instance_id and obj.instance_id not in seen:
+                    seen.add(obj.instance_id)
+                    group.append(obj)
+        # RULE 603.10: phase-out triggers see the still-visible objects.
+        for obj in group:
+            context.fire_event(GameEvent(
+                EventType.PHASED_OUT, instance_id=obj.instance_id, controller_id=obj.controller_id,
+                object_types=sorted(obj.type_words),
+            ))
+        for obj in group:
+            obj.phased_out = True
+            obj.phase_in_source_visit = source_visit
+            obj.tap_as_phases_in = self.tap_on_return and obj in directly_selected
+            # RULE 702.26h: a selected Equipment attached to a selected
+            # creature phases indirectly, independently of selection order.
+            root = obj
+            ancestors = {obj.instance_id}
+            while root.attached_to in seen and root.attached_to not in ancestors:
+                root = context.state.find_object(root.attached_to)
+                ancestors.add(root.instance_id)
+            obj.phased_out_with = None if obj is root else root.instance_id
+            # RULE 702.26b: phasing removes a permanent from combat.
+            obj.attacking = False
+            obj.combat_defender = None
+            obj.blocking = None
+            obj.additional_blocking = []
+            obj.blocked_by = []
+            obj.is_blocked = False
+        for obj in context.state.permanents():
+            obj.blocked_by = [iid for iid in obj.blocked_by if iid not in seen]
+            attackers = [iid for iid in blocking_attacker_ids(obj) if iid not in seen]
+            obj.blocking = attackers[0] if attackers else None
+            obj.additional_blocking = attackers[1:]
+        if self.counter_for_phased and self.source in context.state.permanents():
+            context.add_counters(self.source, len(directly_selected), self.counter_for_phased, source=self.source)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if isinstance(self.selector, dict):
+            # ENG-61: a structured group selector (the battlefield group, relative to the effect's controller).
+            from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
+
+            controller = _controller_of(self.source, context)
+            self._phase_out_many(context, list(group_selector_objects(
+                context.state, getattr(controller, "id", None), self.selector, src=self.source)))
+            context.recompute()
+            return
+        if self.trigger_subject:
+            event = context.trigger_event or {}
+            target = context.state.find_object(event.get('instance_id'))
+            visit = event.get('instance_zone_incarnation')
+            # RULE 400.7: a returned object is not the triggering permanent.
+            if target is not None and (visit is None or target.zone_incarnation == visit):
+                self._phase_out_one(context, target)
+            return
         if self.previous_subject:
             prev = list(context.previous_targets)
             target = prev[0] if prev else None
@@ -1829,6 +1908,49 @@ class CrewedEventEffect(GameEffect):
             return
         context.fire_event(
             GameEvent(EventType.CREWED, instance_id=source.instance_id, controller_id=source.controller_id, object=source.name)
+        )
+
+
+class TrainedEventEffect(GameEffect):
+    """RULE 702.149a: the creature "trains" -- fires `EventType.TRAINS` once the Training counter has been put on it,
+    the last effect of the synthesized Training ability, so "Whenever ~ trains" triggers (Savior of Ollenbock) read it."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source.zone != Zone.BATTLEFIELD:
+            return
+        context.fire_event(
+            GameEvent(EventType.TRAINS, instance_id=source.instance_id, controller_id=source.controller_id, object=source.name)
+        )
+
+
+class EvolvedEventEffect(GameEffect):
+    """RULE 702.100b: the creature "evolves" -- fires `EventType.EVOLVES` once the Evolve counter has been put on it, the
+    last effect of the synthesized Evolve ability, so "Whenever ~ evolves" triggers (Renegade Krasis) read it."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None or source.zone != Zone.BATTLEFIELD:
+            return
+        context.fire_event(
+            GameEvent(EventType.EVOLVES, instance_id=source.instance_id, controller_id=source.controller_id,
+                      object=source.name, object_types=sorted(source.type_words))
+        )
+
+
+class ConnivedEventEffect(GameEffect):
+    """RULE 701.50f: the permanent "connives" once the draw / discard / counter process is complete -- fires
+    `EventType.CONNIVES` for the effect's source (the conniving permanent). `ConniveEffect` runs it as the chosen discard's
+    own tail (after the +1/+1 counters landed) or at once when there was no hand to discard from. The event is fired even
+    if the permanent has left the battlefield (RULE 701.50b: its last known information says what connived)."""
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        source = self.source
+        if source is None:
+            return
+        context.fire_event(
+            GameEvent(EventType.CONNIVES, instance_id=source.instance_id, controller_id=source.controller_id,
+                      object=source.name, object_types=sorted(source.type_words))
         )
 
 

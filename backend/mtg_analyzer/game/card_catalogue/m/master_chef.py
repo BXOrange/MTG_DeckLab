@@ -26,14 +26,14 @@ def _master_chef() -> list[AbilitySpec]:
             "static",
             [
                 EffectSpec("grant_static_ability", {
-                    "affects": "commander_creatures_you_own",
+                    "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}},
                     "static_specs": [
                         {"type": "extra_etb_counter",
                          "params": {"kind": "+1/+1", "count": 1, "self_only": True}},
                     ],
                 }),
                 EffectSpec("grant_static_ability", {
-                    "affects": "commander_creatures_you_own",
+                    "affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}},
                     "static_specs": [
                         {"type": "extra_etb_counter",
                          "params": {"kind": "+1/+1", "count": 1, "self_only": False}},

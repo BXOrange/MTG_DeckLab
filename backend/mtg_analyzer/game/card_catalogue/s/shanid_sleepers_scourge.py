@@ -26,7 +26,7 @@ def _shanid_sleepers_scourge() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "other_creatures_you_control", "object_filter": {"legendary": True},
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'legendary': True}}, 
                 "keywords": ["menace"],
             })],
         ),

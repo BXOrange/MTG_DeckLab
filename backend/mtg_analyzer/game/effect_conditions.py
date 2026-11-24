@@ -71,7 +71,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.cards.card_query import name_matches as names_match
 from ..models.game.events import EventType
-from . import static_conditions
+from . import kicker_costs, static_conditions
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .effects.core import GameContext
@@ -139,6 +139,8 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # Unanswerable (``None``) when no clash is in scope, so neither the
         # "if you win" nor the "otherwise" branch fires.
         "clash_won",
+        "sacrificed_cost_subtype",
+        "begun_extra_turn",
         # RULE 705: "if you win the flip" — the last flip `CoinFlipEffect` recorded on
         # `GameContext.coin_outcome` this resolution. ``None`` (neither branch) with no flip.
         "coin_won",
@@ -173,6 +175,14 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         "this_way_pool",
         # Grab the Prize — the card discarded as this spell's additional cost had the card type ``card_type``.
         "discarded_cost_card_is",
+        # PAR-283 / RULE 608.2h: "if the sacrificed permanent was a Vehicle" / "if the discarded card was a Zombie card" --
+        # every characteristic word in ``words`` (types, subtypes, legendary, token) was a characteristic of what the cost
+        # sacrificed / discarded. Unanswerable (``None``) while no such cost was paid.
+        "sacrificed_cost_is",
+        "discarded_cost_is",
+        # PAR-283 / RULE 608.2h: "If you controlled that permanent" -- the controller the previous clause's target had
+        # *before* the clause moved it (`GameContext.target_controllers_before`); ``None`` when nothing was recorded.
+        "previous_target_was_yours",
         # Demonic Covenant — two of the cards this resolution's mill moved have exactly the same set of card types.
         "milled_cards_share_all_types",
         # Grist, the Hunger Tide — a card this resolution's mill moved has the creature subtype ``subtype``
@@ -184,6 +194,8 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # names, against the card this source remembered exiling
         # (`GameObject.linked_exile_id`), sharing a RULE 205.2a card type.
         "shares_type_with_linked_exile",
+        "linked_exile_cards_share_type",
+        "revealed_card_on_library_top",
         # Guardian Project — the entering creature (a *group* trigger's
         # subject, off the firing event) is nontoken and shares its name
         # with nothing else you control or have in your graveyard.
@@ -415,6 +427,18 @@ def subject_of(
     return None
 
 
+def revealed_card_on_library_top(context: "GameContext") -> Optional[bool]:
+    card = context.revealed_card
+    if card is None:
+        return None
+    from ..models.game.game_object import Zone
+
+    if card.zone != Zone.LIBRARY or card.zone_incarnation != context.revealed_card_incarnation:
+        return False
+    owner = context.state.player_by_id(card.owner_id)
+    return bool(owner.library and owner.library[-1] is card)
+
+
 def _context_holds(
     kind: str,
     condition: dict[str, Any],
@@ -423,6 +447,17 @@ def _context_holds(
     targets: Optional[list[Any]],
 ) -> Optional[bool]:
     """The `CONTEXT_CONDITION_KINDS` rows. ``None`` = no referent in scope."""
+    if kind == "begun_extra_turn":
+        controller_id = _controller_id(source, context)
+        return controller_id in context.state.players_begun_extra_turn if controller_id is not None else None
+
+    if kind == "sacrificed_cost_subtype":
+        event = context.trigger_event or {}
+        subtypes = event.get("sacrificed_cost_subtypes")
+        if subtypes is None:
+            return None
+        return str(condition.get("subtype", "")).lower() in {str(t).lower() for t in subtypes}
+
     if kind == "clash_won":
         outcome = getattr(context, "clash_won", None)
         if outcome is None:
@@ -470,6 +505,21 @@ def _context_holds(
     if kind == "already_exerted":
         event = getattr(context, "trigger_event", None) or {}
         return bool(event.get("already_exerted"))
+
+    if kind == "previous_target_was_yours":
+        previous = getattr(context, "previous_targets", None) or []
+        before = getattr(context, "target_controllers_before", None) or {}
+        recorded = before.get(getattr(previous[0], "instance_id", None)) if previous else None
+        return None if recorded is None else recorded == _controller_id(source, context)
+
+    if kind in ("sacrificed_cost_is", "discarded_cost_is"):
+        if source is None:
+            return None
+        recorded = getattr(source, "sacrificed_cost_words" if kind == "sacrificed_cost_is" else "discarded_cost_words", None)
+        words = [str(w).lower() for w in condition.get("words") or []]
+        if not recorded or not words:
+            return None
+        return all(w in recorded for w in words)
 
     if kind == "discarded_cost_card_is":
         if source is None:
@@ -538,6 +588,22 @@ def _context_holds(
     if kind == "source_cast_from_zone":
         # RULE 601.2a: the zone a spell was cast from, regardless of the permission used.
         return None if source is None else getattr(source, "cast_from_zone", None) == condition.get("zone")
+
+    if kind == "revealed_card_on_library_top":
+        return revealed_card_on_library_top(context)
+
+    if kind == "linked_exile_cards_share_type":
+        if source is None:
+            return None
+        from .linked_exile import linked_cards
+        from .continuous import CARD_TYPE_WORDS, card_types_of
+
+        # RULE 607.2a / 400.7: inspect only the linked source and exile visits.
+        # The TRK release notes explicitly make the empty set true.
+        shared = set(CARD_TYPE_WORDS)
+        for obj in linked_cards(context.state, source, context.resolving_source_incarnation):
+            shared.intersection_update(card_types_of(obj))
+        return bool(shared)
 
     if kind == "shares_type_with_linked_exile":
         event = getattr(context, "trigger_event", None) or {}
@@ -646,9 +712,11 @@ def _evaluate(
     if not condition:
         return True
     kind = condition.get("kind")
-    if (kind in ('kicked', 'crewed_by_filter') or (kind == 'flag' and condition.get('flag') == 'emerge_cost_paid')) and "of" not in condition and source is not None:
-        # RULE 608.2h: a kicked ETB ability retains its source visit's
-        # cast choices after that permanent has left the battlefield.
+    source_history = kind in ("kicked", "crewed_by_filter", "devoured_creature") or (
+        kind == "flag" and condition.get("flag") == "emerge_cost_paid"
+    )
+    if source_history and "of" not in condition and source is not None:
+        # RULE 608.2h: retain the ability source's history after it leaves.
         visit = getattr(context, "resolving_source_incarnation", None)
         if visit is not None and visit != source.zone_incarnation:
             original = context.state.zone_visit_sources.get((source.instance_id, visit))
@@ -775,7 +843,13 @@ def announced_state(condition: Optional[dict[str, Any]], source: Any) -> Optiona
         inner = announced_state(structured.get("condition"), source)
         return None if inner is None else not inner
     if kind == "kicked" and "of" not in structured:
-        count = int(getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0)) or 0)
+        if "cost" in structured:
+            # RULE 702.33f: "if it was kicked with its {A} kicker" against the announcement still being made,
+            # else the cast-time record (a bare count would read as "the first N costs").
+            return kicker_costs.was_kicked_with(
+                source, structured["cost"], getattr(source, "_modal_announced_kicked", None))
+        announced = getattr(source, "_modal_announced_kicked", getattr(source, "kicker_count", 0))
+        count = kicker_costs.kicked_count(announced)
         return ((structured.get("min") is None or count >= structured["min"])
                 and (structured.get("max") is None or count <= structured["max"]))
     if kind == "flag" and structured.get("flag") in ANNOUNCED_FLAGS and "of" not in structured:
@@ -799,6 +873,36 @@ def pin_source_reference(value: Any, source: Any, incarnation: Optional[int] = N
     if isinstance(value, list):
         return [pin_source_reference(child, source, incarnation) for child in value]
     return value
+
+
+def last_known_subject(of: str, context: "GameContext", source: Any, targets: Optional[list[Any]] = None) -> Any:
+    """`subject_of`, but an object that has left the battlefield is read as it last existed there.
+
+    RULE 608.2h: when an effect refers to a permanent that has changed zones, it uses that permanent's last known
+    information, so "destroy all other creatures that share a color with it" under a dies / leaves trigger compares
+    against the colors the creature had on the battlefield (`GameState.zone_visit_sources`, snapshotted as it left),
+    not the card's printed characteristics in its new zone. Anything still on the battlefield (or not an object) is
+    returned as `subject_of` answers.
+    """
+    subject = subject_of(of, context, source, targets)
+    if subject is None and of in ("trigger_subject", "entering"):
+        # A token that left the battlefield ceases to exist (RULE 111.7) and is no longer found by id, but its last
+        # battlefield visit was snapshotted as it left.
+        event = getattr(context, "trigger_event", None) or {}
+        instance_id = event.get("instance_id", event.get("source_id"))
+        visits = [
+            (visit, snapshot) for (iid, visit), snapshot in context.state.zone_visit_sources.items()
+            if instance_id is not None and iid == instance_id
+        ]
+        return max(visits, key=lambda pair: pair[0])[1] if visits else None
+    zone = getattr(subject, "zone", None)
+    if subject is None or zone is None or getattr(zone, "value", zone) == "battlefield":
+        return subject
+    visit = getattr(subject, "zone_incarnation", None)
+    snapshot = (
+        context.state.zone_visit_sources.get((subject.instance_id, visit - 1)) if visit is not None else None
+    )
+    return snapshot if snapshot is not None else subject
 
 
 def condition_holds(

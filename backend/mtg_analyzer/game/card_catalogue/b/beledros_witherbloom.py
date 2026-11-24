@@ -22,7 +22,7 @@ def _beledros_witherbloom() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [
-                EffectSpec("tap", {"selector": "lands_you_control", "untap": True}),
+                EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}}, "untap": True}),
                 EffectSpec("once_per_turn_marker", {}),
             ],
             cost={"text": "Pay 10 life"},

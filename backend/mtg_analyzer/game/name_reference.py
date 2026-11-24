@@ -25,7 +25,11 @@ def reference_names(spec, state, source, candidate=None, context=None, targets=N
         zone_owner_id = (getattr(source, 'controller_id', None) if scope == 'you'
                     else getattr(candidate, 'controller_id', None) or getattr(candidate, 'owner_id', None))
         if zone == 'battlefield':
-            objects = list(state.battlefield)
+            # RULE 109.4: "you control" is read off the source's controller; "another" leaves the source out (RULE 201.2a).
+            objects = [obj for obj in state.battlefield
+                       if (scope != 'you' or obj.controller_id == getattr(source, 'controller_id', None))
+                       and not (spec.get('exclude_source') and obj is source)
+                       and (not spec.get('creature') or obj.is_creature)]
         else:
             objects = [obj for player in state.players
                        if scope == 'any' or (zone_owner_id is not None and player.id == zone_owner_id)
@@ -52,6 +56,10 @@ def resolve_search_names(criteria, context, source, targets=None):
               if isinstance(value, dict) else
               [resolve_search_names(item, context, source, targets) for item in value]
               if isinstance(value, list) else value for key, value in criteria.items()}
+    excluded = result.pop('not_name_reference', None)
+    if excluded:
+        # "cards not named <this card>" (Burning-Rune Demon): the same frozen comparison, negated (RULE 201.2).
+        result['not_names'] = reference_names(excluded, context.state, source, context=context, targets=targets)
     spec = result.pop('name_reference', None)
     if spec:
         names = reference_names(spec, context.state, source, context=context, targets=targets)

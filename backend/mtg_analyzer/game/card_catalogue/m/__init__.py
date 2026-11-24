@@ -118,3 +118,13 @@ from . import mana_sculpt, moonveil_regent  # noqa: F401
 from . import merciful_mandate  # noqa: F401
 from . import miles_o_brien_transporter_ops  # noqa: F401
 from . import megatron_tyrant  # noqa: F401
+
+from . import maddening_hex  # noqa: F401
+
+from . import mirror_shield_hoplite  # noqa: F401
+from . import marvel_boy_noh_varr  # noqa: F401
+from . import mirage_phalanx  # noqa: F401
+from . import mossbridge_troll  # noqa: F401
+from . import magosi_the_waterveil  # noqa: F401
+
+from . import meathook_massacre_ii  # noqa: F401

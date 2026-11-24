@@ -11,7 +11,7 @@ def _chain_reaction() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {
-                "amount": 0, "selector": "each_creature",
+                "amount": 0, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
                 "amount_from_count_selector": "all_creatures",
             })],
         )

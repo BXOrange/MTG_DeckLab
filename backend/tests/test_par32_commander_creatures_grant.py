@@ -36,7 +36,9 @@ def test_compound_event_body_emits_one_grant_per_event():
     assert events == {"ENTERS_BATTLEFIELD", "LEAVES_BATTLEFIELD"}
     for s in specs:
         assert s.type == "grant_triggered_ability"
-        assert s.params["affects"] == "commander_creatures_you_own"
+        assert s.params["affects"] == {
+            "zone": "battlefield", "of": "any",
+            "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}}
         assert s.params["grant_effects"] == [{"type": "draw", "params": {"count": 1}}]
 
 

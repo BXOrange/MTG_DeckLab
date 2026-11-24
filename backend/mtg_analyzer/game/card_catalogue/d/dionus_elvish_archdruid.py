@@ -28,8 +28,7 @@ def _dionus_elvish_archdruid() -> list[AbilitySpec]:
                 EffectSpec(
                     "grant_triggered_ability",
                     {
-                        "affects": "creatures_you_control",
-                        "subtype": "Elf",
+                        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Elf"}},
                         "trigger_event": EventType.TAPPED,
                         "controllers_turn_only": True,
                         "once_per_turn": True,

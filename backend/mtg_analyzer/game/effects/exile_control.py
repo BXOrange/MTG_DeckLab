@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from ..control import gain_control
+from ..continuations import choice
 
 from .core import GameEffect
 from ._runtime import install, register
@@ -82,6 +83,7 @@ class ExileEffect(GameEffect):
         track_exiled_with: bool = False,
         max_mana_value: Optional[int] = None,
         min_mana_value: Optional[int] = None,
+        exact_mana_value: Optional[Any] = None,
         grant_owner_play_permission: bool = False,
         owner_play_permission_tax: Optional[int] = None,
         owner_play_permission_tax_all: bool = False,
@@ -90,6 +92,7 @@ class ExileEffect(GameEffect):
         trigger_event_key: Optional[str] = None,
         grant_free_cast_window: bool = False,
         spell_or_permanent: bool = False,
+        spell_filter: Optional[dict[str, Any]] = None,
         colors: Optional[list[str]] = None,
         bend_kind: Optional[str] = None,
         count_selector: Optional[str] = None,
@@ -134,7 +137,7 @@ class ExileEffect(GameEffect):
         #: "exile target `<c1>` or `<c2>` permanent" (Celestial Purge) —
         #: `TargetSpec.colors`' OR narrowing, offer-time (`_color_ok`).
         self.colors = tuple(colors) if colors else None
-        self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
+        self.selector = selector if isinstance(selector, str) and selector in _MASS_RELATIVE_SELECTORS else None
         self.filter = filter
         self.until_source_leaves = bool(until_source_leaves)
         self.remember = remember and not self.until_source_leaves
@@ -209,6 +212,7 @@ class ExileEffect(GameEffect):
         ):
             self.target_spec = TargetSpec(
                 kind=target_kind, optional=optional, count=count, count_max=count_max, creature_filter=creature_filter,
+                spell_filter=spell_filter,
                 same_graveyard=same_graveyard,
                 distinct_controllers=distinct_controllers, colors=self.colors,
                 count_selector=count_selector,
@@ -218,6 +222,8 @@ class ExileEffect(GameEffect):
                 max_mana_value=max_mana_value,
                 # "exile target permanent with mana value 4 or greater" (Despark) — the floor sibling.
                 min_mana_value=min_mana_value,
+                # "exile target creature card with mana value X from a graveyard" (Sequence Engine): an int or "x".
+                exact_mana_value=exact_mana_value,
                 # "…with mana value 3 or less. If this spell was cast using
                 # teamwork, instead exile target creature[.]" (MEC-85, Cruel
                 # Alliance) — see `targeting.TargetSpec.unless_flag`.
@@ -297,7 +303,7 @@ class ExileEffect(GameEffect):
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
             exiled_now = []
-            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+            for obj in _mass_group_objects(context, self.group, self.group_player, self.source, chosen, self.filter) or []:
                 self._exile_object(context, obj)
                 exiled_now.append(obj)
             # RULE 608.2: "those cards"/"the exiled cards" in a following clause (a delayed return,
@@ -323,9 +329,23 @@ class ExileEffect(GameEffect):
             return
         if self._attached_mode:
             # "Exile enchanted creature." — this Aura/Equipment's host.
-            host_id = getattr(self.source, "attached_to", None)
-            host = context.state.find_object(host_id) if host_id is not None else None
-            if host is not None:
+            visit = context.resolving_source_incarnation
+            if (self.source.zone == Zone.BATTLEFIELD
+                    and visit in (None, self.source.zone_incarnation)):
+                host = context.state.find_object(getattr(self.source, 'attached_to', None))
+            else:
+                # RULE 608.2h/400.7: a departed Aura's last host is an exact visit.
+                relationship = getattr(context.resolving_stack_item, 'source_attachment_lki', None)
+                host = context.state.find_object(relationship[0]) if relationship is not None else None
+                if host is not None and host.zone_incarnation != relationship[1]:
+                    host = None
+                if relationship is None:
+                    # PAR-323 / RULE 603.10a: a "dies" trigger is queued after the leave event stamped the stack, so
+                    # its own item carries no relationship; the departed visit's snapshot kept the host it had.
+                    visit_snapshot = context.state.zone_visit_sources.get(
+                        (self.source.instance_id, visit if visit is not None else self.source.zone_incarnation - 1))
+                    host = context.state.find_object(getattr(visit_snapshot, 'attached_to', None))
+            if host is not None and host.zone == Zone.BATTLEFIELD:
                 self._exile_object(context, host)
                 self._post_exile(context, host)
             return
@@ -555,7 +575,8 @@ class ExileTopOfLibraryEffect(GameEffect):
         #: remains possible for a future card.
         #: "…exile a number of cards from the top of your library equal to the number of differently named
         #: tokens you control" (Neriv, Crackling Vanguard) — an `effect_amounts` operand measured at resolution.
-        self.count = count if isinstance(count, dict) else int(count)
+        #: (a ``"$n"`` sentinel survives only on the unbound copy `target_specs` builds to enumerate targets).
+        self.count = count if isinstance(count, (dict, str)) and not str(count).isdigit() else int(count)
         self.keep_bottom = keep_bottom
         self.track_exiled_with = track_exiled_with
 
@@ -601,6 +622,53 @@ class ExileTopOfLibraryEffect(GameEffect):
                     context.state.track_exiled_with(self.source, top, context.resolving_source_incarnation)
                 context.created_objects.append(top)
 
+        context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
+
+
+class ExileRandomGraveyardCardEffect(GameEffect):
+    """"Exile [a card of type | N cards] at random from your graveyard." (RULE 706 / 701.5a, PAR-325: Tersa
+    Lightshatter, Radiant Scrollwielder, Storm of Memories, Capricious Hellraiser) -- uniformly random eligible card(s) of the controller's graveyard,
+    chosen through the engine's seeded RNG (`random_choice`, never Python's global ``random``), so a replay or a
+    test reproduces the same pick. ``card_filter`` is the `combat.matches_object_filter` fragment narrowing the
+    eligible pool (the card is only chosen at random *among those that fit*, RULE 608.2d); an empty pool exiles
+    nothing and leaves no referent, so a following "you may play that card" grants nothing. The exiled card (with
+    its exact zone visit, RULE 400.7) becomes `GameContext.latest_exiled_visits`, the referent "that card" /
+    "it" reads (`GrantPlayWindowToPreviousExiledEffect`, `CastWindowFromExiledPoolEffect`)."""
+
+    def __init__(self, card_filter: Optional[dict] = None, count: int = 1, track_exiled_with: bool = False,
+                 source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.card_filter = dict(card_filter or {})
+        self.count = max(1, int(count))
+        #: RULE 607.2a "cards exiled with ~" (Arcane Bombardment): link each exiled visit to this ability's source.
+        self.track_exiled_with = bool(track_exiled_with)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        from .. import combat  # function-scoped: combat imports the effects package
+
+        context.latest_exiled_visits = []
+        player = _controller_of(self.source, context)
+        if player is None:
+            return
+        pool = [obj for obj in player.graveyard
+                if combat.matches_object_filter(obj, self.card_filter, state=context.state)]
+        # "Exile three cards at random": each pick is uniform among those still left (RULE 706); fewer cards than the
+        # count exile them all. One exile instruction is one simultaneous event (RULE 603.2c).
+        picked = []
+        for _ in range(self.count):
+            card = context.engine.random_choice(pool)
+            if card is None:
+                break
+            pool.remove(card)
+            picked.append(card)
+        if not picked:
+            return
+        before = len(context.exiled_objects)
+        with context.state.simultaneous():
+            for card in picked:
+                context.exile(card)
+                if self.track_exiled_with and self.source is not None:
+                    context.state.track_exiled_with(self.source, card, context.resolving_source_incarnation)
         context.latest_exiled_visits = [(obj, obj.zone_incarnation) for obj in context.exiled_objects[before:]]
 
 
@@ -839,14 +907,26 @@ class CopyImprintedCardEffect(GameEffect):
     copy, which stays real (an offered, not forced, action).
     """
 
-    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True):
+    def __init__(self, from_previous=False, cast_cost=None, from_self=False, source=None, free=True,
+                 optional_cast=False, from_latest_exiled=False, card_filter=None, from_linked_exile=False,
+                 any_number=False):
         super().__init__(source)
+        #: PAR-325 (Arcane Bombardment): "copy each card exiled with ~" -- every card linked to the source (RULE 607.2a),
+        #: and "cast any number of the copies" (``any_number``).
+        self.from_linked_exile = bool(from_linked_exile)
+        self.any_number = bool(any_number)
+        #: PAR-325 ("exile three cards at random ... choose a noncreature, nonland card from among them and copy it"):
+        #: the card(s) copied are this resolution's latest exile (`GameContext.latest_exiled_visits`) rather than a
+        #: targeted card, narrowed by ``card_filter``; the player takes one of the offered copies.
+        self.from_latest_exiled = bool(from_latest_exiled)
+        self.card_filter = dict(card_filter or {})
         #: ``from_previous`` only: "you may cast the copy" at its normal cost (Nashi, Jacob Frye) when ``False``;
         #: "…without paying its mana cost" (Psionic Ritual, Shiko) by default.
         self.free = bool(free)
         self.from_previous = from_previous
         self.from_self = from_self
         self.cast_cost = cast_cost
+        self.optional_cast = bool(optional_cast)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -865,7 +945,39 @@ class CopyImprintedCardEffect(GameEffect):
             copy_obj.is_copy = True
             bind_from_catalogue(copy_obj)
             player.add_to_zone(copy_obj, Zone.EXILE)
-            context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True, mandatory=True)
+            context.engine._request_resolution_play(player, [copy_obj], free=False, only_spells=True,
+                                                    mandatory=not self.optional_cast)
+            return
+        if self.from_latest_exiled or self.from_linked_exile:
+            from ...models.game.game_object import GameObject
+            from ..binding.core import bind_from_catalogue
+            from .. import combat  # function-scoped: combat imports the effects package
+
+            player = _controller_of(source, context)
+            if player is None:
+                return
+            if self.from_linked_exile:
+                from ..linked_exile import linked_cards
+                visited = [(obj, obj.zone_incarnation)
+                           for obj in linked_cards(context.state, source, context.resolving_source_incarnation)]
+            else:
+                visited = context.latest_exiled_visits
+            pool = [obj for obj, visit in visited
+                    if obj is not None and obj.zone == Zone.EXILE and obj.zone_incarnation == visit
+                    and not obj.face_down_in_exile
+                    and combat.matches_object_filter(obj, self.card_filter, state=context.state)]
+            copies = []
+            for obj in pool:
+                # RULE 707.12: a copy of the card, cast as a spell; RULE 707.10a an uncast copy ceases to exist
+                # (the stranded-copy SBA reaps it once this resolution's offer closes).
+                copy_obj = GameObject(obj.card.as_copy(), owner_id=player.id, zone=Zone.EXILE)
+                copy_obj.is_copy = True
+                bind_from_catalogue(copy_obj)
+                player.add_to_zone(copy_obj, Zone.EXILE)
+                copies.append(copy_obj)
+            if copies:
+                context.engine._request_resolution_play(
+                    player, copies, free=self.free, only_spells=True, repeat=self.any_number)
             return
         if self.from_previous:
             exiled = next((obj for obj in context.previous_targets if obj is not None and obj.zone == Zone.EXILE), None)
@@ -1102,7 +1214,8 @@ class FreeCastFromHandEffect(GameEffect):
             if (obj.zone != Zone.EXILE or obj.owner_id == player.id)
             and (not self.legendary_only or 'legendary' in (obj.card.type_line or '').lower())
             if not obj.card.is_land
-            and (not self.noncreature_only or not obj.is_creature)
+            and (not self.noncreature_only or not obj.is_creature
+                 or (self.during_resolution and obj.card.layout in {'modal_dfc', 'adventure', 'split'}))
             and (not self.permanent_only or not (obj.card.is_instant or obj.card.is_sorcery))
             and (not self.instant_sorcery_only or (obj.card.is_instant or obj.card.is_sorcery))
             and (not isinstance(max_mv, int) or (obj.mana_value or 0) <= max_mv)
@@ -1114,6 +1227,7 @@ class FreeCastFromHandEffect(GameEffect):
             context.engine._request_resolution_play(
                 player, candidates, zone=self.zones, repeat=self.arm_all, only_spells=True,
                 max_mana_value=max_mv + 1 if isinstance(max_mv, int) else None,
+                noncreature_only=self.noncreature_only,
             )
             return
         if self.arm_all:
@@ -1241,6 +1355,7 @@ class ExileTargetGraveyardEffect(GameEffect):
         card_type: Optional[str] = None,
         player_from_trigger_event: bool = False,
         track_exiled_with: bool = False,
+        any_number: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
@@ -1249,7 +1364,7 @@ class ExileTargetGraveyardEffect(GameEffect):
         #: RULE 607.2a: "exile target opponent's graveyard" whose cards a second ability reads as "exiled with it"
         #: (Assimilation Assessor) links each exile visit to the source's resolving visit.
         self.track_exiled_with = bool(track_exiled_with)
-        self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind)
+        self.target_spec = None if player_from_trigger_event else TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = (targets[0] if targets else None) or self.target
@@ -1260,6 +1375,11 @@ class ExileTargetGraveyardEffect(GameEffect):
             player = next((p for p in context.players if p.id == controller_id), None)
         if player is None:
             return
+        players = targets if self.target_spec is not None and self.target_spec.any_number else [player]
+        for recipient in players or []:
+            self._exile_graveyard(context, recipient)
+
+    def _exile_graveyard(self, context: GameContext, player: Any) -> None:
         for obj in list(player.graveyard):
             if self.card_type and not getattr(obj.card, f"is_{self.card_type}", False):
                 continue
@@ -1381,7 +1501,36 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
         context.engine.dig_until(
             player, self.criteria,
             hit_destination="battlefield", rest_destination="library_shuffled",
+            reveal=True,  # RULE 701.20a: "reveals cards ... until they reveal" (Polymorph)
         )
+
+
+class OwnerDrawThenShuffleEffect(GameEffect):
+    """Unification I: the creature's owner draws, then shuffles that creature away."""
+
+    def __init__(self, source: Optional["GameObject"] = None, target: Any = None,
+                 drawn: bool = False, expected_visit: Optional[int] = None) -> None:
+        super().__init__(source)
+        self.target = target
+        self.drawn = drawn
+        self.expected_visit = expected_visit
+        self.target_spec = None if drawn else TargetSpec(kind="creature", optional=True)
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        target = (targets[0] if targets else None) or self.target
+        if target is None or target.zone != Zone.BATTLEFIELD:
+            return
+        if self.drawn:
+            if target.zone_incarnation == self.expected_visit:
+                context.shuffle_into_library(target)
+            return
+        owner = context.state.player_by_id(target.owner_id)
+        # Keep the trailing move behind any draw replacement decision.
+        _apply_effects_partitioned([
+            DrawCardEffect(count=2, player=owner, source=self.source),
+            OwnerDrawThenShuffleEffect(source=self.source, target=target, drawn=True,
+                                       expected_visit=target.zone_incarnation),
+        ], context, None, None, self.source)
 
 
 class ShuffleTargetIntoLibraryRevealTopEffect(GameEffect):
@@ -1802,6 +1951,20 @@ class GainControlBySourceEffect(GameEffect):
                 return
             gain_control(context.state, self.source, new_controller_id)
             context.recompute()
+            return
+        if self.recipient == "previous_subject_controller":
+            # PAR-287, RULE 608.2h: "its controller gains control of ~" (Act of Authority) -- the controller of the
+            # antecedent permanent (an exiled object keeps its `controller_id`, never falling back to its owner), not
+            # the "next opponent" the plain recipient picks. No antecedent object, no change.
+            from .. import effect_operands
+
+            new_controller = effect_operands.player_for(
+                {"of": "previous_subject", "as": "controller"}, context, self.source, targets)
+            if new_controller is None or new_controller.has_lost or new_controller.id == self.source.controller_id:
+                return
+            if gain_control(context.state, self.source, new_controller.id):
+                TapEffect._remove_from_combat(context, self.source)  # RULE 506.4
+                context.recompute()
             return
         if self.recipient == "activator":
             # "Gain control of ~." on an ability only an opponent may
@@ -2365,6 +2528,8 @@ class ReturnAllExiledWithEffect(GameEffect):
     ``counter_if_creature`` (``{"kind": "+1/+1", "count": 1}``) is Teferi's Time Twist's "If it
     enters as a creature, it enters with an additional +1/+1 counter on it": the counter goes on
     each returned card that is a creature as it arrives, before its entry event.
+    ``own_only`` limits the return to cards owned by the resolving ability's
+    controller; excluded cards remain linked for later resolutions.
     """
 
     def __init__(
@@ -2374,6 +2539,7 @@ class ReturnAllExiledWithEffect(GameEffect):
         under_your_control: bool = False,
         card_types: Optional[list[str]] = None,
         destination: str = "battlefield",
+        own_only: bool = False,
     ) -> None:
         super().__init__(source)
         self.counter_if_creature = dict(counter_if_creature or {}) or None
@@ -2381,6 +2547,7 @@ class ReturnAllExiledWithEffect(GameEffect):
         self.under_your_control = bool(under_your_control)
         self.card_types = list(card_types or [])
         self.destination = destination
+        self.own_only = bool(own_only)
         self.captured_visits = None
         #: "…return all cards exiled with this Vehicle except this card to the battlefield **tapped** under their owners'
         #: control." (Mechtitan Core)
@@ -2419,6 +2586,11 @@ class ReturnAllExiledWithEffect(GameEffect):
         visits = self.captured_visits
         if visits is None:
             visits = context.state.linked_exile_visits.get(key, [])
+        if self.own_only:
+            owner_id = _controller_of(self.source, context).id
+            visits = [visit for visit in visits
+                      if (obj := context.state.find_object(visit[0])) is not None
+                      and obj.owner_id == owner_id]
         if self.card_types:
             from ...models.cards import card_query
             visits = [visit for visit in visits
@@ -2431,7 +2603,7 @@ class ReturnAllExiledWithEffect(GameEffect):
             if self.source.zone != Zone.BATTLEFIELD or self.source.zone_incarnation == incarnation:
                 consumed_ids = {instance_id for instance_id, _ in consumed}
                 self.source.exiled_with_ids = [instance_id for instance_id in self.source.exiled_with_ids
-                                               if self.card_types and instance_id not in consumed_ids]
+                                               if (self.card_types or self.own_only) and instance_id not in consumed_ids]
         if self.sacrifice_source:
             context.put_into_graveyard(self.source)
         if self.destination == "hand":
@@ -3111,20 +3283,39 @@ class LookTopCastFreeEffect(GameEffect):
     targets, modes and additional costs; every card that is not cast then goes to the bottom
     (``bottom_remaining``). Cards stay in the library until cast or reordered. ``criteria`` is a
     `card_query` dict; ``max_mana_value_from="source_power"`` bounds mana value by the
-    source's current power (inclusive).
+    source's current power (inclusive); ``max_mana_value`` (+ ``mana_value_below`` for "less than") is the
+    general printed cap, an int or an `effect_amounts` operand (PAR-292 M19: the parser's `look_top_cast_free` rows).
     """
 
     def __init__(
-        self, count: int = 7, criteria: Optional[dict[str, Any]] = None,
+        self, count: "int | dict[str, Any]" = 7, criteria: Optional[dict[str, Any]] = None,
         max_mana_value_from: Optional[str] = None, source: Optional["GameObject"] = None,
-        prompt: Optional[str] = None,
+        prompt: Optional[str] = None, max_mana_value: "int | dict[str, Any] | None" = None,
+        mana_value_below: bool = False,
     ) -> None:
         super().__init__(source)
         #: The pending choice's German prompt; the default names Velomachus's instant/sorcery restriction.
         self.prompt = prompt
-        self.count = int(count)
+        #: An int, or an `effect_amounts` operand measured as this resolves ("the top X cards, where X is ...": the
+        #: parser binds it through a `bind`, which hands this effect the measured int).
+        #: (a ``"$n"`` sentinel survives only on the unbound copy `target_specs` builds to enumerate targets).
+        self.count = count if isinstance(count, (dict, str)) and not str(count).isdigit() else int(count)
         self.criteria = dict(criteria) if criteria else None
         self.max_mana_value_from = max_mana_value_from
+        #: PAR-292 M19: the printed mana-value cap ("with mana value 3 or less", "... less than or equal to the greatest
+        #: power among attacking creatures you control", "... less than X"): an int or an `effect_amounts` operand.
+        #: ``mana_value_below`` makes the bound strict ("less than").
+        self.max_mana_value = max_mana_value
+        self.mana_value_below = bool(mana_value_below)
+
+    def _mana_value_limit(self, context: GameContext) -> Optional[int]:
+        """The largest mana value a card may have to be cast (inclusive), ``None`` when unbounded."""
+        if self.max_mana_value_from == "source_power":
+            return max(0, int(getattr(self.source, "power", 0) or 0))
+        if self.max_mana_value is None:
+            return None
+        bound = int(self._measured(self.max_mana_value, context))
+        return bound - 1 if self.mana_value_below else bound
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...models.cards import card_query
@@ -3134,14 +3325,14 @@ class LookTopCastFreeEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        looked = list(reversed(player.library[-max(0, self.count):])) if self.count > 0 else []
+        count = max(0, int(self._measured(self.count, context, targets)))
+        looked = list(reversed(player.library[-count:])) if count > 0 else []
         if not looked:
             return
-        limit = None
-        if self.max_mana_value_from == "source_power":
-            limit = max(0, int(getattr(self.source, "power", 0) or 0))
+        limit = self._mana_value_limit(context)
         candidates = [
             o for o in looked
+            # RULE 305.1: a land card is played, never cast; "cast a spell" cannot pick it.
             if not o.card.is_land and card_query.matches(o.card, self.criteria)
             and (limit is None or o.mana_value <= limit)
         ]
@@ -3151,13 +3342,14 @@ class LookTopCastFreeEffect(GameEffect):
             return
         context.engine._request_resolution_play(
             player, candidates, only_spells=True, zone="library",
-            # `play_resolution_card` demands a *strictly* lesser value, so "≤ power" is "< power + 1".
+            # `play_resolution_card` demands a *strictly* lesser value, so "<= limit" is "< limit + 1".
             max_mana_value=None if limit is None else limit + 1,
             bottom_remaining=rest_ids,
         )
         choice = context.state.pending_choice
         if choice is not None and choice.get("kind") == "play_during_resolution":
-            choice["prompt"] = self.prompt or "Instant oder Sorcery kostenlos wirken?"
+            choice["prompt"] = self.prompt or (
+                "Instant oder Sorcery kostenlos wirken?" if self.criteria else "Zauber kostenlos wirken?")
 
 
 class GrantDieToExileThisTurnEffect(GameEffect):
@@ -3336,9 +3528,17 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
         source: Optional["GameObject"] = None,
         card_types: Optional[list[str]] = None,
         next_only: bool = False,
+        entry_counters: Optional[dict[str, int]] = None,
+        cant_be_countered: bool = False,
+        of_chosen_type: bool = False,
+        spell_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.next_only = next_only
+        self.of_chosen_type = bool(of_chosen_type)
+        self.spell_filter = dict(spell_filter or {})
+        self.entry_counters = dict(entry_counters or {})
+        self.cant_be_countered = bool(cant_be_countered)
         self.card_types = list(card_types) if card_types else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -3346,9 +3546,21 @@ class GrantFlashUntilEndOfTurnEffect(GameEffect):
         if player is None:
             return
         turn = context.state.internal_turn.number
-        if self.next_only:
+        if self.next_only or self.spell_filter:
+            object_filter = dict(self.spell_filter)
+            if self.of_chosen_type:
+                visit = context.resolving_source_incarnation
+                if self.source is not None and (visit is None or self.source.zone_incarnation == visit):
+                    chosen = self.source.chosen_type
+                else:
+                    chosen = (context.trigger_event or {}).get('source_chosen_type')
+                if not chosen:
+                    return
+                object_filter = {'subtype': chosen}
             context.state.next_spell_flash_grants.append({
-                'player_id': player.id, 'turn': turn, 'card_types': self.card_types or []})
+                'player_id': player.id, 'turn': turn, 'card_types': self.card_types or [],
+                'entry_counters': dict(self.entry_counters), 'cant_be_countered': self.cant_be_countered,
+                'object_filter': object_filter, 'next_only': self.next_only})
             return
         if self.card_types:
             context.state.temp_flash_until_turn_types[player.id] = (turn, tuple(self.card_types))
@@ -3366,6 +3578,9 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
     the same "read the target's last-known controller off the object after
     the zone change" resolution `create_token` with ``creators="previous_
     target_controller"`` uses.
+    The search destination, optionality and reveal flag also support
+    70,000 Light-Years from Home's optional revealed basic land into hand.
+    Defaults preserve Winds of Abandon's tapped battlefield destination.
     ``target_kind="creature"`` (broader than "you don't control" — no
     target kind carries an ownership exclusion yet) is a documented
     simplification, mirroring `ExileControllerSearchesBasicLandEffect`'s
@@ -3377,10 +3592,16 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
         target: Any = None,
         source: Optional["GameObject"] = None,
         target_kind: str = "creature",
+        destination: str = "battlefield_tapped",
+        optional: bool = False,
+        reveal: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
         self.target_spec = TargetSpec(kind=target_kind)
+        self.destination = destination
+        self.optional = optional
+        self.reveal = reveal
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         target = (targets[0] if targets else None) or self.target
@@ -3394,7 +3615,31 @@ class ExileControllerSearchesBasicLandEffect(GameEffect):
             player = context.state.player_by_id(controller_id)
         except (KeyError, ValueError):
             return
-        context._request_search(player, {"basic": True}, "battlefield_tapped", 1, False)
+        if self.optional:
+            # RULE 701.23g: declining the search also skips its shuffle.
+            # Capture the last controller before exile; ownership may differ.
+            context.engine.open_choice({
+                "kind": "exile_controller_search", "player_id": player.id,
+                "destination": self.destination, "reveal": self.reveal,
+                "prompt": "Nach einem Standardland suchen?",
+                "options": [{"id": "search", "label": "Suchen"},
+                            {"id": "decline", "label": "Nicht suchen"}],
+            })
+            return
+        context._request_search(
+            player, {"basic": True}, self.destination, 1, self.optional,
+            reveal=self.reveal,
+        )
+
+
+@choice("exile_controller_search", rule="701.23g")
+def _resume_exile_controller_search(rules, payload, answer):
+    if str(answer) != "search":
+        return
+    rules._request_search(
+        rules.state.player_by_id(payload["player_id"]), {"basic": True},
+        payload["destination"], 1, True, reveal=payload["reveal"],
+    )
 
 
 class DestroyControllerMaySearchBasicLandEffect(GameEffect):

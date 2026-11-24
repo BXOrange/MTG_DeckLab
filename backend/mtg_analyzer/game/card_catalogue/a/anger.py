@@ -26,7 +26,7 @@ def _anger() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 "keywords": ["haste"],
                 "active_if": {
                     "kind": "control_count",

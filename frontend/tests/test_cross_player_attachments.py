@@ -66,7 +66,8 @@ class CrossPlayerAttachmentTest(unittest.TestCase):
                     self.assertEqual(page.locator(f'[data-hover-card="{name}"]').count(), 1)
                 self.assertIn('Human', group.locator('.gf-foreign-attachment').first.inner_text())
                 self.assertEqual(page.locator('[data-player-id="p1"] [data-hover-card="Unattached Aura"]').count(), 1)
-                self.assertEqual(group.locator('.gf-card-action').count(), 1)
+                # Cards without a legal action list disabled placeholders in their menu; only enabled buttons are actions.
+                self.assertEqual(group.locator('.gf-card-action:not([disabled])').count(), 1)
                 self.assertEqual(errors, [])
                 browser.close()
         finally:

@@ -196,7 +196,7 @@ def test_drana_and_linvala_is_registered_with_all_three_statics():
     assert ("static", "grant_any_color_for_activation") in kinds
     borrow = next(s for s in specs if s.effects[0].type == "grant_borrowed_activated_ability")
     assert borrow.effects[0].params.get("source_mode") == "group"
-    assert borrow.effects[0].params.get("source_affects") == "creatures_opponents_control"
+    assert borrow.effects[0].params.get("source_affects") == {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}
 
 
 # ---------------------------------------------------------------------------

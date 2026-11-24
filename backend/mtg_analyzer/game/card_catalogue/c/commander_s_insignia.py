@@ -14,7 +14,7 @@ def _commander_s_insignia() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "affects": "creatures_you_control", "power": 1, "toughness": 1,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 1, "toughness": 1,
                 "power_count": "commander_casts_this_game", "toughness_count": "commander_casts_this_game",
             })],
         )

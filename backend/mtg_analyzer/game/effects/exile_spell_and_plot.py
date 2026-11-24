@@ -8,9 +8,24 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import Zone
 from ..targeting import TargetSpec
 from .core import GameContext, GameEffect
+
+
+def designate_plotted(state, obj) -> None:
+    # RULE 702.170c / 400.7: the designation belongs to this visit to exile.
+    if obj.zone != Zone.EXILE or obj.is_token or obj.plotted_card:
+        return
+    obj.plotted_card = True
+    obj.plot_exiled_incarnation = obj.zone_incarnation
+    obj.plot_exiled_turn = state.internal_turn.number
+    state.fire_event(GameEvent(
+        EventType.BECOMES_PLOTTED, instance_id=obj.instance_id,
+        player_id=obj.owner_id, controller_id=obj.owner_id,
+        zone_incarnation=obj.zone_incarnation,
+    ))
 
 
 class ExileTargetSpellAndPlotEffect(GameEffect):
@@ -30,11 +45,7 @@ class ExileTargetSpellAndPlotEffect(GameEffect):
         if item is None or obj is None:
             return  # RULE 608.2b: the target spell is gone
         context.engine.counter_spell(target, exile_instead=True)
-        if obj.zone != Zone.EXILE or obj.is_token:
-            return  # a copy of a spell (a token-like stack object) ceases to exist instead of becoming plotted
-        obj.plotted_card = True
-        obj.plot_exiled_incarnation = obj.zone_incarnation
-        obj.plot_exiled_turn = context.state.internal_turn.number
+        designate_plotted(context.state, obj)
 
 
 EFFECT_FACTORIES = {

@@ -18,7 +18,7 @@ def _arcane_lighthouse() -> list[AbilitySpec]:
             [EffectSpec("grant_until", {
                 "duration": "end_of_turn", "target_kind": None,
                 "static": {"type": "remove_keyword", "params": {
-                    "affects": "creatures_opponents_control",
+                    "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
                     "keywords": ["hexproof", "shroud"],
                 }},
             })],

@@ -22,11 +22,8 @@ from mtg_analyzer.parser.oracle.catalogue.subgrammars import (
     resolve_target_kind,
 )
 from mtg_analyzer.parser.oracle.normalize import SELF, _fold_self_name, normalize
-from mtg_analyzer.parser.oracle.segmenter import (
-    _TRIGGER_EVENTS,
-    is_keyword_line,
-    parse_effect_body,
-)
+from mtg_analyzer.parser.oracle.segmenter import is_keyword_line, parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.trigger_heads import TRIGGER_EVENTS as _TRIGGER_EVENTS
 from mtg_analyzer.parser.oracle.spec import EffectSpec
 
 
@@ -345,30 +342,34 @@ def _static_specs(text, *, tl="Enchantment", creature=False):
     return r, [s for s in r.specs if s.ability_kind == "static"]
 
 
+def _group(of, **filt):
+    """ENG-60: the structured ``affects`` selector a static group scope compiles to."""
+    return {"zone": "battlefield", "of": of, "filter": filt}
+
+
 def test_static_anthem_creatures_you_control():
     r, statics = _static_specs("Creatures you control get +1/+1.")
     assert r.coverage == MODELED and len(statics) == 1
     (e,) = statics[0].effects
     assert e.type == "anthem"
-    assert e.params["power"] == 1 and e.params["affects"] == "creatures_you_control"
+    assert e.params["power"] == 1 and e.params["affects"] == _group("you", card_type="creature")
 
 
 def test_static_tribal_lord_carries_subtype_and_other():
     _, statics = _static_specs("Other Goblins you control get +1/+1.", tl="Creature — Goblin", creature=True)
     (e,) = statics[0].effects
-    assert e.params["subtype"] == "Goblin"
-    assert e.params["affects"] == "other_creatures_you_control"
+    assert e.params["affects"] == _group("you", card_type="creature", not_reference=True, subtype="Goblin")
 
 
 def test_static_irregular_plural_singularizes():
     _, statics = _static_specs("Other Elves you control get +1/+1.", tl="Creature — Elf", creature=True)
-    assert statics[0].effects[0].params["subtype"] == "Elf"
+    assert statics[0].effects[0].params["affects"]["filter"]["subtype"] == "Elf"
 
 
 def test_static_token_anthem():
     _, statics = _static_specs("Creature tokens you control get +1/+1.")
     e = statics[0].effects[0]
-    assert e.params.get("tokens") is True and "subtype" not in e.params
+    assert e.params["affects"] == _group("you", card_type="creature", token=True)
 
 
 def test_static_compound_anthem_and_keyword_grant():
@@ -396,25 +397,25 @@ def test_static_color_scoped_global_anthem():
     # Bad Moon: no "you control" → global; "black" → colour filter.
     _, statics = _static_specs("Black creatures get +1/+1.")
     e = statics[0].effects[0]
-    assert e.params["affects"] == "all_creatures" and e.params["color"] == ["B"]
+    assert e.params["affects"] == _group("any", card_type="creature", color="B")
 
 
 def test_static_color_scoped_you_control():
     _, statics = _static_specs("White creatures you control get +1/+1.")
     e = statics[0].effects[0]
-    assert e.params["affects"] == "creatures_you_control" and e.params["color"] == ["W"]
+    assert e.params["affects"] == _group("you", card_type="creature", color="W")
 
 
 def test_static_multicolor_scope():
     _, statics = _static_specs("White and blue creatures get +1/+1.")
-    assert _static_specs("White and blue creatures get +1/+1.")[1][0].effects[0].params["color"] == ["W", "U"]
+    assert _static_specs("White and blue creatures get +1/+1.")[1][0].effects[0].params["affects"]["filter"]["color_any"] == ["W", "U"]
 
 
 def test_static_global_keyword_grant():
     # "All creatures have haste" (Concordant Crossroads) — global, "all" marker.
     _, statics = _static_specs("All creatures have haste.")
     e = statics[0].effects[0]
-    assert e.type == "grant_keyword" and e.params["affects"] == "all_creatures"
+    assert e.type == "grant_keyword" and e.params["affects"] == _group("any", card_type="creature")
 
 
 def test_static_noncreature_scope_is_unclaimed():
@@ -438,29 +439,25 @@ def test_static_card_type_narrowed_creature_anthem():
     )
     e = statics[0].effects[0]
     assert e.type == "anthem"
-    assert e.params["affects"] == "other_creatures_you_control"
-    assert e.params["card_type"] == "artifact"
-    assert "subtype" not in e.params
+    assert e.params["affects"] == _group(
+        "you", card_type_all=["creature", "artifact"], not_reference=True)
 
 
 def test_static_bare_artifact_scope_keyword_grant():
     # "Artifacts you control have hexproof." (Leonin Abunas) — a bare
-    # non-creature scope; `artifacts_you_control` already filters by type on
-    # its own, so no extra `card_type` param is needed.
+    # non-creature scope: the structured selector filters by `card_type`.
     _, statics = _static_specs("Artifacts you control have hexproof.")
     e = statics[0].effects[0]
     assert e.type == "grant_keyword" and e.params["keywords"] == ["hexproof"]
-    assert e.params["affects"] == "artifacts_you_control"
+    assert e.params["affects"] == _group("you", card_type="artifact")
     assert "card_type" not in e.params
 
 
 def test_static_bare_enchantment_scope_needs_card_type_filter():
-    # "enchantments" has no dedicated selector, unlike artifacts/lands — it
-    # rides the broader `permanents_you_control`, narrowed by `card_type`.
+    # Every bare permanent-type scope is the structured selector narrowed by `card_type` (ENG-60).
     _, statics = _static_specs("Other enchantments you control have shroud.")
     e = statics[0].effects[0]
-    assert e.params["affects"] == "permanents_you_control"
-    assert e.params["card_type"] == "enchantment"
+    assert e.params["affects"] == _group("you", card_type="enchantment", not_reference=True)
 
 
 def test_static_global_noncreature_scope_quoted_grant_excludes_self():
@@ -472,16 +469,13 @@ def test_static_global_noncreature_scope_quoted_grant_excludes_self():
         'sacrifice this enchantment unless you pay {2}."'
     )
     e = statics[0].effects[0]
-    assert e.params["affects"] == "all_permanents"
-    assert e.params["card_type"] == "enchantment"
-    assert e.params["exclude_self"] is True
+    assert e.params["affects"] == _group("any", card_type="enchantment", not_reference=True)
 
 
 def test_static_bare_land_scope_uses_dedicated_selector():
     _, statics = _static_specs("Lands you control have \"{T}: Add {C}.\"")
     e = statics[0].effects[0]
-    assert e.params["affects"] == "lands_you_control"
-    assert "card_type" not in e.params
+    assert e.params["affects"] == _group("you", card_type="land")
 
 
 def test_static_compound_noncreature_scope_grant():
@@ -495,12 +489,12 @@ def test_static_compound_noncreature_scope_grant():
     assert list(statics[0].effects) == [
         EffectSpec("grant_keyword", {
             "keywords": ["shroud"],
-            "affects": "permanents_you_control",
-            "card_type": ["artifact", "enchantment"],
+            "affects": {"zone": "battlefield", "of": "you",
+                        "filter": {"card_type_any": ["artifact", "enchantment"]}},
         })
     ]
-    # A three-word non-permanent word in the list still fails closed.
-    r2, statics2 = _static_specs("Artifacts and goblins you control have haste.")
+    # An unrecognised word in the list fails closed (a real creature type is an OR group since PAR-289 M4).
+    r2, statics2 = _static_specs("Artifacts and zzzzzs you control have haste.")
     assert statics2 == [] and r2.coverage == UNMODELED
 
 
@@ -512,8 +506,8 @@ def test_static_enchanted_creatures_group_scope_uses_attachment_filter():
     assert r.coverage == MODELED
     assert len(statics) == 1
     assert statics[0].effects == [EffectSpec("anthem", {
-        "power": 2, "toughness": 2, "affects": "creatures_you_control",
-        "object_filter": {"enchanted": True},
+        "power": 2, "toughness": 2,
+        "affects": _group("you", card_type="creature", enchanted=True),
     })]
 
 

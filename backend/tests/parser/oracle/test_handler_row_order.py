@@ -63,6 +63,6 @@ def test_static_effect_specs_decline_stops_the_search():
     from mtg_analyzer.parser.oracle.catalogue import static_handlers as sh
 
     ctx = sh.StaticContext(clause="x", text="x")
-    assert sh.DECLINE is not None and sh._claim(None) is sh.DECLINE
-    assert sh._claim([]) == []
+    assert sh.DECLINE is not None and sh.claim(None) is sh.DECLINE
+    assert sh.claim([]) == []
     assert ctx.text == "x"

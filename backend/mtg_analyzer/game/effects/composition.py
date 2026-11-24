@@ -49,12 +49,15 @@ from ...models.cards import card_query
 from ...models.game.game_object import GameObject
 from .. import effect_amounts, effect_conditions
 from ..targeting import TargetSpec
-from .core import EffectRegistry, GameContext, GameEffect, _apply_effects_partitioned
+from .core import (
+    EffectRegistry, GameContext, GameEffect, _apply_effects_partitioned, _combat_defending_player,
+    _defending_player_of,
+)
 
 #: How a `for_each` names the players it iterates, in APNAP order (RULE
 #: 101.4). Deliberately the same three words `SacrificeEffect.selector` and
 #: `MillEffect.player_selector` already use, rather than a fourth spelling.
-PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending"})
+PLAYER_SCOPES: frozenset[str] = frozenset({"each_player", "each_opponent", "each_other_player", "you", "each_opponent_except_defending", "defending_player"})
 
 
 def _as_spec_dicts(raw: Any) -> list[dict[str, Any]]:
@@ -256,9 +259,11 @@ class _CompositeEffect(GameEffect):
             damaged_this_way=list(getattr(context, "damaged_this_way", []) or []),
             previous_selector=getattr(context, "previous_selector", None),
             revealed_card=getattr(context, "revealed_card", None),
+            revealed_card_incarnation=context.revealed_card_incarnation,
             # What the body made is a referent for the clauses after this node too: "create X tokens …, where X is
             # …. Exile the tokens at the beginning of the next end step." (Nacatl War-Pride's `bind`).
             created_sink=context.created_objects,
+            damaged_sink=context.damaged_this_way,
         )
 
 
@@ -306,8 +311,13 @@ class SeqEffect(_CompositeEffect):
         #: RULE 608.2c / 603.12 "A. **When/If you do**, B." with no "you may" of its own: the number of leading
         #: ``effects`` that are A. B (the rest) waits behind `IfYouDoEffect`'s check that A changed the game --
         #: the unconditional sibling of `OptionalEffect.if_you_do_from` (the optional question is the ability's).
+        #: RULE 608.2c: "A. **If you can't**, C." (Egon, God of Death) has no "if you do" payoff at all -- the split sits
+        #: at the end of the list, and the else branch is the only thing the outcome check gates.
+        empty_payoff_ok = bool(self.else_specs) and if_you_do_from == len(self.inner_specs)
         self.if_you_do_from = (
-            if_you_do_from if isinstance(if_you_do_from, int) and 0 < if_you_do_from < len(self.inner_specs) else None
+            if_you_do_from
+            if isinstance(if_you_do_from, int) and (0 < if_you_do_from < len(self.inner_specs) or empty_payoff_ok)
+            else None
         )
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -331,6 +341,8 @@ class SeqEffect(_CompositeEffect):
             previous_targets=list(getattr(context, "previous_targets", []) or []),
             created_objects=list(getattr(context, "created_objects", []) or []),
             created_sink=context.created_objects,
+            milled_objects=getattr(context, "milled_objects", None),
+            latest_milled_visits=list(getattr(context, "latest_milled_visits", []) or []),
         )
 
 
@@ -428,7 +440,8 @@ class TriggerSubjectReferentEffect(_CompositeEffect):
         # RULE 400.7: a damage recipient / targeted host that left and returned is a new object.
         incarnation_key = {"target_id": "target_zone_incarnation", "instance_id": "instance_zone_incarnation"}.get(self.event_key)
         incarnation = (context.trigger_event or {}).get(incarnation_key) if incarnation_key else None
-        if firing is not None and incarnation is not None and firing.zone_incarnation != incarnation:
+        if (self.referent == 'trigger_subject' and firing is not None and incarnation is not None
+                and firing.zone_incarnation != incarnation):  # a player referent has no incarnation
             firing = None
         context.previous_targets = [firing] if firing is not None else []
         if firing is None or not self.inner_specs:
@@ -701,6 +714,7 @@ class OptionalEffect(_CompositeEffect):
             f"{source_name}: Effekt anwenden?" if source_name else "Effekt anwenden?"
         )
         context.engine.open_choice({
+            "trigger_player_id": (context.trigger_event or {}).get("player_id"),
             "referent_subject_id": referent_subject_id,
             "kind": self.CHOICE_KIND,
             "source_incarnation": (getattr(context, "resolving_source_incarnation", None)
@@ -724,6 +738,8 @@ class OptionalEffect(_CompositeEffect):
             # resumes with nothing to act on and the effect silently does
             # nothing (PAR-62).
             "target_player_ids": [obj.id for obj in (targets or []) if isinstance(obj, Player)],
+            "target_stack_ids": [obj.stack_id for obj in (targets or [])
+                                 if getattr(obj, "stack_id", None) is not None],
             "target_ids": [
                 getattr(obj, "instance_id", None)
                 for obj in (targets or [])
@@ -751,6 +767,7 @@ class OptionalEffect(_CompositeEffect):
             "revealed_card_id": getattr(
                 getattr(context, "revealed_card", None), "instance_id", None
             ),
+            "revealed_card_incarnation": context.revealed_card_incarnation,
             # RULE 109.5: a body run *as* another player ("that attacking player may create a
             # token") has to still be that player's once the question is answered.
             "acting_player_id": (getattr(context, "acting_player_id", None)
@@ -847,6 +864,9 @@ class ForEachEffect(_CompositeEffect):
             self.target_spec = TargetSpec(kind=target_kind, any_number=any_number, optional=any_number)
 
     def _items(self, context: GameContext, targets: Optional[list[Any]]) -> list[Any]:
+        if "repeat" in self.over:
+            # RULE 608.2c: measure once, before the first pass can change the game.
+            return [None] * max(0, self._measured(self.over["repeat"], context, targets))
         if self.over.get("created_objects"):
             return list(context.created_objects)
         if self.over.get("previous_targets"):
@@ -877,6 +897,12 @@ class ForEachEffect(_CompositeEffect):
                 excluded = effect_conditions.subject_of(ref or "trigger_player", context, self.source, targets)
                 excluded_id = getattr(excluded, "id", None) if excluded is not None else controller_id
                 return [p for p in living if p.id != excluded_id]
+            if scope == "defending_player":
+                # RULE 506.2 / 508.1b: "defending player <verb>" under an attack / blocked head -- the one player the
+                # combat event names (``defending_player_id``), else the one the source itself attacks; nobody if
+                # neither is known, so the body does nothing.
+                defender = _combat_defending_player(context) or _defending_player_of(self.source, context)
+                return [p for p in living if defender is not None and p.id == defender.id]
             if scope == "each_opponent_except_defending":
                 # RULE 702.116a (Myriad): "each opponent other than defending player".
                 defending = (getattr(context, "trigger_event", None) or {}).get("defending_player_id")

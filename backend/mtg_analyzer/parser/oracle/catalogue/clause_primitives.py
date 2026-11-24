@@ -181,9 +181,12 @@ def grantable_flag_slug(part: str) -> Optional[str]:
 #: can model — the ones whose RULE 702 text is a triggered ability
 #: `effect_binder._KEYWORD_TRIGGERED_BUILDERS` re-synthesizes off the granted
 #: N, plus toxic (PAR-102), which no builder needs: `combat.toxic_value` reads the granted N live at
-#: damage time. Every other NUMBER-shape keyword (renown, …) stays fail-closed for a grant.
+#: damage time, and absorb (ENG-66, RULE 702.64: `binding.core.parametric_keyword_replacements` re-synthesizes its
+#: damage-prevention replacement per receiving object). Outlast uses a separate cost-bearing grant.
+#: Other NUMBER-shape keywords stay fail-closed for a grant.
 GRANTABLE_PARAMETRIC_KEYWORDS: frozenset[str] = frozenset(
-    {"firebending", "annihilator", "afflict", "bushido", "toxic"}
+    {"firebending", "annihilator", "afflict", "bushido", "toxic", "absorb",
+     "fabricate", "afterlife", "modular", "frenzy", "poisonous"}
 )
 
 
@@ -254,6 +257,8 @@ CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # creature one — the gate is about *whether the previous clause chose
      # something at all*, not about what type it chose.
      "land", "artifact", "permanent", "nonland_permanent",
+     # PAR-284: "destroy target enchantment. Create X tokens, where X is that enchantment's mana value."
+     "enchantment",
      "artifact_creature_or_land", "artifact_or_creature",
      # PAR-124: "target land you control becomes a 4/4 … creature … **it**
      # must be blocked this turn if able." (Disturbed Slumber/Elemental
@@ -261,7 +266,10 @@ CREATURE_TARGET_KINDS: frozenset[str] = frozenset(
      # kinds, referred back to the same "it" way a bare "land" already is.
      "land_you_control", "creature_or_land_you_control",
      # "destroy target artifact, enchantment, or creature with flying. If that permanent's mana value was …"
-     "artifact_creature_or_enchantment"}
+     "artifact_creature_or_enchantment",
+     # PAR-292 M7: "destroy target nonbasic land an opponent controls. **Its controller** searches their library ..."
+     # (Magmatic Hellkite, Volatile Fault) -- the destroyed land is the pick the next sentence's player names.
+     "nonbasic_land", "nonbasic_land_you_dont_control", "land_you_dont_control"}
 )
 
 
@@ -326,6 +334,15 @@ def announces_creature_target(specs: list[EffectSpec]) -> bool:
         return True
     if last.type == "tap" and last.params.get("target_kind") == "source":
         return False  # "tap ~" picks nothing: the source is not a referent a later "it" can reach
+    if last.type == "bind":
+        # PAR-286 (RULE 608.2c): "target creature gets +2/+0 for each card discarded this way. Whenever that creature
+        # ..." -- a measured instruction wraps its inner effect in a `bind`; the creature that inner effect picked is
+        # still the next clause's referent.
+        inner = [
+            EffectSpec(str(d.get("type")), dict(d.get("params") or {}))
+            for d in last.params.get("effects") or [] if isinstance(d, dict)
+        ]
+        return announces_creature_target(inner[-1:])
     values: list[Any] = []
     for value in last.params.values():
         values.extend(value if isinstance(value, list) else [value])

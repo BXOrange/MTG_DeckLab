@@ -20,6 +20,7 @@ def _hermit_druid() -> list[AbilitySpec]:
             [EffectSpec("dig_until", {
                 "criteria": {"basic": True}, "hit_destination": "hand",
                 "rest_destination": "graveyard",
+                "reveal": True,  # RULE 701.20a: revealed cards stay in the library until placed
             })],
             cost={"text": "{G}, {T}"},
         ),

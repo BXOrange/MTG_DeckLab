@@ -27,3 +27,11 @@ def targets_share_creature_type(targets: Iterable[Any]) -> bool:
     if len(objs) < 2:
         return True
     return any(all(has_subtype(o, subtype) for o in objs) for subtype in CREATURE_SUBTYPES)
+
+
+def objects_share_creature_type(first: Any, second: Any) -> bool:
+    """Whether two objects have a creature type in common (RULE 205.3m), by the same `continuous.has_subtype`
+    authority as `targets_share_creature_type`: a changeling (RULE 702.73a) shares a type with any object that has one."""
+    from .continuous import has_subtype  # function-scoped: continuous reaches back into effects
+
+    return any(has_subtype(first, subtype) and has_subtype(second, subtype) for subtype in CREATURE_SUBTYPES)

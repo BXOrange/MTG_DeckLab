@@ -19,7 +19,7 @@ def _long_river_lurker() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('grant_keyword', {"affects": 'other_creatures_you_control', "subtype": 'Frog', "ward_cost": '{1}'})],
+            [EffectSpec('grant_keyword', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'subtype': 'Frog'}}, "ward_cost": '{1}'})],
             raw_text='other frogs you control have ward {1}.',
         ),
         AbilitySpec(

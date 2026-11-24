@@ -106,7 +106,7 @@ def test_per_recipient_controller_counter_scales_independently_per_object():
     ctx = GameContext(state, engine)
 
     PumpEffect(
-        power=-1, toughness=-1, selector="creatures_opponents_control",
+        power=-1, toughness=-1, selector={"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         per_recipient_controller_counter="poison", source=source,
     ).apply(ctx)
     continuous.recompute(state)
@@ -124,7 +124,7 @@ def test_per_recipient_controller_counter_with_zero_poison_is_a_no_op():
     ctx = GameContext(state, engine)
 
     PumpEffect(
-        power=-1, toughness=-1, selector="creatures_opponents_control",
+        power=-1, toughness=-1, selector={"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         per_recipient_controller_counter="poison", source=source,
     ).apply(ctx)
     continuous.recompute(state)

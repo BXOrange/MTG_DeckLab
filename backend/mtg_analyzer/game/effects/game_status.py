@@ -27,12 +27,8 @@ class WinGameEffect(GameEffect):
         self.if_empty_library = if_empty_library
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        controller_id = getattr(self.source, "controller_id", None)
-        if controller_id is None:
-            return
-        try:
-            player = context.state.player_by_id(controller_id)
-        except Exception:
+        player = _controller_of(self.source, context)
+        if player is None:
             return
         if self.if_empty_library and player.library:
             return
@@ -768,8 +764,10 @@ class GraveyardCastPermissionEffect(GameEffect):
         arrived_not_from_battlefield_this_turn: bool = False,
         enters_tapped: bool = False,
         enters_with_counter: Optional[str] = None,
+        outside_game: bool = False,
     ) -> None:
         super().__init__(source)
+        self.outside_game = bool(outside_game)
         #: "If you cast a spell this way, that artifact creature enters with a finality counter on it." (Overflow
         #: Submatrix) -- the counter kind stamped on the spell as it is cast through this grant (RULE 122.1h/614.1c).
         self.enters_with_counter = str(enters_with_counter) if enters_with_counter else None
@@ -1139,6 +1137,9 @@ class ConditionalEffect(GameEffect):
         self.condition = condition
         self.inner = inner
         self.target_spec = inner.target_spec
+        #: Whether the last `apply` actually ran ``inner``: a later "those creatures" clause (Clinging Mists) names
+        #: only what a clause that happened selected (RULE 608.2c), so a skipped gate leaves it nothing.
+        self.applied = True
 
     @property
     def created_objects_are_referent(self) -> bool:
@@ -1178,7 +1179,8 @@ class ConditionalEffect(GameEffect):
             context.latest_exiled_visits = []
         if self.inner.source is None:
             self.inner.source = self.source
-        if self._condition_holds(context, targets):
+        self.applied = self._condition_holds(context, targets)
+        if self.applied:
             self.inner.apply(context, targets)
 
 
@@ -1208,86 +1210,38 @@ class ActionStampEffect(GameEffect):
 # ---------------------------------------------------------------------------
 
 
-#: `DealDamageEffect`'s closed selector vocabulary for a mass, untargeted hit
-#: (RULE 601.2c — not RULE 115 targeting at all, e.g. Pyroclasm's "~ deals 2
-#: damage to each creature"). Kept small and explicit rather than reusing
-#: `continuous.group_selector_objects`'s full vocabulary, since only these
-#: phrasings appear on real damage-dealing cards. ``each_creature_and_player``
-#: is the compound "~ deals N damage to each creature and each player"
-#: shape (Volcanic Fallout) — a single amount hitting both groups at once,
-#: not two separate effects (so a doubling replacement like Furnace of Rath
-#: sees — and can double — each hit individually, exactly as printed).
+#: `DealDamageEffect`'s closed vocabulary of *player/relational* recipients for an untargeted hit (RULE 601.2c --
+#: not RULE 115 targeting at all, "~ deals 1 damage to each opponent"). A mass hit on a group of permanents ("each
+#: creature", "each creature and each player", "each creature and planeswalker your opponents control") is the
+#: structured ``group`` (+ ``group_and_players``) instead (ENG-61): one `continuous.group_selector_objects` reader
+#: instead of a name per phrase.
 _DAMAGE_SELECTORS: frozenset[str] = frozenset(
-    {"each_creature", "each_player", "each_opponent", "each_creature_and_player",
-     # "Target creature you control deals damage equal to its power to each other creature and each
-     # opponent." (Chandra's Ignition) — read by `DamageEqualToPowerEffect` only, relative to the dealer.
-     "each_other_creature_and_opponent",
-     # "~ deals N damage to each creature **your opponents control**."
-     # (Village Pillagers) — opponents' creatures only, no players (unlike
-     # ``each_opponent_and_their_creatures``).
-     "each_creature_opponents_control",
-     # "~ deals X damage to each creature **and planeswalker your opponents
-     # control**." (Volcanic Torrent, PAR-60) — the planeswalker-inclusive
-     # sibling of ``each_creature_opponents_control``.
-     "each_creature_and_planeswalker_opponents_control",
-     # "~ deals 1 damage to each creature and each planeswalker." (MEC-11's
-     # Stalwart Speartail) — the compound-selector sibling of
-     # ``each_creature_and_player``, a creature-or-planeswalker union rather
-     # than creature-or-player.
-     "each_creature_and_planeswalker",
-     # "it deals 1 damage to **you**" (Mana Vault's draw-step ping) — the
-     # source's own controller, untargeted (RULE 115: "you" is never a
-     # target). The single-player counterpart of "each_player" above.
+    {"each_player", "each_opponent",
+     # "it deals 1 damage to **you**" (Mana Vault's draw-step ping) -- the source's own controller, untargeted
+     # (RULE 115: "you" is never a target). The single-player counterpart of "each_player" above.
      "controller",
-     # "~ deals 1 damage to itself." (Stuffy Doll) — the source's own
-     # permanent, unlike "controller" (that permanent's *player*).
+     # "~ deals 1 damage to itself." (Stuffy Doll) -- the source's own permanent, unlike "controller" (that
+     # permanent's *player*).
      "self",
      "defending_player",
-     # "~ deals N damage to that player." (Spellshock/Eidolon of the Great
-     # Revel-shaped cast-trigger punishers) — the player named by the
-     # currently-resolving trigger's own event (`_event_player`, the same
-     # helper `PayCostThenEffect`'s ``payer="event_player"`` already reads),
-     # not a RULE 115 target: the ability names its own firing condition's
-     # actor, the caster never chooses who gets hit.
+     # "~ deals N damage to that player." (Spellshock/Eidolon of the Great Revel-shaped cast-trigger punishers) --
+     # the player named by the currently-resolving trigger's own event (`_event_player`), not a RULE 115 target.
      "event_player",
-     # "Whenever a land enters, ~ deals N damage to that land's
-     # controller." (Zo-Zu the Punisher) — unlike ``event_player`` (reads
-     # the firing event's own ``player_id``, the *acting* player of a
-     # cast/draw/tap-for-mana-shaped event), this reads its
-     # ``controller_id`` — the *entering permanent's* controller
-     # (`AddManaEffect.recipient`'s existing ``"event_controller"`` idiom,
-     # `_event_player`'s own default key).
+     # "Whenever a land enters, ~ deals N damage to that land's controller." (Zo-Zu the Punisher) -- unlike
+     # ``event_player`` (the *acting* player of a cast/draw/tap-for-mana-shaped event), this reads the event's
+     # ``controller_id`` -- the *entering permanent's* controller (`_event_player`'s own default key).
      "event_controller",
-     # "Each creature deals 1 damage to its controller." (Rakdos Charm's
-     # own third mode) — unlike every other row here, the *recipient*
-     # varies per creature (that creature's own controller), so this is N
-     # independent single-recipient hits (all sharing the same flat
-     # ``amount``) rather than one amount fanned out to a fixed group.
+     # "Each creature deals 1 damage to its controller." (Rakdos Charm's own third mode) -- the *recipient* varies
+     # per creature (that creature's own controller), so this is N independent single-recipient hits.
      "each_creature_controller",
-     # "…it deals that much damage to each **other** opponent." (Kediss,
-     # Emberclaw Familiar) — `each_opponent` minus whichever opponent the
-     # *firing* DAMAGE event already hit (`GameContext.trigger_event`'s own
-     # ``target_id``), so the original recipient isn't hit a second time.
+     # "...it deals that much damage to each **other** opponent." (Kediss, Emberclaw Familiar) -- `each_opponent`
+     # minus whichever opponent the *firing* DAMAGE event already hit (`GameContext.trigger_event`'s ``target_id``).
      "each_other_opponent",
-     # "~ deals N damage to each opponent and each creature [and
-     # planeswalker] they control." (Tectonic Hazard/End the Festivities/
-     # Spiteful Banditry/Delayed Blast Fireball-shaped board wipes) — unlike
-     # ``each_creature_and_player`` (every creature globally + every
-     # player), this is scoped to *opponents only* and *their own*
-     # permanents, so an ally's board is untouched.
-     "each_opponent_and_their_creatures",
-     "each_opponent_and_their_creatures_and_planeswalkers",
-     # "At the beginning of each player's upkeep, ~ deals 1 damage to
-     # them." (Roiling Vortex-shaped) — unlike ``event_player`` (a value
-     # snapshotted on the firing event), `STEP_BEGIN` carries no player at
-     # all, since it fires once per step globally; "them" is whoever's
-     # step it is, read live off `GameState.active_player` at resolution
-     # time (unchanged since the trigger fired moments earlier).
+     # "At the beginning of each player's upkeep, ~ deals 1 damage to them." (Roiling Vortex-shaped) -- whoever's
+     # step it is, read live off `GameState.active_player` (`STEP_BEGIN` carries no player).
      "active_player",
-     # "Whenever ~ becomes blocked, … ~ deals N damage to each creature
-     # blocking it." (Fire Juggler-shaped) — every battlefield creature
-     # whose `GameObject.blocking` names this effect's own source (the
-     # attacker). Read live at resolution (combat is still in progress).
+     # "Whenever ~ becomes blocked, ... ~ deals N damage to each creature blocking it." (Fire Juggler-shaped) --
+     # every battlefield creature whose `GameObject.blocking` names this effect's own source.
      "each_creature_blocking_source"}
 )
 
@@ -2008,6 +1962,31 @@ class GrantSunburstToTriggeringSpellEffect(GameEffect):
         spell = context.state.find_object(spell_id) if spell_id is not None else None
         if spell is not None and spell.zone == Zone.STACK:
             spell.gains_sunburst = True
+
+
+class AzulaExileEffect(GameEffect):
+    """The targeted opponent makes both ordered exile choices."""
+
+    def __init__(self, source=None):
+        super().__init__(source)
+        self.target_spec = TargetSpec(kind="opponent")
+
+    def apply(self, context, targets=None):
+        player = (targets or [None])[0]
+        if player is None:
+            return
+        tail = [{"type": "exile_hand_card", "params": {
+            "player_id": player.id, "zone": "graveyard", "nonland": True,
+            "track_exiled_with": True,
+        }}]
+        candidates = [obj for obj in context.state.permanents_controlled_by(player.id)
+                      if obj.is_creature and not obj.is_token]
+        context.engine._request_choose_objects(
+            player, candidates, "exile", count=1, optional=False,
+            source=self.source, track_exiled_with=True,
+            then_specs=tail, else_specs=tail,
+            prompt="Azula: Eine eigene Nichttoken-Kreatur ins Exil schicken",
+        )
 
 
 register(globals())

@@ -19,7 +19,7 @@ def _tam_mindful_first_year() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "other_creatures_you_control", "keywords": ["hexproof_from_own_colors"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "keywords": ["hexproof_from_own_colors"],
             })],
         ),
         AbilitySpec(

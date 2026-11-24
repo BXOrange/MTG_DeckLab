@@ -278,6 +278,7 @@ def _sacrifice_pool(engine: Any, player: Player, what: str, commitment: _Commitm
         o
         for o in engine.state.permanents_controlled_by(player.id)
         if engine._matches_sacrifice_type(o, what, state=engine.state) and o.instance_id not in commitment.sacrificed
+        and not o.cant_be_sacrificed_this_turn  # RULE 701.17: unsacrificable permanents can't pay
     ]
 
 
@@ -355,7 +356,7 @@ def _non_mana_cost_payable(
         return False
     if cost.sacrifice:
         if cost.sacrifice == "self":
-            if obj.instance_id in commitment.sacrificed:
+            if obj.instance_id in commitment.sacrificed or obj.cant_be_sacrificed_this_turn:
                 return False
         elif not _sacrifice_pool(engine, player, cost.sacrifice, commitment):
             return False
@@ -783,7 +784,7 @@ def _sorted_candidates(candidates: list[_Candidate], needed_colors: set) -> list
 
 
 def find_tap_plan(
-    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None, reserved_ids=()
+    engine: Any, player: Player, cost: ManaCost, *, allows_restriction=None, reserved_ids=(), reserved_permanents=(), reserved_life=0
 ) -> Optional[TapPlan]:
     """A plan of untapped/unexiled mana sources to activate so ``cost``
     becomes payable, seeded from the player's **real, current** mana pool
@@ -795,16 +796,16 @@ def find_tap_plan(
     `_auto_tappable_candidates`.
     """
     pool = _copy_pool(player.mana_pool)
-    if pool.can_pay(cost, life_available=player.life, allows_restriction=allows_restriction):
+    if pool.can_pay(cost, life_available=player.life - reserved_life, allows_restriction=allows_restriction):
         return TapPlan(steps=[])
 
     needed = _needed_colors(cost)
     candidates = _sorted_candidates([c for c in _auto_tappable_candidates(engine, player)
                                      if c.obj.instance_id not in reserved_ids], needed)[:_MAX_CANDIDATES_TRIED]
 
-    plan = _run_tap_search(engine, player, cost, candidates, allows_restriction, reserved_ids)
+    plan = _run_tap_search(engine, player, cost, candidates, allows_restriction, reserved_ids, reserved_permanents, reserved_life)
     if plan is not None:
-        return _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids)
+        return _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids, reserved_permanents, reserved_life)
 
     # RULE 605.1a: a permanent's mana abilities share its one activation, so
     # a filter land's cheap ``{T}: Add {C}.`` and its net-positive converter
@@ -815,13 +816,13 @@ def find_tap_plan(
     # converter be fed first.
     trimmed = _prefer_converter_abilities(candidates, needed)
     if len(trimmed) < len(candidates):
-        plan = _run_tap_search(engine, player, cost, trimmed, allows_restriction, reserved_ids)
+        plan = _run_tap_search(engine, player, cost, trimmed, allows_restriction, reserved_ids, reserved_permanents, reserved_life)
         if plan is not None:
-            return _prune_tap_plan(engine, player, cost, trimmed, plan, allows_restriction, reserved_ids)
+            return _prune_tap_plan(engine, player, cost, trimmed, plan, allows_restriction, reserved_ids, reserved_permanents, reserved_life)
     return None
 
 
-def _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids):
+def _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, reserved_ids, reserved_permanents, reserved_life):
     """Discard redundant taps while retaining the established source priority.
 
     The greedy search can accumulate excess of one colour while waiting for
@@ -835,7 +836,7 @@ def _prune_tap_plan(engine, player, cost, candidates, plan, allows_restriction, 
                             if c.obj.instance_id in used
                             and c.obj.instance_id != step.instance_id]
         trial = _run_tap_search(engine, player, cost, trial_candidates,
-                                allows_restriction, reserved_ids)
+                                allows_restriction, reserved_ids, reserved_permanents, reserved_life)
         if trial is not None:
             plan = trial
     return plan
@@ -869,6 +870,8 @@ def _run_tap_search(
     candidates: list[_Candidate],
     allows_restriction,
     reserved_ids=(),
+    reserved_permanents=(),
+    reserved_life=0,
 ) -> Optional[TapPlan]:
     """One bounded fixed-point search over ``candidates`` (already sorted
     and capped by the caller). A single linear pass would miss a converter
@@ -882,6 +885,9 @@ def _run_tap_search(
     # RULE 118.3 / 602.2b: reserve nonmana tap costs in this dry run.
     commitment.tapped.update(reserved_ids)
     commitment.tap_others_used.update(reserved_ids)
+    commitment.sacrificed.update(reserved_permanents)
+    commitment.returned.update(reserved_permanents)
+    commitment.life -= reserved_life
     needed = _needed_colors(cost)
     steps: list[TapStep] = []
     remaining = candidates

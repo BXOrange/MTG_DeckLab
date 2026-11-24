@@ -16,18 +16,20 @@ today). `run_goldfish_turn` wires those together into a solo auto-turn
 from __future__ import annotations
 
 import itertools
+from math import prod
 from dataclasses import replace
 from contextlib import contextmanager
 from typing import Any, Optional
 
 from ...models.cards.card import Card
+from ...models.cards.interchangeable_names import matching_name_keys
 from ...models.game.emblem import Emblem
 from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, static_conditions, variants
+from .. import combat, condition_query, continuous, cost_referents, durations, face_down, static_conditions, variants
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -45,6 +47,7 @@ from ..costs import (
     REMOVE_COUNTERS_ANY_KIND,
     REMOVE_COUNTERS_X,
     RETURN_SELF_TO_HAND,
+    SACRIFICE_COUNT_ANY,
     SACRIFICE_COUNT_X,
     TAP_OTHERS_X,
     SACRIFICE_ENCHANTED,
@@ -165,6 +168,9 @@ class ActivationMixin:
         # split_second_active`'s own docstring), so no exemption is needed.
         if continuous.split_second_active(self.state):
             return False
+        granted_visit = getattr(ability, 'granted_zone_incarnation', None)
+        if granted_visit is not None and source.zone_incarnation != granted_visit:
+            return False  # RULE 400.7: an off-battlefield grant belongs to one zone visit.
         if ability.cost.activation_zones:
             # RULE 113.6/602.2a: a printed multi-zone permission is one ability.
             # Battlefield control and off-battlefield ownership remain distinct.
@@ -225,7 +231,7 @@ class ActivationMixin:
             return False
         if getattr(source, "loses_all_abilities", False):
             return False  # RULE 613.7f: Humility/Dress Down stripped its abilities
-        if continuous.activation_prohibited(self.state, source):
+        if continuous.activation_prohibited(self.state, source, is_loyalty_ability=ability.cost.is_loyalty):
             # RULE 602: "Activated abilities of artifacts can't be
             # activated." (Collector Ouphe/Stony Silence/Null Rod) — the
             # single choke point both this validation and `legal_actions`'s
@@ -319,13 +325,13 @@ class ActivationMixin:
         non-empty stack."""
         return self.state.current_phase != "combat"
     def _can_activate_loyalty(self, player: Player, source: GameObject) -> bool:
-        """Timing gate for a planeswalker loyalty ability (RULE 606.3).
+        """Timing gate for a permanent's loyalty ability (RULE 606.2–3).
 
         Ordinarily only at sorcery speed; a `conditional_flash` (The
         Wandering Emperor's "you may activate loyalty abilities any time
         you could cast an instant" while it entered this turn) grants
         instant-speed activation instead, while its condition holds. Only
-        once per turn per planeswalker either way.
+        once per turn per permanent either way.
         """
         conditional_flash = getattr(source, "conditional_flash", None)
         has_conditional_flash = (
@@ -335,10 +341,9 @@ class ActivationMixin:
         from ..emblem_permissions import loyalty_instant_timing
         has_conditional_flash = has_conditional_flash or loyalty_instant_timing(self.state, player)
         return (
-            # The printed type: a planeswalker that a layer-4 effect made "not a planeswalker" (Luxior) still has its
-            # loyalty abilities, and the card text says they can still be activated.
-            source.card.is_planeswalker
-            and (self._sorcery_speed_ok(player) or has_conditional_flash)
+            # RULE 606.2: the loyalty cost defines the ability, not the
+            # source's printed or derived type (Luxior and granted abilities).
+            (self._sorcery_speed_ok(player) or has_conditional_flash)
             and not source.activated_loyalty_this_turn
         )
     def _can_activate_class_level(self, source: GameObject, target_level: int) -> bool:
@@ -365,7 +370,7 @@ class ActivationMixin:
         mode's own effects instead (`_modal_activate_actions` always
         passes this; a non-modal ability ignores it)."""
         specs = (
-            effects_target_specs(ability.modes[mode]["effects"])
+            effects_target_specs(ability.modes[mode]["effects"], ability_source=True)
             if ability.modes and mode is not None
             else ability_target_specs(ability)
         )
@@ -387,7 +392,13 @@ class ActivationMixin:
                 offered_spec = replace(spec, spell_filter={
                     key: value for key, value in spec.spell_filter.items() if key != "mana_value"
                 })
+            max_value_from_cost = ability.cost.exile_others_total_mana_value_x and spec.max_mana_value == 'x'
+            if max_value_from_cost:
+                offered_spec = replace(spec, max_mana_value=self._max_x_for_activation_cost(player, source, ability.cost))
             options = legal_targets(self.state, player.id, offered_spec, source=source)
+            if max_value_from_cost:
+                options = [{**option, 'mana_value': self.state.find_object(option['instance_id']).mana_value}
+                           for option in options]
             if mana_value_from_x:
                 max_x = self._max_x_for_activation_cost(player, source, ability.cost)
                 values = {item.obj.instance_id: item.obj.mana_value for item in self.state.stack
@@ -409,6 +420,8 @@ class ActivationMixin:
             }
             if mana_value_from_x:
                 entry["mana_value_from_x"] = True
+            if max_value_from_cost:
+                entry['max_mana_value_from_x'] = True
             add_target_budget_metadata(self.state, spec, entry)
             # ENG-30: "N or M target X" range — see `TargetSpec.count_max`.
             if spec.count_max is not None:
@@ -425,8 +438,16 @@ class ActivationMixin:
         stricter of whichever components are actually variable.
         """
         bound: Optional[int] = None
+        if cost.exile_others_total_mana_value_x:
+            return max(self._exile_value_cost_sums(player, source, cost), default=0)
         if cost.pay_energy == PAY_ENERGY_X:
             bound = player.counters.get("energy", 0)
+        if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X:
+            pool = self._activation_graveyard_exile_pool(player, source, cost)
+            available = (max((sum(obj.owner_id == owner for obj in pool)
+                              for owner in {obj.owner_id for obj in pool}), default=0)
+                         if cost.exile_from_graveyard_single else len(pool))
+            bound = available if bound is None else min(bound, available)
         if cost.mana.has_variable:
             mana_bound = self._max_x_for_mana(player, source, cost.mana, cost.x_spend_color)
             bound = mana_bound if bound is None else min(bound, mana_bound)
@@ -439,6 +460,12 @@ class ActivationMixin:
             # ENG-49: "Sacrifice X lands" — X can't exceed what there is to give up.
             sacrifice_bound = len(self._sacrifice_count_pool(player, cost.sacrifice_count[1], source, cost.sacrifice_with_self))
             bound = sacrifice_bound if bound is None else min(bound, sacrifice_bound)
+        if cost.sacrifice_count_mana_value_x:
+            # RULE 107.3 / 601.2b (MEC-173): X is the mana value of the permanent sacrificed, so it cannot exceed the
+            # greatest mana value among the permanents that could pay.
+            values = [int(o.mana_value or 0) for o in self._sacrifice_count_pool(player, cost.sacrifice_count[1], source)]
+            value_bound = max(values, default=0)
+            bound = value_bound if bound is None else min(bound, value_bound)
         if cost.reveal_x_color:
             # RULE 107.1b + 701.20a: X cannot exceed the cards of that colour there are to show.
             reveal_bound = len(self._reveal_cost_pool(player, cost))
@@ -529,6 +556,9 @@ class ActivationMixin:
         board-reading ``count_selector`` (`continuous.count_selector`),
         whichever the cost names.
         """
+        if cost is not None and cost.mana_per_source_counter:
+            kind, per = cost.mana_per_source_counter
+            mana = mana.increase_generic(per * source.counters.get(kind, 0))
         increase, reduction, floor = continuous.activation_cost_changes(
             self.state, source, is_mana_ability=is_mana_ability, cost=cost,
             targets_own_creature=(None if targets is None else any(
@@ -665,6 +695,10 @@ class ActivationMixin:
             self.state, "sacrifice_nonland_permanent"
         ):
             return False
+        if cost.sacrifice_count_mana_value_x and cost.sacrifice_count[1].removeprefix("other_") != "land" and (
+            continuous.cost_restricted(self.state, "sacrifice_nonland_permanent")
+        ):
+            return False
         if self._uses_sacrifice_group(cost) and continuous.cost_restricted(
             self.state, "sacrifice_nonland_permanent"
         ) and not (source.is_land and all(word == "land" for word in self._sacrifice_slot_words(cost, x) or ["?"])):
@@ -682,16 +716,23 @@ class ActivationMixin:
             choices = None if cost.discard_random else discard_choices
             if self._resolve_discard_cost(
                 player, count, choices, exclude=source, filter_word=cost.discard_filter,
-                name=source.name,
+                name=source.name, matching_names=cost.discard_matching_names, different_names=cost.discard_different_names,
+                mana_value=x if cost.discard_mana_value_x else None,
             ) is None:
                 return False
         if cost.discard_self and source not in player.hand:
             return False
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
+        if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X and (
+            x < 0 or (hand_card_choices is not None and len(hand_card_choices) != x)
+        ):
+            return False
         if exile_count and len(
             self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices)
         ) < exile_count:
             # ENG-49: "Exile two cards from your graveyard" (Grim Lavamancer).
+            return False
+        if cost.bottom_self_from_graveyard and (source not in player.graveyard or source.owner_id != player.id):
             return False
         if cost.exile_self and source not in (
             player.graveyard if cost.graveyard_zone else self.state.battlefield
@@ -764,6 +805,11 @@ class ActivationMixin:
             [c for c in player.hand if c is not source], cost.exile_hand_cards, hand_card_choices,
         ) is None:
             return False
+        if cost.put_opponent_exile_to_graveyard and self._resolve_pool_cost(
+            self._opponent_exile_pool(player), 1, hand_card_choices,
+        ) is None:
+            # RULE 118.3 / 602.2b: no eligible card, or a pick outside the opponent-owned exile pool, is no payment.
+            return False
         if cost.tap_attached:
             host = self._attached_host(source)
             if host is None or host.tapped:
@@ -775,17 +821,20 @@ class ActivationMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
-            if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) is None:
+            if self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) is None:
                 return False
         if cost.untap_others:
             count, word = cost.untap_others
             if self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) is None:
                 return False
-        if cost.reveal_x_color:
+        if cost.reveal_x_color or cost.reveal_shared_color:
             if self._resolve_reveal_cost(player, cost, x, hand_card_choices) is None:
                 return False
         if cost.crew_power:
             if self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) is None:
+                return False
+        if cost.tap_total_power is not None:
+            if self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) is None:
                 return False
         if cost.saddle_power:
             # RULE 702.171a (Guardian Sunmare, MEC-40) — identical pool
@@ -815,13 +864,25 @@ class ActivationMixin:
                 if x < 0:
                     return False
                 count = x
-            if self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) is None:
+            if self._resolve_sacrifice_count(
+                player, count, subtype, tap_choices, source,
+                mana_value=x if cost.sacrifice_count_mana_value_x else None,
+            ) is None:
                 return False
         if cost.exile_others:
             # Mechtitan Core: "Exile ~ and four other artifact creatures and/or Vehicles you control" — the picks reuse
             # `tap_choices` (as `sacrifice_count` does); the source itself is never one of them.
             count, word = cost.exile_others
-            if self._resolve_sacrifice_count(player, count, word, tap_choices, source) is None:
+            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
+                      if cost.exile_others_total_mana_value_x
+                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            if chosen is None:
+                return False
+        if cost.sacrifice_all_lands and any(obj.cant_be_sacrificed_this_turn
+                for obj in self.state.permanents_controlled_by(player.id) if obj.is_land):
+            return False
+        if cost.exile_instant_or_sorcery_spell:
+            if self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices) is None:
                 return False
         if cost.exile_top_of_library and len(player.library) < cost.exile_top_of_library:
             return False
@@ -855,7 +916,8 @@ class ActivationMixin:
             # ENG-51: the shared permanent-phrase matcher — a subtype, a main
             # type, or a qualified/either-type phrase ("legendary creature",
             # "artifact or creature"); "another" leaves the source out.
-            if not o.tapped and continuous.matches_permanent_word(o, subtype)
+            # (the source lets a "named ~" phrase read the ability source's own name, RULE 201.2)
+            if not o.tapped and continuous.matches_permanent_word(o, subtype, source)
             and not (o is source and _names_other(subtype))
         ]
     def _tap_cost_choice(
@@ -868,9 +930,16 @@ class ActivationMixin:
         count, subtype = cost.tap_others
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (cost.taps_self and obj is source)]
+        if cost.tap_shared_creature_type:
+            viable = {kind for obj in pool for kind in continuous.creature_types_of(obj)
+                      if sum(kind in continuous.creature_types_of(other) for other in pool) >= count}
+            pool = [obj for obj in pool if continuous.creature_types_of(obj) & viable]
         return {
             "count": "x" if count == TAP_OTHERS_X else count,
-            "options": [{"instance_id": o.instance_id, "name": o.name} for o in pool],
+            'shared_creature_type': cost.tap_shared_creature_type,
+            "options": [{"instance_id": o.instance_id, "name": o.name,
+                         **({'creature_types': sorted(continuous.creature_types_of(o))}
+                            if cost.tap_shared_creature_type else {})} for o in pool],
         }
     def _resolve_tap_others(
         self,
@@ -879,7 +948,7 @@ class ActivationMixin:
         count: int,
         subtype: str,
         chosen_ids: Optional[list[Any]],
-        *, exclude_source: bool = False,
+        *, exclude_source: bool = False, shared_creature_type: bool = False,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually tap for a `tap_others` cost.
 
@@ -892,6 +961,15 @@ class ActivationMixin:
         """
         pool = [obj for obj in self._tap_others_pool(player, source, subtype)
                 if not (exclude_source and obj is source)]
+        if shared_creature_type:
+            if chosen_ids is None:
+                for kind in sorted({kind for obj in pool for kind in continuous.creature_types_of(obj)}):
+                    matching = [obj for obj in pool if kind in continuous.creature_types_of(obj)]
+                    if len(matching) >= count:
+                        return matching[:count]
+                return None
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(continuous.creature_types_of(obj) for obj in chosen)) else None
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _untap_others_pool(
         self, player: Player, source: GameObject, word: str, cost: "ActivationCost",
@@ -900,8 +978,10 @@ class ActivationMixin:
         With a ``{Q}`` in the same cost the source is already untapped by it (RULE 701.26b: an untapped permanent
         can't be untapped again), so it is not a candidate -- and it can't be one while still untapped either."""
         return [
-            o for o in self.state.permanents_controlled_by(player.id)
-            if o.tapped and continuous.matches_permanent_word(o, word, source)
+            o for o in self.state.permanents()
+            if ((o.controller_id != player.id) if cost.untap_others_scope == 'opponents'
+                else (o.controller_id == player.id))
+            and o.tapped and continuous.matches_permanent_word(o, word, source)
             and not (o is source and cost.untaps_self)
         ]
 
@@ -918,6 +998,10 @@ class ActivationMixin:
     @staticmethod
     def _reveal_cost_pool(player: Player, cost: "ActivationCost") -> list[GameObject]:
         """PAR-247: the cards in ``player``'s hand that can be shown for "Reveal X <colour> cards from your hand"."""
+        if cost.reveal_shared_color:
+            viable_colors = {color for color in 'WUBRG'
+                             if sum(color in card.colors for card in player.hand) >= cost.reveal_shared_color}
+            return [card for card in player.hand if card.colors & viable_colors]
         return [c for c in player.hand if continuous.matches_permanent_word(c, cost.reveal_x_color)]
 
     def _resolve_reveal_cost(
@@ -926,6 +1010,14 @@ class ActivationMixin:
         """The ``x`` cards revealed for a "Reveal X <colour> cards" cost (RULE 701.20a), or ``None`` when X is negative
         or the pick is not exactly ``x`` distinct cards of that colour in hand. ``chosen_ids`` is the player's pick;
         without one the first ``x`` eligible cards stand in (tests, bots)."""
+        if cost.reveal_shared_color:
+            count = cost.reveal_shared_color
+            pool = self._reveal_cost_pool(player, cost)
+            if chosen_ids is None:
+                return next((matching[:count] for color in 'WUBRG'
+                             if len(matching := [card for card in pool if color in card.colors]) >= count), None)
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(card.colors for card in chosen)) else None
         if x < 0:
             return None
         return self._resolve_pool_cost(self._reveal_cost_pool(player, cost), x, chosen_ids)
@@ -934,9 +1026,17 @@ class ActivationMixin:
         """The offer-time shape of a reveal-X cost: ``count`` is the announced ``x``; the board answers with
         ``hand_card_choices`` (the cards stay in hand, so the same pool serves every X)."""
         return {
-            "count": "x", "color": cost.reveal_x_color,
-            "options": [{"instance_id": c.instance_id, "name": c.name} for c in self._reveal_cost_pool(player, cost)],
+            "count": cost.reveal_shared_color or "x", "color": cost.reveal_x_color,
+            "shared_color": bool(cost.reveal_shared_color),
+            "options": [{"instance_id": c.instance_id, "name": c.name, 'colors': sorted(c.colors)}
+                        for c in self._reveal_cost_pool(player, cost)],
         }
+
+    @staticmethod
+    def _crew_station_base_power(obj: GameObject) -> int:
+        multiplier = prod(int(entry.get("count", 1))
+                          for entry in combat.combat_restrictions(obj, "crew_station_power_multiplier"))
+        return max(0, obj.power or 0) * multiplier
 
     @classmethod
     def _crew_power_of(cls, obj: GameObject, crewing: bool = True) -> int:
@@ -945,9 +1045,10 @@ class ActivationMixin:
         702.171a). The bonus is a cost contribution only; it never changes the creature's real power (RULE 208.1)."""
         kind = "crew_power_bonus" if crewing else "saddle_power_bonus"
         bonus = sum(int(e.get("count", 0)) for e in combat.combat_restrictions(obj, kind))
-        return max(0, obj.power or 0) + bonus
+        base = cls._crew_station_base_power(obj) if crewing else max(0, obj.power or 0)
+        return base + bonus
 
-    def _crew_pool(self, player: Player, source: GameObject) -> list[GameObject]:
+    def _crew_pool(self, player: Player, source: GameObject, *, crewing: bool = True) -> list[GameObject]:
         """Every untapped creature ``player`` controls other than ``source``
         itself — RULE 702.122a's "any number of **other** untapped creatures
         you control" — eligible to crew a Vehicle. Not gated by summoning
@@ -958,6 +1059,7 @@ class ActivationMixin:
         return [
             o for o in self.state.permanents_controlled_by(player.id)
             if o is not source and o.is_creature and not o.tapped
+            and (not crewing or not combat.has(o, "cant_crew"))
         ]
     def _crew_cost_choice(
         self, player: Player, source: GameObject, cost: "ActivationCost"
@@ -981,6 +1083,7 @@ class ActivationMixin:
         power_required: int,
         chosen_ids: Optional[list[Any]],
         crewing: bool = True,
+        plain_power: bool = False,
     ) -> Optional[list[GameObject]]:
         """The creatures to actually tap for a `crew_power` cost (RULE
         702.122a's "total power N or greater") — an "any number from a
@@ -995,9 +1098,9 @@ class ActivationMixin:
         fewest creatures, highest power first, that reach the threshold —
         so an automated caller doesn't tap more of the board than it has to.
         """
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=crewing and not plain_power)
         # RULE 702.171a: a Saddle cost reads only a saddle bonus ("saddles Mounts … as though its power were N greater").
-        power_of = lambda o: self._crew_power_of(o, crewing)  # noqa: E731
+        power_of = lambda o: int(o.power or 0) if plain_power else self._crew_power_of(o, crewing)  # noqa: E731
         by_id = {o.instance_id: o for o in pool}
         if chosen_ids is not None:
             chosen: list[GameObject] = []
@@ -1026,11 +1129,11 @@ class ActivationMixin:
         pool is worded identically to Crew's) — the same ``count``/
         ``options`` shape `_tap_cost_choice` uses, just sourced from the
         pool that excludes the source itself."""
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=False)
         return {
             "count": 1,
             "options": [
-                {"instance_id": o.instance_id, "name": o.name, "power": o.power or 0}
+                {"instance_id": o.instance_id, "name": o.name, "power": self._crew_station_base_power(o)}
                 for o in pool
             ],
         }
@@ -1044,7 +1147,7 @@ class ActivationMixin:
         untapped creature" is explicit), resolved with `_resolve_pool_cost`'s
         exact-count-one choice rather than `_resolve_crew_cost`'s
         any-subset-meeting-a-threshold one."""
-        pool = self._crew_pool(player, source)
+        pool = self._crew_pool(player, source, crewing=False)
         return self._resolve_pool_cost(pool, 1, chosen_ids)
     def _sacrifice_count_pool(
         self, player: Player, subtype: str, source: Optional[GameObject] = None, exclude_source: bool = False,
@@ -1068,11 +1171,15 @@ class ActivationMixin:
         ]
     def _resolve_sacrifice_count(
         self, player: Player, count: int, subtype: str, chosen_ids: Optional[list[Any]],
-        source: Optional[GameObject] = None, exclude_source: bool = False,
+        source: Optional[GameObject] = None, exclude_source: bool = False, mana_value: Optional[int] = None,
     ) -> Optional[list[GameObject]]:
         """The permanents to actually sacrifice for a `sacrifice_count`
-        cost — the `_resolve_tap_others` counterpart for sacrifice."""
+        cost — the `_resolve_tap_others` counterpart for sacrifice. ``mana_value`` is the announced X of a
+        "sacrifice <permanent> with mana value X" cost (RULE 601.2b / 107.3, MEC-173): only a permanent of exactly
+        that mana value pays it."""
         pool = self._sacrifice_count_pool(player, subtype, source, exclude_source)
+        if mana_value is not None:
+            pool = [o for o in pool if int(o.mana_value or 0) == mana_value]
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _sacrifice_count_cost_choice(
         self, player: Player, cost: "ActivationCost"
@@ -1120,31 +1227,40 @@ class ActivationMixin:
         """Whether ``cost`` sacrifices several distinct objects at once (PAR-232): a third-or-later slot
         ("a green creature, a white creature, and a blue creature") or the source among them ("~ and another
         green creature") -- the shapes `_sacrifice_group_plan` pays; the older one-slot / pair / counted forms keep
-        their own paths."""
-        return cost.sacrifices_a_group
+        their own paths. An announced "any number of" count (MEC-169) is paid as a group too: its picks are the
+        counted slot repeated as often as the player announced (`_announced_any_count`)."""
+        return cost.sacrifices_a_group or bool(cost.sacrifice_count and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY)
+
+    def _announced_any_count(self, cost: "ActivationCost", chosen_ids: Optional[list[Any]]) -> int:
+        """RULE 107.1c / 601.2b: how many permanents the player announced for an "any number of" sacrifice -- the picks
+        beyond the cost's fixed slots (zero allowed). Without announced picks (a legality probe, a caller that named
+        none) nothing beyond the fixed slots is sacrificed."""
+        if not (cost.sacrifice_count and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY) or chosen_ids is None:
+            return 0
+        return max(0, len(chosen_ids) - len(self._sacrifice_slot_words(cost, 0) or []))
 
     @staticmethod
-    def _sacrifice_slot_words(cost: "ActivationCost", x: int) -> Optional[list[str]]:
+    def _sacrifice_slot_words(cost: "ActivationCost", x: int, any_count: int = 0) -> Optional[list[str]]:
         """The permanent word each sacrificed object must match, in pick order: ``sacrifice``,
         ``sacrifice_also``, ``sacrifice_more``, then the counted group's word repeated (``None`` for a negative
-        announced X, RULE 107.1c)."""
+        announced X, RULE 107.1c). ``any_count`` is the announced size of an "any number of" group (MEC-169)."""
         words = [w for w in (cost.sacrifice, cost.sacrifice_also) if w and w not in ("self", SACRIFICE_ENCHANTED)]
         words.extend(cost.sacrifice_more)
         if cost.sacrifice_count:
             count, word = cost.sacrifice_count
-            count = x if count == SACRIFICE_COUNT_X else count
+            count = x if count == SACRIFICE_COUNT_X else any_count if count == SACRIFICE_COUNT_ANY else count
             if count < 0:
                 return None
             words.extend([word] * count)
         return words
 
     def _sacrifice_slot_pools(
-        self, player: Player, source: GameObject, cost: "ActivationCost", x: int,
+        self, player: Player, source: GameObject, cost: "ActivationCost", x: int, any_count: int = 0,
     ) -> Optional[list[list[GameObject]]]:
         """For each pick of the sacrifice cost, every permanent ``player`` could legally sacrifice there (RULE 701.17a:
         a permanent they control that matches the slot's phrase; never the source when it is sacrificed too or the
         phrase says "another", nothing the effects have made unsacrificable)."""
-        words = self._sacrifice_slot_words(cost, x)
+        words = self._sacrifice_slot_words(cost, x, any_count)
         if words is None:
             return None
         return [
@@ -1166,7 +1282,8 @@ class ActivationMixin:
         be a legal candidate of its slot and no object may fill two slots. Without it, ``first_id`` /
         ``second_id`` pin the first two slots (the long-standing pair UI) and the rest is searched -- the
         non-interactive convention (tests, bots, existence-only legality checks) every other cost choice follows."""
-        pools = self._sacrifice_slot_pools(player, source, cost, x)
+        any_count = self._announced_any_count(cost, chosen_ids)
+        pools = self._sacrifice_slot_pools(player, source, cost, x, any_count)
         if pools is None:
             return None
         if cost.sacrifice_with_self and (
@@ -1184,7 +1301,7 @@ class ActivationMixin:
                 picks.append(pick)
             return picks
         pinned = {0: first_id, 1: second_id}
-        words = self._sacrifice_slot_words(cost, x) or []
+        words = self._sacrifice_slot_words(cost, x, any_count) or []
         # A counted group's slots are interchangeable: take its picks in pool order (a combination, not an ordering)
         # and stop as soon as too few candidates remain, so "thirteen Blood tokens" never enumerates permutations.
         run_left = [0] * len(words)
@@ -1208,19 +1325,28 @@ class ActivationMixin:
 
         return assign(0, [])
 
-    def _record_sacrifice_cost(self, source: GameObject, victim: GameObject) -> None:
+    def _record_sacrifice_cost(
+        self, source: GameObject, victim: GameObject, record: Optional[dict[str, Any]] = None,
+    ) -> None:
         """RULE 608.2h last-known information about what a sacrifice cost put into the graveyard, stamped on
         ``source`` for the ability's effect to read (`sacrificed_cost_*`), then sacrifice it (RULE 701.17a: a
-        sacrifice is not destruction)."""
+        sacrifice is not destruction). ``record`` is the victim's `cost_referents.referent_record` when the caller took
+        the whole group's snapshots before any of them left (a simultaneous sacrifice, RULE 118.3 / 701.17a: one
+        creature leaving must not change what another one's last-known power was)."""
         source.sacrificed_cost_counters = {k: v for k, v in (victim.counters or {}).items() if v and v > 0}
         source.sacrificed_cost_attached_ids = [
             o.instance_id for o in self.state.permanents() if o.attached_to == victim.instance_id
         ]
+        if record is None:
+            record = cost_referents.referent_record(victim)
         sacrificed_mana_value = victim.mana_value
         copiable = getattr(victim, "_front_card", victim.card)
         power, toughness = victim.power, victim.toughness
         suspected = bool(getattr(victim, "is_suspected", False))
+        source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
+        cost_referents.store_referents(source, "sacrificed", [record])
         self.rules.put_into_graveyard(victim)
+        cost_referents.note_graveyard_visit(record, victim)
         source.sacrificed_cost_mana_value = sacrificed_mana_value
         source.sacrificed_cost_was_suspected = suspected
         source.sacrificed_cost_power = power
@@ -1246,7 +1372,8 @@ class ActivationMixin:
         offering the ability before a choice has been made yet).
         """
         if what == "self":
-            return source if source in self.state.permanents() else None
+            # RULE 701.17: a permanent that can't be sacrificed (Quark's Treasure tokens) can't pay its own cost.
+            return source if source in self.state.permanents() and not source.cant_be_sacrificed_this_turn else None
         if what == SACRIFICE_ENCHANTED:
             # ENG-51: "Sacrifice enchanted creature" — the Aura's host, and
             # only if its controller can sacrifice it (RULE 701.17a).
@@ -1317,7 +1444,10 @@ class ActivationMixin:
         if cost.sacrifice_also:
             candidates = [o for o in candidates if self._sacrifice_pair(player, source, cost, chosen_id=o.instance_id)]
         result = {"options": [{"instance_id": o.instance_id, "name": o.name} for o in candidates]}
-        slots = self._sacrifice_slot_pools(player, source, cost, 0) if source is not None else None
+        any_number = bool(cost.sacrifice_count) and cost.sacrifice_count[0] == SACRIFICE_COUNT_ANY
+        # MEC-169: an "any number of" group lists its one counted slot once; the board repeats it as often as the player
+        # announces (RULE 601.2b), zero allowed, and answers with every pick in `tap_choices`.
+        slots = self._sacrifice_slot_pools(player, source, cost, 0, 1 if any_number else 0) if source is not None else None
         if slots is not None and (self._uses_sacrifice_group(cost) or cost.sacrifice_count) and (
             cost.sacrifice_count is None or cost.sacrifice_count[0] != SACRIFICE_COUNT_X
         ):
@@ -1328,6 +1458,10 @@ class ActivationMixin:
             ]
             if slots:
                 result["options"] = result["slots"][0]
+            if any_number:
+                # The last slot is the repeatable one; a client that only reads `count` (the bots) announces none.
+                result["any_number"] = True
+                result["count"] = 0
             return result
         if cost.sacrifice_also:
             result["second_options"] = [{"instance_id": o.instance_id, "name": o.name}
@@ -1387,9 +1521,45 @@ class ActivationMixin:
         # A subtype word is matched narrowly there, never falling through to
         # "any permanent" (a latent bug MEC-12's pitch family once surfaced).
         return continuous.matches_permanent_word(obj, what, source)
+    def _exile_spell_cost_pool(self, player):
+        return [item.obj for item in self.state.stack
+                if item.kind == 'spell' and item.obj is not None and item.controller_id == player.id
+                and (item.obj.is_instant or item.obj.is_sorcery)]
+
+    def _exile_value_cost_sums(self, player, source, cost):
+        sums, nonempty = {0}, set()
+        for obj in self._sacrifice_count_pool(player, cost.exile_others[1], source, exclude_source=True):
+            added = {value + obj.mana_value for value in sums}
+            sums.update(added)
+            nonempty.update(added)
+        return sorted(nonempty)
+
+    def _resolve_exile_value_cost(self, player, source, cost, x, chosen_ids):
+        """RULE 602.2b: a nonempty subset of other permanents totals exactly X."""
+        if x < 0:
+            return None
+        pool = self._sacrifice_count_pool(player, cost.exile_others[1], source, exclude_source=True)
+        if chosen_ids is not None:
+            if not chosen_ids:
+                return None
+            chosen = self._resolve_pool_cost(pool, len(chosen_ids), chosen_ids)
+            return chosen if chosen and sum(obj.mana_value for obj in chosen) == x else None
+        # Every permanent can contribute once. Keep a concrete subset, including
+        # a real zero-value payment rather than the empty set for X=0.
+        sums = {0: []}
+        for obj in pool:
+            for value, group in list(sums.items()):
+                total = value + obj.mana_value
+                if total == x:
+                    return group + [obj]
+                if total < x and total not in sums:
+                    sums[total] = group + [obj]
+        return None
+
     def _discard_cost_pool(
         self, player: Player, exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None, name: Optional[str] = None,
+        matching_names_count: int = 0, mana_value: Optional[int] = None,
     ) -> list[GameObject]:
         """Every card in ``player``'s hand eligible to pay a plain "discard
         N cards" cost component. ``exclude`` keeps a spell's own hand copy
@@ -1398,14 +1568,37 @@ class ActivationMixin:
         activated ability's cost, whose source is a battlefield permanent,
         not a card in hand. ``filter_word`` (ENG-49 — Fauna Shaman's
         "discard a creature card") narrows it by a type-line word."""
+        if filter_word == 'last_drawn_this_turn':
+            # RULE 121.2/400.7: only the latest actual draw, and only that
+            # hand visit. Losing it does not make an earlier draw eligible.
+            event = next((event for event in self.state.events_this_turn()
+                          if event.type == EventType.DRAW and event.get('player_id') == player.id
+                          and event.get('instance_ids')), None)
+            if event is None:
+                return []
+            instance_id = event.get('instance_ids')[-1]
+            visit = (event.get('zone_incarnations') or {}).get(str(instance_id))
+            return [obj for obj in player.hand if obj is not exclude
+                    and obj.instance_id == instance_id and obj.zone_incarnation == visit]
+        if filter_word in {'black', 'nonblack'}:
+            # RULE 105.2: actual colors, including multicolor and devoid,
+            # rather than the card's Commander color identity or type line.
+            return [obj for obj in player.hand if obj is not exclude
+                    and (('B' in obj.colors) == (filter_word == 'black'))]
         if filter_word == DISCARD_FILTER_SAME_NAME:
             # ENG-51: "Discard another card named ~" (Baru's Grandeur).
             return [c for c in player.hand if c is not exclude and c.name == name]
-        return [
+        pool = [
             c for c in player.hand
             if c is not exclude
+            and (mana_value is None or c.mana_value == mana_value)
             and (not filter_word or discard_filter_matches(filter_word, c.card.type_line or ""))
         ]
+        if matching_names_count:
+            valid_names = {name for obj in pool for name in matching_name_keys(obj.names)
+                           if sum(name in matching_name_keys(other.names) for other in pool) >= matching_names_count}
+            pool = [obj for obj in pool if set(matching_name_keys(obj.names)) & valid_names]
+        return pool
     def _resolve_discard_cost(
         self,
         player: Player,
@@ -1414,6 +1607,7 @@ class ActivationMixin:
         exclude: Optional[GameObject] = None,
         filter_word: Optional[str] = None,
         name: Optional[str] = None,
+        matching_names: bool = False, mana_value: Optional[int] = None, different_names: bool = False,
     ) -> Optional[list[GameObject]]:
         """The cards to actually discard for a plain "discard N cards" cost
         component — the `_resolve_tap_others` counterpart for discard (ENG-3:
@@ -1429,7 +1623,30 @@ class ActivationMixin:
         (the same "not payable / not a valid choice" signal
         `_resolve_tap_others` uses).
         """
-        pool = self._discard_cost_pool(player, exclude, filter_word, name)
+        pool = self._discard_cost_pool(player, exclude, filter_word, name,
+                                       count if matching_names else 0, mana_value)
+        if different_names:
+            # RULE 201.2b/201.3: all names must exist and be pairwise disjoint.
+            def find_group(remaining, chosen, used):
+                if len(chosen) == count:
+                    return chosen
+                for index, obj in enumerate(remaining):
+                    names = set(matching_name_keys(obj.names))
+                    if names and not names & used:
+                        found = find_group(remaining[index + 1:], chosen + [obj], used | names)
+                        if found is not None:
+                            return found
+                return None
+            if chosen_ids is None:
+                return find_group(pool, [], set())
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return find_group(chosen, [], set()) if chosen else None
+        if matching_names:
+            if chosen_ids is None:
+                return next((group[:count] for name in sorted({name for obj in pool for name in matching_name_keys(obj.names)})
+                             if len(group := [obj for obj in pool if name in matching_name_keys(obj.names)]) >= count), None)
+            chosen = self._resolve_pool_cost(pool, count, chosen_ids)
+            return chosen if chosen and set.intersection(*(set(matching_name_keys(obj.names)) for obj in chosen)) else None
         return self._resolve_pool_cost(pool, count, chosen_ids)
     def _counter_holders(self, player: Player, source: GameObject, cost: "ActivationCost") -> list[GameObject]:
         """Where a "remove N counters" cost may take them from (ENG-51): the source, or the controlled permanents
@@ -1652,13 +1869,35 @@ class ActivationMixin:
                 and (not cost.exile_from_graveyard_mana_value_x or c.mana_value == x)]
     @staticmethod
     def _picks_graveyard_exile(cost: "ActivationCost") -> bool:
-        """Whether the player chooses the graveyard cards that pay this cost (RULE 602.2b): a fixed count (or the
-        mana-value-X single card) and no other cost component reading the same ``hand_card_choices`` list. An
-        "exile X cards" count stays on the first-match fallback (the offer would need the announced X)."""
-        if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color:
+        """Whether the player chooses graveyard cards for this cost (RULE 602.2b).
+
+        Fixed and announced-X counts share the picker, unless another cost
+        component already consumes ``hand_card_choices``.
+        """
+        if cost.put_hand_card_on_library or cost.exile_hand_cards or cost.reveal_x_color or cost.reveal_shared_color:
             return False
         return bool(cost.exile_from_graveyard_mana_value_x
-                    or (cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X))
+                    or cost.exile_from_graveyard)
+    def _opponent_exile_pool(self, player: Player) -> list[GameObject]:
+        """Every card a player's opponent owns that sits in exile (RULE 406): the pool of the "put a card an
+        opponent owns from exile into that player's graveyard" cost."""
+        return [
+            card
+            for opponent in self.state.players
+            if opponent.id != player.id
+            for card in opponent.exile
+            if card.owner_id == opponent.id
+        ]
+
+    def _opponent_exile_cost_choice(self, player: Player) -> dict[str, Any]:
+        """The offer-time shape of the opponent-exile cost (RULE 602.2b / 601.2h): exactly one of ``options`` is the
+        activator's pick (a foretold, suspended or "until ~ leaves" card is not interchangeable). Answered with
+        ``hand_card_choices`` (session key ``opponent_exile_choices``); no pick falls back to the first option."""
+        return {"count": 1, "options": [
+            {"instance_id": card.instance_id, "name": card.name, "owner_id": card.owner_id}
+            for card in self._opponent_exile_pool(player)
+        ]}
+
     def _resolve_put_hand_card_cost(
         self, player: Player, chosen_ids: Optional[list[int]]
     ) -> Optional[list[GameObject]]:
@@ -1735,9 +1974,12 @@ class ActivationMixin:
         source.sacrificed_cost_copiable_card = None
         source.sacrificed_cost_counters = {}
         source.sacrificed_cost_attached_ids = []
+        source.sacrificed_cost_words = []
+        source.discarded_cost_words = []
+        cost_referents.reset_referents(source)  # MEC-145: a fresh payment forgets what an earlier one moved
         source.station_tapped_power = None
         if cost.taps_self:
-            self.rules.set_tapped(source, True)
+            self.rules.set_tapped(source, True, tapper_id=player.id)
         if cost.untaps_self:
             # `self.rules.set_tapped` (MEC-43 round 4E, Mesmeric Orb), not
             # the plain model-level `source.untap()` — a paid ``{Q}``
@@ -1747,17 +1989,25 @@ class ActivationMixin:
         if cost.tap_others:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
-            for obj in self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self) or []:
-                self.rules.set_tapped(obj, True)
+            tapped = self._resolve_tap_others(player, source, count, subtype, tap_choices, exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []
+            cost_referents.store_referents(source, "tapped", cost_referents.snapshot_referents(tapped))  # RULE 608.2h
+            for obj in tapped:
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
         if cost.untap_others:
             # PAR-247 / RULE 602.2b + 701.26b: the picked tapped permanents untap as part of paying the cost.
             count, word = cost.untap_others
             for obj in self._resolve_pool_cost(self._untap_others_pool(player, source, word, cost), count, tap_choices) or []:
                 self.rules.set_tapped(obj, False)
-        if cost.reveal_x_color:
+        if cost.reveal_hand:
+            for card in list(player.hand):
+                self.state.reveal_card(card, player.id)
+        if cost.reveal_x_color or cost.reveal_shared_color:
             # PAR-247 / RULE 701.20a + 602.2b: the X chosen cards are shown to every player; nothing changes zones.
             for card in self._resolve_reveal_cost(player, cost, x, hand_card_choices) or []:
                 self.state.reveal_card(card, player.id)
+        if cost.tap_total_power is not None:
+            for obj in self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) or []:
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
         if cost.crew_power:
             # RULE 702.122b: a creature "crews" a Vehicle exactly when
             # tapped to pay this cost — recorded on `source` (RULE
@@ -1774,7 +2024,7 @@ class ActivationMixin:
                 from ...models.cards.creature_types import CREATURE_SUBTYPES
                 source.crewed_by_subtypes.update(
                     subtype for subtype in CREATURE_SUBTYPES if combat._has_subtype(obj, subtype))
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
                 if obj.instance_id not in source.crewed_by_ids:
                     source.crewed_by_ids.append(obj.instance_id)
                 source.crewed_by_incarnations[obj.instance_id] = obj.zone_incarnation
@@ -1787,7 +2037,7 @@ class ActivationMixin:
             saddlers = list(source.saddled_by[1]) if source.saddled_by[0] == turn else []
             visits = dict(source.saddled_by_incarnations) if source.saddled_by[0] == turn else {}
             for obj in self._resolve_crew_cost(player, source, cost.saddle_power, tap_choices, crewing=False) or []:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
                 if obj.instance_id not in saddlers:
                     saddlers.append(obj.instance_id)
                 visits[obj.instance_id] = obj.zone_incarnation
@@ -1800,14 +2050,17 @@ class ActivationMixin:
             # `sacrificed_cost_power` idiom.
             tapped = self._resolve_station_cost(player, source, tap_choices) or []
             for obj in tapped:
-                self.rules.set_tapped(obj, True)
+                self.rules.set_tapped(obj, True, tapper_id=player.id)
             if tapped:
-                source.station_tapped_power = tapped[0].power or 0
+                source.station_tapped_power = self._crew_station_base_power(tapped[0])
         if cost.sacrifice_count and not self._uses_sacrifice_group(cost):
             count, subtype = cost.sacrifice_count
             if count == SACRIFICE_COUNT_X:
                 count = x  # see `_can_pay_activation_cost`'s matching branch
-            for obj in self._resolve_sacrifice_count(player, count, subtype, tap_choices, source) or []:
+            for obj in self._resolve_sacrifice_count(
+                player, count, subtype, tap_choices, source,
+                mana_value=x if cost.sacrifice_count_mana_value_x else None,
+            ) or []:
                 self.rules.put_into_graveyard(obj)
         treasure_before = sum(player.mana_pool.pool_by_source.get("treasure", {}).values())
         if cost.spend_only_chosen_color:
@@ -1853,11 +2106,31 @@ class ActivationMixin:
             count, word = cost.exile_others
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            for obj in self._resolve_sacrifice_count(player, count, word, tap_choices, source) or []:
-                self.rules.exile(obj)
-                source.last_cost_exiled_ids.append(obj.instance_id)
-                source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
-                self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
+                      if cost.exile_others_total_mana_value_x
+                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            with self.state.simultaneous():
+                for obj in chosen or []:
+                    self.rules.exile(obj)
+                    source.last_cost_exiled_ids.append(obj.instance_id)
+                    source.last_cost_exiled_incarnations[obj.instance_id] = obj.zone_incarnation
+                    self.state.track_exiled_with(source, obj)  # RULE 607.2a: "exiled with this Vehicle"
+        if cost.sacrifice_all_lands:
+            # RULE 602.2b/701.17: the whole controlled set, including the
+            # source when it is still a land, leaves together as a cost.
+            lands = [obj for obj in self.state.permanents_controlled_by(player.id) if obj.is_land]
+            with self.state.simultaneous():
+                for obj in lands:
+                    self.rules.put_into_graveyard(obj)
+        if cost.exile_instant_or_sorcery_spell:
+            chosen = self._resolve_pool_cost(self._exile_spell_cost_pool(player), 1, tap_choices)
+            self.rules.move_spell_off_stack(chosen[0], 'exile')
+        if cost.bottom_self_from_graveyard:
+            # RULE 602.2b: the zone move is a cost, independent of the ability's eventual resolution.
+            player.remove_from_zone(source, Zone.GRAVEYARD)
+            player.add_to_zone(source, Zone.LIBRARY)
+            player.library.remove(source)
+            player.library.insert(0, source)
         if cost.exile_self or cost.exile_self_from_hand:
             # RULE 602.2b: exiled as the cost is paid; the ability still
             # resolves, reading ~'s last-known information (RULE 608.2h).
@@ -1868,10 +2141,17 @@ class ActivationMixin:
                 player, source, cost, x, chosen_ids=tap_choices,
                 first_id=sacrifice_choice, second_id=sacrifice_also_choice,
             ) or []
+            sacrifices_source = cost.sacrifice_with_self and source in self.state.permanents()
+            # RULE 608.2h / 701.17a: the whole group leaves together, so every member's last-known characteristics are
+            # taken before any of them moves ("the total power of the creatures sacrificed this way", Sword of the Ages).
+            records = {victim.instance_id: cost_referents.referent_record(victim) for victim in victims}
+            source_record = cost_referents.referent_record(source) if sacrifices_source else None
             for victim in victims:
-                self._record_sacrifice_cost(source, victim)
-            if cost.sacrifice_with_self and source in self.state.permanents():
+                self._record_sacrifice_cost(source, victim, records[victim.instance_id])
+            if sacrifices_source:
+                cost_referents.store_referents(source, "sacrificed", [source_record])  # Emrakul's Evangel counts itself
                 self.rules.put_into_graveyard(source)
+                cost_referents.note_graveyard_visit(source_record, source)
         elif cost.sacrifice:
             victim = self._sacrifice_candidate(
                 player, source, cost.sacrifice, chosen_id=sacrifice_choice
@@ -1891,6 +2171,8 @@ class ActivationMixin:
                 # RULE 701.16c: sacrifice isn't destruction — see the
                 # matching comment in `_pay_additional_cast_cost`.
                 sacrificed_mana_value = victim.mana_value
+                source.sacrificed_cost_words = continuous.last_known_words(victim, self.state)  # RULE 608.2h, before it leaves
+                cost_referents.store_referents(source, "sacrificed", [cost_referents.referent_record(victim)])
                 self.rules.put_into_graveyard(victim)
                 # MEC-43 (Birthing Pod/Oswald Fiddlebender): mirrors
                 # `_pay_additional_cast_cost`'s own `sacrificed_cost_mana_
@@ -1916,6 +2198,7 @@ class ActivationMixin:
             exiled = self._exile_creature_candidate(player, chosen_id=sacrifice_choice)
             if exiled is not None:
                 mv = exiled.mana_value or 0
+                cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(exiled)])  # RULE 608.2h
                 self.rules.exile(exiled)
                 # "…where X is 1 plus the exiled creature's mana value."
                 # (Food Chain, MEC-40) — the mana ability's own amount
@@ -1925,11 +2208,7 @@ class ActivationMixin:
                 # time), so `GameEngine.tap_for_mana` re-reads this stamp
                 # and overrides the produced amount right after payment.
                 source.last_cost_exiled_object_mv = mv
-        if cost.return_to_hand == RETURN_SELF_TO_HAND:
-            # ENG-49 (Rootha, Recurring Nightmare): the source bounces itself
-            # as the cost; the ability still resolves (RULE 602.2b).
-            self.rules.return_to_hand(source)
-        elif cost.return_to_hand:
+        if cost.return_to_hand and cost.return_to_hand != RETURN_SELF_TO_HAND:
             bounced = self._return_to_hand_candidate(
                 player, cost.return_to_hand, return_choices, cost.return_to_hand_state,
             )
@@ -1941,7 +2220,7 @@ class ActivationMixin:
         if cost.tap_grant_source_id is not None:
             grant_source = self.state.find_object(cost.tap_grant_source_id)
             if grant_source is not None:
-                self.rules.set_tapped(grant_source, True)
+                self.rules.set_tapped(grant_source, True, tapper_id=player.id)
         if cost.unattach_grant_source_id is not None:
             grant_source = self.state.find_object(cost.unattach_grant_source_id)
             if grant_source is not None:
@@ -1951,6 +2230,7 @@ class ActivationMixin:
             for _ in range(cost.exile_top_of_library):
                 if not player.library:
                     break
+                cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(player.library[-1])])  # RULE 608.2h
                 self.rules.exile(player.library[-1])
         if cost.collect_evidence:
             # RULE 701.59a — exile graveyard cards totalling `collect_evidence`
@@ -1975,27 +2255,37 @@ class ActivationMixin:
                 self.rules.discard(player, len(player.hand), cause=source)
             elif cost.discard_random:
                 # RULE 701.8d (ENG-49 — Amok): "discard a card at random".
+                in_hand = list(player.hand)
                 self.rules.discard_random(player, cost.discard, cause=source)
+                # RULE 608.2h: the random pick is made inside the discard, so its record is read off the hand difference.
+                cost_referents.store_referents(
+                    source, "discarded",
+                    cost_referents.snapshot_referents(card for card in in_hand if card not in player.hand))
             else:
                 count = x if cost.discard == DISCARD_X else cost.discard
                 chosen = self._resolve_discard_cost(
                     player, count, discard_choices, exclude=source,
-                    filter_word=cost.discard_filter, name=source.name,
+                    filter_word=cost.discard_filter, name=source.name, matching_names=cost.discard_matching_names, different_names=cost.discard_different_names,
+                    mana_value=x if cost.discard_mana_value_x else None,
                 )
                 # "If the discarded card was a creature card" (Moria Scavenger): remember what the cost threw away
                 # before it moves, read back by `discarded_cost_card_is` (same stamp the spell-cost path makes).
                 source.discarded_cost_card_types = sorted({t for card in chosen or [] for t in continuous.card_types_of(card)})
+                source.discarded_cost_words = sorted({w for card in chosen or [] for w in continuous.last_known_words(card)})
+                cost_referents.store_referents(source, "discarded", cost_referents.snapshot_referents(chosen or []))  # RULE 608.2h
                 with self.state.simultaneous():  # RULE 603.2c: one cost, one event
                     for card in chosen or []:
                         self.rules.discard_specific(card, cause=source)
         exile_count = x if cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X else cost.exile_from_graveyard
-        if exile_count:
+        if cost.exile_from_graveyard:
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
-                self.rules.exile(victim)
-                source.last_cost_exiled_ids.append(victim.instance_id)
-                source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
+            with self.state.simultaneous():
+                for victim in self._activation_graveyard_exile_candidates(player, source, exile_count, cost, x, hand_card_choices):
+                    cost_referents.store_referents(source, "exiled", [cost_referents.referent_record(victim)])  # RULE 608.2h
+                    self.rules.exile(victim)
+                    source.last_cost_exiled_ids.append(victim.instance_id)
+                    source.last_cost_exiled_incarnations[victim.instance_id] = victim.zone_incarnation
         if cost.discard_self:
             instance_id, controller_id, name = source.instance_id, player.id, source.name
             self.rules.discard_specific(source, cause=source)
@@ -2032,6 +2322,12 @@ class ActivationMixin:
             # mirroring `x_paid`'s own "remember what this activation just
             # announced/paid" idiom.
             source.counters_removed_as_cost = amount
+        if cost.return_to_hand == RETURN_SELF_TO_HAND:
+            # RULE 601.2h/602.2b: pay counters before moving their source;
+            # otherwise a zone reset would erase them without paying that cost.
+            paid_counters = getattr(source, "counters_removed_as_cost", 0)  # unset when no counters were removed
+            self.rules.return_to_hand(source)
+            source.counters_removed_as_cost = paid_counters
         if cost.add_counters_cost:
             kind, count = cost.add_counters_cost
             source.add_counters(kind, count)
@@ -2048,10 +2344,14 @@ class ActivationMixin:
                 [c for c in player.hand if c is not source], cost.exile_hand_cards, hand_card_choices,
             ) or []:
                 self.rules.exile(card)
+        if cost.put_opponent_exile_to_graveyard:
+            # RULE 406 / 400.3: the card goes to its owner's graveyard (the opponent who owns it).
+            for card in self._resolve_pool_cost(self._opponent_exile_pool(player), 1, hand_card_choices) or []:
+                self.rules._move_to_graveyard(card)  # RULE 406: handles an exile origin
         if cost.tap_attached:
             host = self._attached_host(source)
             if host is not None:
-                self.rules.set_tapped(host, True)
+                self.rules.set_tapped(host, True, tapper_id=player.id)
         if cost.return_to_hand_count:
             count, word = cost.return_to_hand_count
             for bounced in self._resolve_pool_cost(self._return_count_pool(player, word), count, return_choices) or []:
@@ -2079,7 +2379,8 @@ class ActivationMixin:
                 EventType.COUNTER, target_id=obj.instance_id, kind=kind, amount=change,
                 source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
                 recipient_is_creature=bool(getattr(obj, "is_creature", False)),
-                recipient_is_artifact=False, recipient_is_planeswalker=True,
+                recipient_is_artifact=obj.is_artifact, recipient_is_planeswalker=obj.is_planeswalker,
+                target_zone_incarnation=obj.zone_incarnation,
             ))
         elif change < 0:
             removed = before - obj.counters.get(kind, 0)
@@ -2102,7 +2403,9 @@ class ActivationMixin:
             count, subtype = cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             selected = self._resolve_tap_others(player, source, count, subtype, tap_choices,
-                                               exclude_source=cost.taps_self) or []
+                                               exclude_source=cost.taps_self, shared_creature_type=cost.tap_shared_creature_type) or []
+        elif cost.tap_total_power is not None:
+            selected = self._resolve_crew_cost(player, source, cost.tap_total_power, tap_choices, plain_power=True) or []
         elif cost.crew_power:
             selected = self._resolve_crew_cost(player, source, cost.crew_power, tap_choices) or []
         reserved.update(o.instance_id for o in selected)
@@ -2238,7 +2541,7 @@ class ActivationMixin:
         if x < ability.cost.minimum_x:
             raise ValueError(f"X must be at least {ability.cost.minimum_x}")
         resolved_effects = self._resolve_activation_mode(ability, mode)
-        resolved_specs = effects_target_specs(resolved_effects)
+        resolved_specs = effects_target_specs(resolved_effects, ability_source=True)
         # MEC-118: widen the activator's picks with an empty slot per "of an opponent's choice" requirement.
         target_groups = with_chooser_slots(resolved_specs, targets, target_groups)
         target_groups = per_player_target_groups(
@@ -2313,12 +2616,21 @@ class ActivationMixin:
         source_incarnation = getattr(source, 'zone_incarnation', None)
         # RULE 602.2 / 400.7: the zone the ability is activated from, read before the costs can move the source
         # ("activate an ability of a card in your graveyard", PAR-236).
+        activated_source_name = source.name
         source_zone = getattr(getattr(source, "zone", None), "value", None)
         hideaway_event = None
+        if getattr(source, "chosen_type", None):
+            # Preserve the linked entry choice if costs or responses move
+            # the source before its activated ability resolves (RULE 400.7).
+            hideaway_event = GameEvent(
+                EventType.ACTIVATED_ABILITY, controller_id=player.id,
+                source_id=source.instance_id, source_chosen_type=source.chosen_type,
+            )
         if getattr(source, "hideaway_exile_ids", None):
             linked = [self.state.find_object(iid) for iid in source.hideaway_exile_ids]
             hideaway_event = GameEvent(
                 EventType.ACTIVATED_ABILITY, controller_id=player.id, source_id=source.instance_id,
+                source_chosen_type=getattr(source, "chosen_type", None),
                 hideaway_exile_ids=sorted(source.hideaway_exile_ids),
                 hideaway_card_incarnations={str(obj.instance_id): obj.hideaway_incarnation
                                            for obj in linked if obj is not None},
@@ -2329,7 +2641,7 @@ class ActivationMixin:
             count, subtype = ability.cost.tap_others
             count = x if count == TAP_OTHERS_X else count
             tapped = self._resolve_tap_others(player, source, count, subtype, tap_choices,
-                                              exclude_source=ability.cost.taps_self) or []
+                                              exclude_source=ability.cost.taps_self, shared_creature_type=ability.cost.tap_shared_creature_type) or []
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_tapped_visits"] = [
                 {"instance_id": obj.instance_id, "zone_incarnation": obj.zone_incarnation} for obj in tapped
@@ -2346,6 +2658,12 @@ class ActivationMixin:
                 sorted(continuous.derived_subtype_words(former_host)) if former_host is not None else [])
             hideaway_event["unattached_source_id"] = unattached.instance_id
             hideaway_event["unattached_source_incarnation"] = unattached.zone_incarnation
+        if ability.cost.sacrifice:
+            victim = self._sacrifice_candidate(player, source, ability.cost.sacrifice, chosen_id=sacrifice_choice)
+            if victim is not None:
+                # RULE 608.2h: preserve the sacrificed creature's current subtypes per activation.
+                hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
+                hideaway_event["sacrificed_cost_subtypes"] = sorted(continuous.derived_subtype_words(victim))
         with self.state.simultaneous():
             self._pay_activation_cost(
                 player, source, ability.cost, x, tap_choices=tap_choices,
@@ -2361,7 +2679,7 @@ class ActivationMixin:
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_ids"] = list(source.last_cost_exiled_ids)
             hideaway_event["cost_exiled_incarnations"] = dict(source.last_cost_exiled_incarnations)
-            if ability.cost.exile_from_graveyard_mana_value_x:
+            if ability.cost.exile_others or ability.cost.exile_from_graveyard_mana_value_x:
                 hideaway_event["cost_exiled_cards"] = [
                     self.state.find_object(iid).card.to_dict() for iid in source.last_cost_exiled_ids
                     if self.state.find_object(iid) is not None
@@ -2424,11 +2742,13 @@ class ActivationMixin:
         # RULE 602.2b / 400.7: costs may move the source before the
         # stack item is built; its ability still belongs to the old visit.
         item.source_zone_incarnation = source_incarnation
+        item.cost_stamps = cost_referents.snapshot_activation_stamps(source)  # RULE 608.2h: this activation's own
         self.state.stack.append(item)
         self.rules._note_crime(item)
         self.state.fire_event(
             GameEvent(
                 EventType.ACTIVATED_ABILITY,
+                object=activated_source_name,
                 player_id=player.id, controller_id=player.id,
                 instance_id=source.instance_id,
                 # `source` can be an `Emblem` (RULE 114.4's rare own
@@ -2442,11 +2762,16 @@ class ActivationMixin:
                 # has no `GameObject` of its own to name by `instance_id`
                 # (ENG-26, `StackItem.stack_id`).
                 stack_id=item.stack_id,
+                ability_source_incarnation=source_incarnation,
                 has_x=ability.cost.mana.has_variable,
                 # PAR-207 (RULE 606.3 / 702.177): which kind of ability this was, for "whenever you activate a
                 # loyalty ability" / "an exhaust ability".
                 is_loyalty_ability=bool(ability.cost.is_loyalty),
                 is_exhaust_ability=getattr(ability, "keyword_label", None) == "exhaust",
+                is_powerup_ability=getattr(ability, "keyword_label", None) == "power-up",
+                # RULE 702.142 / 702.128 / 702.129: the keyword the ability was printed as ("whenever you activate a
+                # boast ability", "an eternalize or embalm ability"); ``None`` for an ability with no keyword label.
+                ability_keyword=getattr(ability.cost, "ability_keyword", None),
                 from_zone=source_zone,
                 source_owner_id=getattr(source, "owner_id", None),
             )

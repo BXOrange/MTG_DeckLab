@@ -903,11 +903,12 @@ def test_group_selector_objects_accepts_a_structured_selector():
     mine = _creature(state, "Mine")
     _creature(state, "Theirs", owner="p2")
     named = continuous.group_selector_objects(state, "p1", "creatures_you_control")
+    assert named == []  # ENG-61: the named string selects nothing now
     structured = continuous.group_selector_objects(
         state, "p1",
         {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
     )
-    assert [o.name for o in named] == [o.name for o in structured] == ["Mine"]
+    assert [o.name for o in structured] == ["Mine"]
     assert structured[0] is mine
 
     # A structured selector naming a non-battlefield zone matches nothing —

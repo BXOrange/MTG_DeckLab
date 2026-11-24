@@ -17,7 +17,7 @@ def _red_xiii_proud_warrior() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "other_creatures_you_control", "object_filter": {"modified": True}, "keywords": ["vigilance", "trample"],
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'modified': True}}, "keywords": ["vigilance", "trample"],
             })],
         ),
         AbilitySpec(

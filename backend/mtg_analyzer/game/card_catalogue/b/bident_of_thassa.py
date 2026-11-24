@@ -26,7 +26,7 @@ def _bident_of_thassa() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("grant_until", {
                 "static": {"type": "grant_keyword", "params": {
-                    "affects": "creatures_opponents_control", "keywords": ["attacks_if_able"]}},
+                    "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "keywords": ["attacks_if_able"]}},
                 "duration": "end_of_turn", "target_kind": None, "lock_group": True,
             })],
             cost={"text": "{1}{U}, {T}"},

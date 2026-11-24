@@ -29,7 +29,7 @@ it without a dependency cycle.
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..models.cards.card_query import name_matches
 from .attack_scope import attacks_opponent_of
@@ -265,20 +265,23 @@ def _obj_keywords(obj: "GameObject") -> frozenset[str]:
     # `granted_keywords` is exactly the later grants (Humility, then a newer
     # flying grant, keeps flying). The object's own keywords are the only
     # thing left to veto here.
+    # BUG-70: every source is folded to the slug here, once, because grants (pump `keywords`) and printed names
+    # arrive in either spelling; every `in _obj_keywords(...)` check then compares slugs.
+    def slugs(items) -> frozenset[str]:
+        return frozenset(_normalize(str(kw)) for kw in (items or ()))
+
+    granted = slugs(getattr(obj, "granted_keywords", None))
+    temp_removed = slugs(getattr(obj, "temp_removed_keywords", None))
     if getattr(obj, "loses_all_abilities", False):
-        return (
-            frozenset(getattr(obj, "granted_keywords", set()) or set())
-            - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
-        )
-    return (
-        (((keywords_of(obj.card) if getattr(obj, "card", None) is not None else frozenset())
-         - frozenset(getattr(obj, "suppressed_keywords", None) or ()))
-        | frozenset(getattr(obj, "intrinsic_keywords", set()) or set())
+        return granted - temp_removed
+    printed = slugs(keywords_of(obj.card)) if getattr(obj, "card", None) is not None else frozenset()
+    own = (
+        (printed - slugs(getattr(obj, "suppressed_keywords", None)))
+        | slugs(getattr(obj, "intrinsic_keywords", None))
         | (frozenset({"haste"}) if getattr(obj, "granted_haste_sacrifice", False)
-           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset()))
-        - frozenset(getattr(obj, "removed_keywords", set()) or set())
-        | frozenset(getattr(obj, "granted_keywords", set()) or set())
-    ) - frozenset(getattr(obj, "temp_removed_keywords", set()) or set())
+           and getattr(getattr(obj, "zone", None), "value", None) in {"battlefield", "stack"} else frozenset())
+    )
+    return ((own - slugs(getattr(obj, "removed_keywords", None))) | granted) - temp_removed
 
 
 def _creature_subtypes(obj: "GameObject") -> set[str]:
@@ -288,11 +291,13 @@ def _creature_subtypes(obj: "GameObject") -> set[str]:
 
 
 def has(obj: "GameObject", keyword: str) -> bool:
-    if keyword in _obj_keywords(obj):
+    # BUG-70: filters name a keyword by its printed spelling ("first strike"), the engine compares slugs.
+    slug = _normalize(keyword)
+    if slug in _obj_keywords(obj):
         return True
     if (getattr(obj, "loses_all_abilities", False)
-            or keyword in getattr(obj, "removed_keywords", ())
-            or keyword in getattr(obj, "temp_removed_keywords", ())):
+            or any(_normalize(str(k)) == slug for k in getattr(obj, "removed_keywords", ()))
+            or any(_normalize(str(k)) == slug for k in getattr(obj, "temp_removed_keywords", ()))):
         return False
     # RULE 702: number-bearing abilities (e.g. toxic) are still keywords,
     # even though they are stored separately from combat's flag keywords.
@@ -532,6 +537,9 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "max_blockers",  # "…by more than one creature" (+ ``count``)
         "min_blockers",  # "…except by two or more creatures" (+ ``count``)
         "cant_be_blocked_if_attacking_alone",  # "…as long as it's attacking alone"
+        # PAR-318 / RULE 509.1b + 506.2: "can't be blocked unless <C>" (+ ``condition``); "…as long as / if <C>" is the
+        # same restriction around ``{"kind": "not", "condition": C}``. C is read per blocking (= defending) player.
+        "cant_be_blocked_unless",
         # Blocker-side restrictions — the same two set shapes, but printed on
         # the creature doing the blocking (RULE 509.1a):
         "can_block_only",  # "~ can block only creatures with flying." (+ ``filter``)
@@ -548,6 +556,13 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "cant_attack_unless",  # + ``condition``
         "attacks_other_player_if_able",  # RULE 508.1d/611.2c: Kardur's game-rule modifier
         "cant_block_unless",  # + ``condition``
+        # PAR-290 / RULE 508.1g + 509.1c: "can't attack/block unless its controller pays {N}" -- the declaring
+        # player's own optional cost for this creature (+ ``amount`` / ``amount_per_counter`` / ``amount_count_selector``;
+        # ``block_cost`` also takes an attacker ``filter``: "can't block creatures with power 3 or greater unless you pay").
+        "attack_cost",
+        "block_cost",
+        "companion_attack",
+        "companion_block",
         "cant_attack_alone",  # needs a fellow attacker
         "cant_block_alone",  # needs a fellow blocker
         # RULE 509.1b multi-block *permissions* — the mirror image of a
@@ -558,6 +573,7 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         "unlimited_blocks",  # "~ can block any number of creatures."
         # RULE 702.122a / 702.171a: what the creature contributes to a Crew / Saddle cost on top of its power
         # (the Pilot token) — consulted by `GameEngine._crew_power_of`; never changes its real power (RULE 208.1).
+        "crew_station_power_multiplier",  # multiply current power for Crew and Station only
         "crew_power_bonus",  # "~ crews Vehicles as though its power were N greater" (+ ``count``)
         "saddle_power_bonus",  # "~ saddles Mounts … as though its power were N greater" (+ ``count``)
         # RULE 508.1a's *attack* permission — "~ can attack as though it
@@ -594,6 +610,21 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
 #: `has` (they are cast permissions, not combat keywords).
 _PRINTED_ONLY_KEYWORDS: frozenset[str] = frozenset({"flashback", "disturb"})
 
+#: ``stat_count_bound``'s comparators: strictly/inclusively less or greater than the measured amount.
+STAT_COUNT_COMPARATORS: dict[str, Callable[[int, int], bool]] = {
+    "lt": lambda stat, amount: stat < amount,
+    "le": lambda stat, amount: stat <= amount,
+    "gt": lambda stat, amount: stat > amount,
+    "ge": lambda stat, amount: stat >= amount,
+}
+#: The joint stat bounds of "power or toughness N or ..." (either stat) and "total power and toughness N or ..." (sum).
+JOINT_STAT_BOUNDS: dict[str, Callable[[tuple[int, int], int], bool]] = {
+    "min_power_or_toughness": lambda stats, n: any(v >= n for v in stats),
+    "max_power_or_toughness": lambda stats, n: any(v <= n for v in stats),
+    "min_total_power_toughness": lambda stats, n: sum(stats) >= n,
+    "max_total_power_toughness": lambda stats, n: sum(stats) <= n,
+}
+
 _FILTER_KEYS: frozenset[str] = frozenset(
     {
         "all_of", "not_basic_land", "stat_relation",
@@ -607,7 +638,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # flag Boast reads, which (unlike ``attacking``) survives until the next untap step.
         "attacked_this_turn",
         # RULE 108.3 / 110.2: "permanents they control but don't own" (Blim) -- the controller is not the owner.
-        "controlled_not_owned",
+        "controlled_not_owned", "attached_to_creature",
         # "…that's blocking" / "…that's attacking or blocking" (Surge of
         # Righteousness) — RULE 509.1 blocker status and the either-of pair,
         # the siblings of the ``attacking`` boolean above.
@@ -665,6 +696,13 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # blocker being checked — RULE 613.7c "you" always means the source's
         # controller), rather than a fixed int baked in at parse time.
         "power_lt_count_selector", "power_le_count_selector",
+        # RULE 208.1 (PAR-285): either stat against a measured amount, "target creature with power greater than or
+        # equal to your life total" / "...less than or equal to the number of treasure counters on ~" --
+        # ``{"stat", "cmp", "selector"}``, read like ``power_le_count_selector`` against the reference's controller.
+        "stat_count_bound",
+        # RULE 208.1 (PAR-285): "power **or** toughness N or less/greater" (either stat meets the bound) and "**total**
+        # power and toughness N or less/greater" (their sum).
+        "min_power_or_toughness", "max_power_or_toughness", "min_total_power_toughness", "max_total_power_toughness",
         # "**another** Dinosaur you control" (Temple Altisaur's own
         # damage-prevention recipient scoping) — the negated sibling of
         # ``instance_id`` above, excluding one specific object (always the
@@ -686,7 +724,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # instant or sorcery") that no permanent filter needed until now —
         # kept here, on the one shared filter, so a static or a target phrase
         # can use them too.
-        "multicolored", "colorless", "min_mana_value", "max_mana_value",
+        "multicolored", "colorless", "all_types", "min_mana_value", "max_mana_value", "mana_value_below",
         # RULE 202.3: "each permanent with mana value equal to the number of charge counters on ~" (Ratchet Bomb).
         "exact_mana_value",
         # RULE 205.2: "a spell with two or more card types" (Visitor from Planet Q) -- how many card types the object has.
@@ -697,7 +735,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         "card_type_all",
         # "a permanent you control **but don't own**" (RULE 108.3) — the owner
         # is not the *reference* object's controller ("you" in the ability text).
-        "not_owned_by_you",
+        "not_owned_by_you", "owned_by_you",
+        # RULE 702.94b: "each of those creatures" -- the reference (a soulbond source) and its paired partner.
+        "paired_with_reference",
         # "**another** creature you control" as a count/condition operand — the
         # object is not the *reference* (the ability's own source).
         "not_reference",
@@ -714,15 +754,24 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # RULE 201.2: "the number of creatures **named ~** on the battlefield"
         # (Plague Rats) — the same English name as the *reference* object.
         "named_as_reference", "name_reference",
+        "counter_placed_by_you_this_turn", "shares_color_with_library_top",
         # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
         # creature subtype in common (RULE 205.3m; Shared Animosity).
         "shares_creature_type_with_reference",
+        # ENG-64 / RULE 205.2a: "...a permanent that shares a card type with it" (Martyr's Bond) -- a card type in
+        # common with the reference object (`continuous.card_types_of`, so a subtype never counts).
+        "shares_card_type_with_reference",
+        # ENG-64 / RULE 201.2: "destroy each permanent with the same name as another permanent" (Eye of Singularity) --
+        # some other permanent on the battlefield has a name in common with this one; needs ``state``.
+        "same_name_as_another_permanent",
         # RULE 707.2 base power: "with base power 0" (Primo) and "with power
         # greater than its base power" (Kutzil).
         "base_power", "base_toughness", "power_gt_base",
         # PAR-109: "creatures you control that are enchanted/equipped" — a permanent is enchanted/equipped
         # while an Aura/Equipment is attached to it; needs ``state`` (a scan of the battlefield).
         "enchanted", "equipped", "has_attachment",
+        # PAR-284 (RULE 301.5, 303.4): "for each Equipment attached to ~ / it" -- the object is attached to the reference.
+        "attached_to_reference",
         # "target creature whose controller controls an Island" (Dwarven Sea Clan, MEC-131): the object's
         # *controller* controls a land with this subtype (RULE 305.6 basic land types are land subtypes).
         "controller_controls_land_subtype",
@@ -738,6 +787,51 @@ def matches_stat_relation(obj: Any, relation: str) -> bool:
     left = getattr(obj, match[1], 0) or 0
     right = getattr(obj, match[3], 0) or 0
     return left > right if match[2] == '>' else left < right
+
+
+#: The filter keys a static group scope ("Other black Elf creature tokens you control", "Attacking creatures ...")
+#: is built from. A filter using only these takes `_matches_group_filter`, which answers each key exactly as the
+#: general chain in `matches_object_filter` does but skips its ~80 absent-key probes: layer recompute (RULE 613.8
+#: dependency probing re-runs every group selector per candidate pair) calls this thousands of times per pass.
+_GROUP_FAST_KEYS: frozenset[str] = frozenset(
+    {"card_type", "subtype", "color", "color_any", "token", "nontoken", "not_reference", "attacking"}
+)
+
+
+def _matches_group_filter(obj: "GameObject", filt: "dict[str, Any]", reference: "Optional[GameObject]") -> bool:
+    """`matches_object_filter` restricted to `_GROUP_FAST_KEYS` (same semantics per key, same AND)."""
+    if filt.get("attacking") is not None and bool(getattr(obj, "attacking", False)) != bool(filt["attacking"]):
+        return False
+    if filt.get("nontoken") and getattr(obj, "is_token", False):
+        return False
+    if filt.get("token") and not getattr(obj, "is_token", False):
+        return False
+    subtype = filt.get("subtype")
+    if subtype is not None and not _has_subtype(obj, str(subtype)):
+        return False
+    color = filt.get("color")
+    color_any = filt.get("color_any")
+    if color is not None or color_any:
+        obj_colors = {str(c).upper() for c in (getattr(obj, "colors", None) or set())}
+        if color is not None and str(color).upper() not in obj_colors:
+            return False
+        if color_any and not any(str(c).upper() in obj_colors for c in color_any):
+            return False
+    all_types = filt.get("all_types")
+    if all_types and not set(all_types).issubset({str(w).lower() for w in obj.type_words}):
+        return False
+    card_type = filt.get("card_type")
+    if card_type is not None and str(card_type).lower() not in {
+        str(w).lower() for w in (getattr(obj, "type_words", None) or set())
+    }:
+        return False
+    if filt.get("not_reference") and reference is not None and obj is reference:
+        return False
+    return True
+
+
+#: `exact_mana_value` sentinel: the mana value of the creature the resolving ability's cost sacrificed.
+SACRIFICED_COST_MANA_VALUE = "sacrificed_cost"
 
 
 def matches_object_filter(
@@ -761,10 +855,21 @@ def matches_object_filter(
     """
     if not filt:
         return True
+    if filt.keys() <= _GROUP_FAST_KEYS:
+        return _matches_group_filter(obj, filt, reference)
     if "transformed" in filt and bool(getattr(obj, "transformed", False)) != bool(filt["transformed"]):
         return False
     if "stat_relation" in filt and not matches_stat_relation(obj, filt["stat_relation"]):
         return False
+    if counter := filt.get("counter_placed_by_you_this_turn"):
+        from .condition_query import counter_placement_this_turn
+
+        if state is None or not counter_placement_this_turn(state, controller_id, counter, recipient=obj):
+            return False
+    if filt.get("shares_color_with_library_top"):
+        player = state.player_by_id(controller_id) if state is not None and controller_id else None
+        if not (player and player.library and obj.colors & player.library[-1].colors):
+            return False
     if filt.get('crewed_reference_this_turn'):
         # RULE 702.122b-c / 400.7: only the very creature visit that paid crew.
         if (reference is None or getattr(reference, 'crewed_turn', None) is None
@@ -883,6 +988,10 @@ def matches_object_filter(
     subtype = filt.get("subtype")
     if subtype is not None and not _has_subtype(obj, str(subtype)):
         return False
+    if filt.get("attached_to_creature"):
+        host = state.find_object(getattr(obj, "attached_to", None)) if state is not None else None
+        if host is None or host not in state.permanents() or not host.is_creature:
+            return False
     subtype_any = filt.get("subtype_any")
     if subtype_any and not any(_has_subtype(obj, str(s)) for s in subtype_any):
         return False
@@ -913,7 +1022,8 @@ def matches_object_filter(
     # Righteousness) — RULE 509.1: a creature is blocking once it has been
     # assigned to an attacker (`blocking`/`additional_blocking`).
     _is_blocking = bool(blocking_attacker_ids(obj))
-    if filt.get("blocking") and not _is_blocking:
+    # ``False`` is "nonblocking" (PAR-285), the ``attacking`` idiom above.
+    if filt.get("blocking") is not None and bool(filt["blocking"]) != _is_blocking:
         return False
     if filt.get("attacking_you") and not (
         obj.attacking and reference is not None
@@ -996,6 +1106,7 @@ def matches_object_filter(
         damaged = state is not None and any(
             e.type == "DAMAGE" and e.get("target_id") == obj.instance_id
             and not e.get("is_player") and int(e.get("amount", 0) or 0) > 0
+            and e.get("target_zone_incarnation", obj.zone_incarnation) == obj.zone_incarnation
             for e in state.events_this_turn()
         )
         if (bool(damaged) if state is not None else int(obj.damage_marked or 0) > 0) != bool(filt["damaged_this_turn"]):
@@ -1042,11 +1153,13 @@ def matches_object_filter(
     # "exchange control of two target **nonlegendary** creatures" (RULE
     # 205.4a, PAR-30 — Djinn of Infinite Deceits) — reads `Card.is_legendary`
     # the same boolean-flag way `nontoken` reads `is_token` above.
-    if filt.get("nonlegendary") and getattr(obj.card, "is_legendary", False):
+    # RULE 205.4: the object's *current* supertype (a layer-4 grant or removal counts), read from the
+    # `GameObject` when it is one, else from the printed card.
+    if filt.get("nonlegendary") and getattr(obj, "is_legendary", getattr(obj.card, "is_legendary", False)):
         return False
     # "target **legendary** creature" (PAR-78, Kitsune Healer) — the
     # positive sibling of ``nonlegendary`` just above.
-    if filt.get("legendary") and not getattr(obj.card, "is_legendary", False):
+    if filt.get("legendary") and not getattr(obj, "is_legendary", getattr(obj.card, "is_legendary", False)):
         return False
     # "target suspected creature you control" (RULE 701.60, PAR-29 — Deadly
     # Complication) — reads `GameObject.is_suspected` the same boolean-flag
@@ -1143,7 +1256,9 @@ def matches_object_filter(
     # "destroy target **nonartifact** creature" (Go for the Throat-shaped) —
     # the negated sibling of ``card_type`` above, same ``without_keyword``
     # idiom. A list excludes every named type ("a noncreature, nonland card").
-    without_card_type = filt.get("without_card_type")
+    # PAR-285: "target noncreature artifact with mana value 3 or less" (Rhino's Rampage) carries the `card_query`
+    # spelling ``without_type`` of the same negated type list; it must exclude, not be silently ignored.
+    without_card_type = filt.get("without_card_type", filt.get("without_type"))
     if without_card_type is not None:
         excluded = without_card_type if isinstance(without_card_type, list) else [without_card_type]
         words = {str(w).lower() for w in (getattr(obj, "type_words", None) or set())}
@@ -1196,6 +1311,24 @@ def matches_object_filter(
         from .continuous import count_selector
 
         if (obj.power or 0) > count_selector(state, reference.controller_id, le_selector):
+            return False
+    # RULE 208.1 (PAR-285): the measured-amount stat bound ("power greater than or equal to your life total").
+    count_bound = filt.get("stat_count_bound")
+    if count_bound is not None:
+        if state is None or reference is None:
+            return False
+        from .continuous import count_selector
+
+        measured = count_selector(state, reference.controller_id, count_bound["selector"], reference)
+        stat_value = (obj.power if count_bound["stat"] == "power" else obj.toughness) or 0
+        if not STAT_COUNT_COMPARATORS[count_bound["cmp"]](stat_value, measured):
+            return False
+    # RULE 208.1 (PAR-285): "power or toughness N or greater/less" -- either stat meets the bound; "total power and
+    # toughness N or less/greater" -- the sum does.
+    pt_values = (obj.power or 0, obj.toughness or 0)
+    for key, test in JOINT_STAT_BOUNDS.items():
+        bound = filt.get(key)
+        if bound is not None and not test(pt_values, bound):
             return False
     # "…each green creature that **entered this turn**." (Oran-Rief, the
     # Vastwood) — RULE 603.6e-adjacent history read: `GameObject.turn_entered`
@@ -1258,6 +1391,9 @@ def matches_object_filter(
         return False
     # "…with mana value 3 or greater" — the printed mana value, like
     # ``even_mana_value`` above (a spell on the stack keeps it, RULE 202.3).
+    mana_value_below = filt.get("mana_value_below")
+    if mana_value_below is not None and obj.mana_value >= mana_value_below:
+        return False
     min_mana_value = filt.get("min_mana_value")
     if min_mana_value is not None and obj.mana_value < min_mana_value:
         return False
@@ -1265,6 +1401,12 @@ def matches_object_filter(
     if max_mana_value is not None and obj.mana_value > max_mana_value:
         return False
     exact_mana_value = filt.get("exact_mana_value")
+    if exact_mana_value == SACRIFICED_COST_MANA_VALUE:
+        # RULE 608.2h (MEC-145): "the same mana value as the sacrificed creature" -- the value the ability's cost
+        # recorded (`GameObject.sacrificed_cost_mana_value`, bound per activation); no reference object matches nothing.
+        if reference is None:
+            return False
+        exact_mana_value = int(getattr(reference, "sacrificed_cost_mana_value", 0) or 0)
     if exact_mana_value is not None and obj.mana_value != exact_mana_value:
         return False
     min_card_types = filt.get("min_card_types")
@@ -1304,11 +1446,38 @@ def matches_object_filter(
             return False
     if filt.get("named_as_reference") and (reference is None or not set(obj.names) & set(reference.names)):
         return False
+    if filt.get("attached_to_reference") and (
+            reference is None or getattr(obj, "attached_to", None) != reference.instance_id
+    ):
+        return False
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):
             return False
+    if filt.get("shares_card_type_with_reference"):
+        from .continuous import card_types_of  # function-scoped: continuous imports this module lazily
+
+        if reference is None or not (set(card_types_of(obj)) & set(card_types_of(reference))):
+            return False
+    if filt.get("same_name_as_another_permanent"):
+        if state is None or not any(
+            other is not obj and set(other.names) & set(obj.names) for other in state.permanents()
+        ):
+            return False
+    if filt.get("paired_with_reference"):
+        # The pair only exists while the reference is on the battlefield and still paired
+        # (`RulesEngine.break_illegal_soulbond_pairs` clears an illegal pair as an SBA).
+        partner_id = getattr(reference, "paired_with", None)
+        if (reference is None or partner_id is None or state is None or reference not in state.permanents()
+                or obj.instance_id not in (reference.instance_id, partner_id)):
+            return False
     if filt.get("not_owned_by_you"):
         if reference is None or getattr(obj, "owner_id", None) == reference.controller_id:
+            return False
+    if filt.get("owned_by_you"):
+        # RULE 108.3: ownership is independent of control; resolving
+        # abilities use their frozen controller even if their source moves.
+        owner = controller_id if controller_id is not None else getattr(reference, "controller_id", None)
+        if owner is None or getattr(obj, "owner_id", None) != owner:
             return False
     # "a **kicked** spell" (RULE 702.33b) — `GameObject.kicker_count`, set at
     # cast time and left on the object.
@@ -1428,12 +1597,87 @@ def blocker_may_block(blocker: "GameObject", attacker: "GameObject") -> bool:
         if not matches_object_filter(attacker, entry.get("filter"), reference=blocker):
             return False
     for entry in combat_restrictions(blocker, "cant_block_filtered"):
+        # PAR-290: "enchanted creature can't block creatures you control" -- the bar covers only attackers controlled
+        # by the static's own controller, stamped at recompute (RULE 509.1a).
+        scoped_to = entry.get("attacker_controller_id")
+        if scoped_to is not None and attacker.controller_id != scoped_to:
+            continue
         if matches_object_filter(attacker, entry.get("filter"), reference=blocker):
             return False
     for entry in combat_restrictions(blocker, "cant_block_self_filtered"):
         if matches_object_filter(blocker, entry.get("filter")):
             return False
     return True
+
+
+def _restriction_cost(state: "GameState", obj: "GameObject", entry: dict[str, Any]) -> int:
+    """The generic mana an ``attack_cost``/``block_cost`` entry charges for ``obj``: a flat ``amount``, or ``amount``
+    times the counters of ``amount_per_counter`` on it ("{1} for each +1/+1 counter on it"), or times a count selector
+    read for the static's own controller ("{1} for each card in your hand", RULE 508.1g)."""
+    from .continuous import count_selector  # function-scoped: continuous imports this module
+
+    base = int(entry.get("amount", 0))
+    kind = entry.get("amount_per_counter")
+    if kind:
+        return base * int((getattr(obj, "counters", None) or {}).get(str(kind), 0))
+    selector = entry.get("amount_count_selector")
+    if selector:
+        return base * count_selector(state, entry.get("selector_controller_id"), str(selector), obj)
+    return base
+
+
+def has_combat_companions(obj: "GameObject", group: list["GameObject"], verb: str) -> bool:
+    if len(group) < 2 and combat_restrictions(obj, f"cant_{verb}_alone"):
+        return False
+    return all(
+        sum(other is not obj and matches_object_filter(other, entry["filter"], reference=obj)
+            for other in group) >= entry["count"]
+        for entry in combat_restrictions(obj, f"companion_{verb}")
+    )
+
+
+def validate_combat_companions(declared: list["GameObject"], verb: str) -> None:
+    # RULE 508.1c / 509.1b: the other creatures must be in this declaration.
+    for obj in declared:
+        if combat_restrictions(obj, f"companion_{verb}") and not has_combat_companions(obj, declared, verb):
+            raise ValueError(f"{obj.name} needs more eligible creatures to {verb}")
+
+
+def can_join_combat_group(obj: "GameObject", candidates: list["GameObject"], verb: str) -> bool:
+    # RULE 508.1d / 509.1c: a creature can satisfy a requirement only alongside
+    # companions that themselves can be declared in the same group.
+    while obj in candidates:
+        qualified = [candidate for candidate in candidates if has_combat_companions(candidate, candidates, verb)]
+        if len(qualified) == len(candidates):
+            return True
+        candidates = qualified
+    return False
+
+
+def block_cost_applies(state, blocker, attacker, entry) -> bool:
+    return (
+        ("attacker_controller_id" not in entry or attacker.controller_id == entry["attacker_controller_id"])
+        and matches_object_filter(attacker, entry.get("filter"), reference=blocker, state=state)
+    )
+
+
+def attack_cost_for(state: "GameState", attacker: "GameObject") -> int:
+    """RULE 508.1g: the generic mana its own controller must pay for ``attacker`` to be declared (0 for none)."""
+    return sum(_restriction_cost(state, attacker, e) for e in combat_restrictions(attacker, "attack_cost"))
+
+
+def block_cost_for(state: "GameState", blocker: "GameObject", attacker: "GameObject") -> int:
+    """RULE 509.1c: the generic mana ``blocker``'s controller must pay for it to be declared blocking ``attacker``."""
+    return sum(
+        _restriction_cost(state, blocker, e)
+        for e in combat_restrictions(blocker, "block_cost")
+        if block_cost_applies(state, blocker, attacker, e)
+    )
+
+
+def block_life_cost_for(state: "GameState", blocker: "GameObject", attacker: "GameObject") -> int:
+    return sum(entry["count"] for entry in combat_restrictions(blocker, "block_cost")
+               if entry.get("payment") == "life" and block_cost_applies(state, blocker, attacker, entry))
 
 
 def min_blockers(obj: "GameObject") -> int:
@@ -1643,19 +1887,16 @@ def _landwalk_slugs(obj: "GameObject") -> set[str]:
     → "Swampwalk"-shaped word substitution) is honoured here too, not just
     for protection.
     """
-    slugs: set[str] = set()
-    for kw in getattr(obj.card, "keywords", None) or []:
-        slug = _normalize(str(kw))
-        if slug.endswith("walk"):
-            slugs.add(slug)
-    text = (getattr(obj, "effective_oracle_text", "") or "").lower()
-    for match in re.finditer(r"\b([a-z]+)walk\b", text):
-        slugs.add(match.group(1) + "walk")
-    for source in ("intrinsic_keywords", "granted_keywords"):
-        for slug in getattr(obj, source, None) or set():
-            if str(slug).endswith("walk"):
-                slugs.add(str(slug))
-    return slugs
+    slugs = {kw for kw in _obj_keywords(obj) if kw.endswith("walk")}
+    if not obj.loses_all_abilities:
+        for kw in getattr(obj.card, "keywords", None) or []:
+            slug = _normalize(str(kw))
+            if slug.endswith("walk"):
+                slugs.add(slug)
+        text = (getattr(obj, "effective_oracle_text", "") or "").lower()
+        for match in re.finditer(r"\b(?:(?:nonbasic|legendary|snow|basic)\s+)?[a-z]+walk\b", text):
+            slugs.add(_normalize(match.group(0)))
+    return {slug.replace("_", "") for slug in slugs}
 
 
 def landwalk_subtypes(obj: "GameObject") -> frozenset[str]:
@@ -1677,13 +1918,19 @@ def unblockable_by_landwalk(
     at least one land of that type — then no creature that player controls may
     block it (checked by the engine, which supplies the defender's lands).
     """
-    subs = landwalk_subtypes(attacker)
-    if not subs:
-        return False
-    for land in defending_lands:
-        type_line = land.card.type_line.lower()
-        if any(sub in type_line for sub in subs):
-            return True
+    slugs = _landwalk_slugs(attacker)
+    for slug in slugs - {"landwalk"}:
+        quality = slug[:-len("walk")]
+        for land in defending_lands:
+            remaining = quality
+            permitted = True
+            for qualifier in ("nonbasic", "legendary", "snow", "basic"):
+                if remaining.startswith(qualifier):
+                    permitted = not land.has_supertype("basic") if qualifier == "nonbasic" else land.has_supertype(qualifier)
+                    remaining = remaining[len(qualifier):]
+                    break
+            if permitted and (remaining == "land" or land.has_subtype(remaining)):
+                return True
     return False
 
 

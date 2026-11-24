@@ -191,7 +191,9 @@ class TriggerCollectionMixin:
         from ..copy_event_state import capture_firing
 
         recipe_id = (capture_firing(self, ability, event)
-                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY, EventType.CAST_COST_PAID) else None)
+                     if event.type in (EventType.SPELL_CAST, EventType.ACTIVATED_ABILITY,
+                                       EventType.ABILITY_TRIGGERED, EventType.MANA_ABILITY_ACTIVATED,
+                                       EventType.CAST_COST_PAID) else None)
         copies = 1 + continuous.trigger_doubler_bonus(
             self.state, obj, event=event, context=self.context
         )
@@ -218,6 +220,13 @@ class TriggerCollectionMixin:
             captured.data["subject_zone_incarnations"] = visits
             if recipe_id is not None:
                 captured.data["copiable_stack_id"] = recipe_id
+            # RULE 715.2: mark the actual chapter ability that fired. Lore
+            # placement by itself does not prove the Saga still has that ability.
+            final_chapter = (event.type == EventType.SAGA_CHAPTER
+                             and event.get("chapter") in ability.saga_chapters
+                             and event.get("chapter") == _saga_final_chapter(obj.card))
+            if final_chapter:
+                captured.data["final_chapter"] = True
             firing_ability = ability
             controller_id = (obj.owner_id if getattr(obj, "zone", None) == Zone.EXILE
                              else getattr(obj, "controller_id", None))
@@ -231,6 +240,32 @@ class TriggerCollectionMixin:
             if index == 0 and offers:
                 firing = _TapOfferFiring(firing, offers)
             self.pending_triggers.append(firing)
+            # RULE 603.2 / 603.3: reserve this firing's identity now; its
+            # modes and targets are announced only when it reaches the stack.
+            shell = StackItem(kind="ability", controller_id=controller_id or self.state.active_player.id,
+                              source=obj)
+            captured.data["firing_stack_id"] = shell.stack_id
+            self.state.fire_event(GameEvent(
+                EventType.ABILITY_TRIGGERED, instance_id=getattr(obj, "instance_id", None),
+                controller_id=controller_id, stack_id=shell.stack_id,
+                ability_source_incarnation=getattr(obj, "zone_incarnation", None),
+            ))
+            if final_chapter:
+                self._fire_final_saga_chapter(EventType.SAGA_FINAL_CHAPTER_TRIGGERED, captured, controller_id)
+
+    def _fire_final_saga_chapter(self, event_type, chapter_event, controller_id):
+        iid = chapter_event.get("instance_id")
+        visit = chapter_event.get("source_zone_incarnation")
+        saga = self.state.find_object(iid)
+        if saga is None or saga.zone_incarnation != visit:
+            saga = self.state.zone_visit_sources.get((iid, visit))
+        if saga is not None:
+            controller_id = saga.controller_id
+        self.state.fire_event(GameEvent(
+            event_type, instance_id=iid, zone_incarnation=visit,
+            controller_id=controller_id, player_id=controller_id,
+            chapter=chapter_event.get("chapter"),
+        ))
 
     def _collect_triggers(self, event: GameEvent) -> None:
         if event.type == EventType.ENTERS_BATTLEFIELD:
@@ -254,6 +289,21 @@ class TriggerCollectionMixin:
             # as the static is in play.
             return
         sources = self.state.permanents()
+        exile_lookback = (event.type == EventType.EVENT_BATCH and event.get("batch_of") == EventType.EXILE)
+        departed_exile_sources = set()
+        if exile_lookback:
+            # RULE 603.10a: mixed battlefield/graveyard departure heads also look back.
+            live_ids = {obj.instance_id for obj in sources}
+            for member in event.get("members", []):
+                if member.get("from_zone") != "battlefield":
+                    continue
+                obj = self.state.zone_visit_sources.get((member.get("instance_id"), member.get("from_zone_incarnation")))
+                if obj is not None and obj.instance_id not in live_ids and any(
+                        getattr(effect, "exile_pool_lookback", False)
+                        for ability in obj.triggered_abilities for effect in ability.effects):
+                    sources.append(obj)
+                    live_ids.add(obj.instance_id)
+                    departed_exile_sources.add(obj.instance_id)
         lookback = {EventType.LEAVES_BATTLEFIELD, EventType.DIES, EventType.SACRIFICE}
         departure_sources = getattr(self.state, "_simultaneous_departure_sources", None)
         if (departure_sources is not None
@@ -261,11 +311,9 @@ class TriggerCollectionMixin:
                      (event.type == EventType.EVENT_BATCH and event.get("batch_of") in lookback))):
             sources = departure_sources
         for obj in sources:
-            # RULE 613.7f: a permanent stripped of all abilities (Humility,
-            # Dress Down) has no triggered abilities to fire — not even a
-            # layer-6-granted one, which is itself an ability it no longer has.
-            if getattr(obj, "loses_all_abilities", False):
-                continue
+            # RULE 613.7f: printed abilities are gone after an ability-removal
+            # effect, but later layer-6 grants survive. Recompute has already
+            # cleared grants preceding the removal.
             # Elesh Norn, Mother of Machines (MEC-40) — the opponent-scoped
             # sibling of the global check above, decided per candidate
             # object since it depends on *whose* ability would fire.
@@ -276,9 +324,15 @@ class TriggerCollectionMixin:
             # Archdruid) sits alongside the object's own intrinsic abilities;
             # both fire through the same check/place pipeline.
             for index, ability in enumerate(obj.triggered_abilities + obj.granted_triggered_abilities):
+                if obj.instance_id in departed_exile_sources and not any(
+                        getattr(effect, "exile_pool_lookback", False) for effect in ability.effects):
+                    continue
+                if obj.loses_all_abilities and index < len(obj.triggered_abilities):
+                    continue
                 if getattr(ability, "keyword_name", None) in obj.removed_keywords:
                     continue  # RULE 613.7: this printed instance was removed.
-                if getattr(ability, "functions_from_graveyard", False):
+                if (getattr(ability, "functions_from_graveyard", False)
+                        or getattr(ability, "functions_while_suspended", False)):
                     # RULE 113.6k: an ability that returns its own source from the graveyard
                     # functions only there (`_collect_graveyard_function_triggers`) -- a
                     # battlefield Eidolon/Radroach has nothing to return.
@@ -327,6 +381,14 @@ class TriggerCollectionMixin:
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
         self._collect_self_hand_arrival_triggers(event)
+        # RULE 113.6k: the card’s “becomes plotted” ability functions in exile.
+        if event.type == EventType.BECOMES_PLOTTED:
+            obj = self.state.find_object(event.get("instance_id"))
+            if obj is not None and obj.zone == Zone.EXILE:
+                for ability in obj.triggered_abilities:
+                    if ability.check_trigger(event, self.context):
+                        self._queue_firing(ability, event, obj)
+        self._collect_replicate_triggers(event)
         self._collect_storm_triggers(event)
         self._collect_demonstrate_triggers(event)
         self._collect_cascade_triggers(event)
@@ -352,6 +414,12 @@ class TriggerCollectionMixin:
         read it — and restored afterward, since this can run inside another
         resolution.
         """
+        from ..copy_event_state import notify_triggered
+
+        recipe = StackItem(kind='ability', controller_id=ability.controller_id or ability.source.controller_id,
+                           effects=[ability], source=ability.source, trigger_event=event,
+                           description=ability.description)
+        notify_triggered(self, recipe)
         outer = self.context.trigger_event
         self.context.trigger_event = event
         try:
@@ -716,11 +784,23 @@ class TriggerCollectionMixin:
                 if (bound is None or bound.zone != entry.bound_zone
                         or bound.zone_incarnation != entry.bound_incarnation):
                     continue
+            if entry.ends_when_object_moves:
+                linked = self.state.find_object(entry.bound_object_id)
+                if linked is None or linked.zone_incarnation != entry.bound_incarnation:
+                    continue  # RULE 400.7: the chosen object is gone; the new one is not "that creature".
             controller_id = entry.ability.controller_id
             if controller_id is not None and not any(
                 p.id == controller_id and not p.has_lost for p in self.state.players
             ):
                 continue  # RULE 800.4a: a departed player's effects leave with them.
+            if entry.dealt_damage_visits is not None and not (
+                event.type == EventType.DIES
+                and entry.dealt_damage_visits.get(event.get("instance_id"))
+                == event.get("graveyard_incarnation", -1) - 1
+            ):
+                # RULE 603.7c / 400.7: only a creature the damage clause hit, in the same battlefield visit.
+                remaining.append(entry)
+                continue
             if entry.ability.check_trigger(event, self.context):
                 if entry.bound_zone is not None:
                     self._queue_firing(entry.ability, event, bound)
@@ -871,30 +951,27 @@ class TriggerCollectionMixin:
                         continue
                     if ability.trigger_event != EventType.DIES:
                         continue
-                    if not any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects):
+                    if not (ability.haunt_linked
+                            or any(isinstance(effect, HauntLinkedDeathEffect) for effect in ability.effects)):
                         continue
                     self.pending_triggers.append((ability, event))
     def _collect_cycled_triggers(self, event: GameEvent) -> None:
-        """RULE 702.28c: "When you cycle this card, `<effect>`." fires from
-        the graveyard the Cycling cost's own ``discard_self`` just put its
-        source into — `_collect_triggers`'s main loop is battlefield-only
-        (`state.permanents()`), so a `CYCLED`-watching ability would
-        otherwise never be seen. Gated purely on ``trigger_event ==
-        EventType.CYCLED`` rather than a `functions_from_graveyard`-style
-        flag (`_collect_graveyard_function_triggers`'s own idiom): every
-        real card's cycling bonus watches exactly this one event and no
-        other, so the event identity alone is enough to scope the scan —
-        no separate marker needed.
+        """RULE 702.29c: find the cycled card after its discard cost.
+
+        Discard replacements may put it in exile instead of the graveyard.
+        Only the cycled object gets this extra scan; other cycling payoffs
+        function on the battlefield and are collected by the ordinary scan.
         """
         if event.type != EventType.CYCLED:
             return
-        for player in self.state.players:
-            for obj in player.graveyard:
-                for ability in obj.triggered_abilities:
-                    if getattr(ability, "trigger_event", None) != EventType.CYCLED:
-                        continue
-                    if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
-                        self.pending_triggers.append((ability, event))
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj in self.state.permanents():
+            return
+        for ability in obj.triggered_abilities:
+            if getattr(ability, "trigger_event", None) != EventType.CYCLED:
+                continue
+            if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
+                self.pending_triggers.append((ability, event))
 
     def _collect_discarded_triggers(self, event: GameEvent) -> None:
         """RULE 603.1/701.8: "When a spell or ability an opponent controls
@@ -929,7 +1006,8 @@ class TriggerCollectionMixin:
                 for ability in obj.triggered_abilities:
                     if getattr(ability, "trigger_event", None) != EventType.DISCARD_CARD:
                         continue
-                    if getattr(ability, "functions_from_graveyard", False):
+                    if (getattr(ability, "functions_from_graveyard", False)
+                        or getattr(ability, "functions_while_suspended", False)):
                         continue
                     if isinstance(ability, TriggeredAbility) and ability.check_trigger(event, self.context):
                         self.pending_triggers.append((ability, event))
@@ -995,6 +1073,24 @@ class TriggerCollectionMixin:
             if (getattr(ability, "functions_from_hand", False)
                     and ability.check_trigger(event, self.context)):
                 self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_replicate_triggers(self, event: GameEvent) -> None:
+        # RULE 702.56a/b: each paid instance triggers separately; copies aren't casts.
+        if event.type != EventType.SPELL_CAST:
+            return
+        obj = self.state.find_object(event.get("instance_id"))
+        if obj is None or obj.zone != Zone.STACK:
+            return
+        for count in getattr(obj, "_replicate_counts", ()):
+            if count == 0:
+                continue
+            ability = TriggeredAbility(
+                EventType.SPELL_CAST,
+                [CopySpellEffect(count=count, source=obj,
+                                 spell_from_trigger_event="instance_id", choose_new_targets=True)],
+                source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Replicate",
+            )
+            self._queue_firing(ability, event, obj, capture=False)
 
     def _collect_storm_triggers(self, event: GameEvent) -> None:
         """RULE 702.40: snapshot previous casts and queue each instance of storm.
@@ -1089,9 +1185,13 @@ class TriggerCollectionMixin:
         active_id = self.state.active_player.id
         for player in self.state.players:
             for obj in list(player.exile):
-                if obj.owner_id != active_id:
-                    continue
                 if not _has_suspend(obj) or obj.counters.get("time", 0) <= 0:
+                    continue
+                for printed in obj.triggered_abilities:
+                    if (getattr(printed, "functions_while_suspended", False)
+                            and printed.check_trigger(event, self.context)):
+                        self._queue_firing(printed, event, obj)
+                if obj.owner_id != active_id:
                     continue
                 ability = TriggeredAbility(
                     trigger_event=EventType.STEP_BEGIN,
@@ -1181,7 +1281,7 @@ class TriggerCollectionMixin:
             # genuinely needs two differently-typed targets — "attach target
             # Equipment you control to target creature you control" — is
             # gathered as two requirements (`GameEffect.extra_target_specs`).
-            specs.extend(stamped_specs(effect, polarity=False))
+            specs.extend(stamped_specs(effect, polarity=False, ability_source=True))
         return specs
     def _trigger_controller_id(
         self, ability: "TriggeredAbility", event: Optional[GameEvent]
@@ -1399,6 +1499,7 @@ class TriggerCollectionMixin:
             self.state,
             self._trigger_controller_id(ability, event),
             ability.source,
+            event,
         )
         override = effects if effects is not ability.effects else None
         if not specs:
@@ -2065,7 +2166,18 @@ class TriggerCollectionMixin:
             from ..stack_copy_targets import make_frame
 
             item.copy_target_roles = [slot["specs"] for slot in make_frame(self, item, False)["slots"]]
+        firing_id = (event or {}).get("firing_stack_id")
+        if firing_id is None:
+            from ..copy_event_state import notify_triggered
+
+            notify_triggered(self, item)
         self.state.stack.append(item)
+        if firing_id is not None:
+            item.stack_id = firing_id
+            if firing_id in self.state.copiable_stack_recipes:
+                from ..copy_event_state import freeze
+
+                self.state.copiable_stack_recipes[firing_id] = freeze(self, item)
         if any(getattr(effect, "announce_trigger_division", False) for effect in item.effects):
             from ..effects.divided_retaliation import begin_division
 

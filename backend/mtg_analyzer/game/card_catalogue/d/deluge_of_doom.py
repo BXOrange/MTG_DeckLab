@@ -14,7 +14,7 @@ def _deluge_of_doom() -> list[AbilitySpec]:
         "name": "n",
         "amount": {"kind": "count_selector", "multiply": -1, "selector": {
             "zone": "graveyard", "of": "you", "distinct": "card_type"}},
-        "effects": [{"type": "pump", "params": {"power": "$n", "toughness": "$n", "selector": "all_creatures"}}],
+        "effects": [{"type": "pump", "params": {"power": "$n", "toughness": "$n", "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}}],
     })])]
 
 

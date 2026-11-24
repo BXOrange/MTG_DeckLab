@@ -32,7 +32,7 @@ from .effect_rows.shared import EffectHandler, match_clause_reading
 from .clause_hooks import register_clause_matcher
 from .effect_rows import damage_copy
 from .effect_rows import damage_prevention
-from .effect_rows import draw_discard_cast
+from .effect_rows import draw_discard_cast, edicts, player_restrictions
 from .effect_rows import life_loss
 from .effect_rows import destroy_exile_counter
 from .effect_rows import tap_return_zones
@@ -43,13 +43,15 @@ from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
 from .effect_rows import ability_loss
 from .effect_rows import becomes
-from .effect_rows import assimilate, keyword_actions
+from .effect_rows import assimilate, combat_rules, keyword_actions, reveal_until_other, revealed_piles, separated_piles
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 from .effect_rows import end_of_combat
 from .effect_rows import delayed_steps
 from .effect_rows import duration_bodies
+from .effect_rows import defending_player_chooses
 from .duration_composition import duration_specs
+from .filter_slots import peel_filter_slots
 from .clause_primitives import EXCLUDES_SOURCE_PARAM, TARGET_PARAM_KEYS
 from .subgrammars import OTHER_TARGET_PART_RE, OTHER_THAN_SOURCE_RE
 
@@ -83,6 +85,9 @@ def match_clause(clause: str, *, reading: ClauseReading = STANDALONE) -> Optiona
         effects = object_phrase_specs(clause, reading, _match_registered_clause)
     if effects is None:
         effects = duration_specs(clause, reading)
+    if effects is None:
+        # PAR-281: last, so a quality a row already reads keeps that row's own IR.
+        effects = peel_filter_slots(clause, lambda shorter: match_clause_reading(shorter, reading=reading))
     return _stamp_excludes_source(clause, effects)
 
 
@@ -232,23 +237,30 @@ def _per_player_target_specs(clause: str, reading: ClauseReading) -> Optional[li
 
 HANDLERS: list[EffectHandler] = [
     *damage_copy.ROWS,
+    *edicts.ROWS,  # Full-clause edicts precede the general draw/discard family.
     *draw_discard_cast.ROWS,
     *life_loss.ROWS,
     *destroy_exile_counter.ROWS,
     *tap_return_zones.ROWS,
     *search_control_attach.ROWS,
     *costs_mana_limits.ROWS,
+    *combat_rules.ROWS,
     *counters_blocking.ROWS,
     *pump_stats.ROWS,
     *pump_keywords.ROWS,
     *ability_loss.ROWS,
     *keyword_actions.ROWS,
     *assimilate.ROWS,  # MEC-140: RULE 701.72
+    *reveal_until_other.ROWS,  # PAR-292: RULE 701.20, another player's library dug until a hit
+    *revealed_piles.ROWS,  # PAR-292 M21: RULE 700.3, the top of a library divided into two piles
+    *separated_piles.ROWS,  # PAR-292 M22: RULE 700.3, objects in a public zone divided into two piles
     *tokens_animate_misc.ROWS,
     *party.ROWS,
     *end_of_combat.ROWS,
     *delayed_steps.ROWS,
     *duration_bodies.ROWS,
+    *player_restrictions.ROWS,  # PAR-290: RULE 305.1 / 601.3a one-shot player bars
+    *defending_player_chooses.ROWS,  # PAR-317: RULE 506.2 -- the defending player's own pick
     # PAR-216: last, so it only ever claims clauses no older row reads (the older en-Kor redirect row keeps its IR).
     *damage_prevention.ROWS,
     # PAR-217: last, so it only claims the "becomes" clauses the older animation rows decline (their IR is unchanged).

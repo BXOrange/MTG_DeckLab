@@ -75,6 +75,7 @@ class ObjectSelectionMixin:
             # card from your hand" cost/effect to reuse.
             "exile",
             "exile_until_source_leaves",  # RULE 610.3, selected permanents
+            "exile_face_down",  # PAR-292 M12: "exile one of them face down" from an inspected library window
             "exile_face_down_linked",  # RULE 702.75a Hideaway's selected library card
             # MEC-20 (the "Expertise" cycle): another hand-zone pick, but
             # unlike ``"cast_free"`` this only *arms* the pick's temporary
@@ -132,6 +133,7 @@ class ObjectSelectionMixin:
             # PAR-137: "exile the top two cards … choose 1 of them. You may play that card this turn /
             # until the end of your next turn" — the pick (already in exile) alone gets the permission.
             "grant_temp_play_same_turn", "grant_temp_play_next_turn",
+            "grant_temp_play_standing",
             # MEC-43 round 4D (Kodama of the East Tree — "you may put a
             # permanent card with equal or lesser mana value from your
             # hand onto the battlefield"): a hand-zone pick placed
@@ -530,7 +532,7 @@ class ObjectSelectionMixin:
             # RULE 400.7: a pure selection names the offered visit even
             # while subsequent picks or an undo snapshot are pending.
             "selection_visits": ({str(o.instance_id): o.zone_incarnation for o in pool}
-                                 if action == "select_referent" else None),
+                                 if action in {"select_referent", "grant_temp_play_standing"} else None),
             "remaining": remaining,
             "prompt": f"{label} (noch {remaining})" if count > 1 else label,
             "prompt_base": label,
@@ -767,12 +769,13 @@ class ObjectSelectionMixin:
                 for obj in cards:
                     if obj.instance_id == instance_id:
                         return obj
-        # A spell mid-resolution is in no zone (popped off the stack, not yet routed to its graveyard): its
-        # suspended remainder (RULE 608.2) is where it still lives.
-        if self.state.pending_permanent_entry:
-            obj = self.state.pending_permanent_entry["obj"]
+        # A prospective entrant can be waiting outside the ordinary zones.
+        for obj in (self.state.pending_token_batch or {}).get("objects", ()):
             if obj.instance_id == instance_id:
                 return obj
+        for entry in (self.state.pending_permanent_entry, self.state.pending_token_entry):
+            if entry and entry["obj"].instance_id == instance_id:
+                return entry["obj"]
         for frame in self.state.deferred_effects:
             for candidate in (frame.get("source"), getattr(frame.get("stack_item"), "obj", None)):
                 if candidate is not None and getattr(candidate, "instance_id", None) == instance_id:

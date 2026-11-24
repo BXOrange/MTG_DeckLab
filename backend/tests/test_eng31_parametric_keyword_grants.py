@@ -156,7 +156,7 @@ def test_static_grant_synthesizes_firebending_and_drops_with_source():
     ench.controller_id = "p1"
     state.add_to_battlefield(ench)
     ench.static_effects.extend(build_effects([EffectSpec("grant_keyword", {
-        "affects": "creatures_you_control",
+        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         "parametric_keywords": [{"name": "firebending", "n": 2}],
     })], ench))
 

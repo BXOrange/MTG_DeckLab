@@ -158,11 +158,10 @@ def test_return_from_graveyard_recognizes_any_and_opponent_scope():
 
 
 def test_return_from_graveyard_fails_closed_on_an_unrecognized_shape():
-    # A qualifier this batch doesn't model (exact mana value rather than
-    # "or less", an unmodeled tribal restriction, …) correctly stays
-    # unclaimed rather than guessed at.
+    # A qualifier this batch doesn't model ("or greater" rather than "or less" / exact (PAR-285), an unmodeled tribal
+    # restriction, …) correctly stays unclaimed rather than guessed at.
     assert parse_effect_body(
-        "return target creature card with mana value 2 from your graveyard to the battlefield"
+        "return target creature card with mana value 2 or greater from your graveyard to the battlefield"
     ) is None
     assert parse_effect_body(
         "return target creature card you don't own from your graveyard to the battlefield"
@@ -354,7 +353,7 @@ def test_attach_handler_recognizes_an_equipments_own_etb_self_attach():
 def test_damage_handler_accepts_it_and_this_land_subjects():
     it_form = parse_effect_body("it deals 2 damage to target opponent")[0]
     assert it_form.type == "damage"
-    assert it_form.params == {"amount": 2, "target_kind": "player"}
+    assert it_form.params == {"amount": 2, "target_kind": "opponent"}
     land_form = parse_effect_body("this land deals 2 damage to any target")[0]
     assert land_form.params == {"amount": 2, "target_kind": "any"}
 
@@ -920,7 +919,7 @@ def test_mass_damage_each_creature_hits_every_creature_and_is_lethal_checked():
     engine.check_state_based_actions()  # stamp derived P/T
 
     blast = _spell("Test Blast", "~ deals 2 damage to each creature.",
-                    [EffectSpec("damage", {"amount": 2, "selector": "each_creature"})])
+                    [EffectSpec("damage", {"amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})])
     p1.hand.append(blast)
     engine.cast_spell(p1, blast)
     engine.resolve_top_of_stack()

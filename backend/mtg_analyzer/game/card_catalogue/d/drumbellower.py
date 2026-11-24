@@ -11,7 +11,7 @@ def _drumbellower() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("tap", {"selector": "creatures_you_control", "untap": True})],
+            [EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "untap": True})],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "untap"},
                      "phase_relation": "not_you"},
         ),

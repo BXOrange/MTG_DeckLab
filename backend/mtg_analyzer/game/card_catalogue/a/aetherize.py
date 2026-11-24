@@ -12,7 +12,7 @@ def _aetherize() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("spell_effect", [EffectSpec("return_to_hand", {
-            "selector": "all_creatures", "filter": {"attacking": True},
+            "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"attacking": True},
         })]),
     ]
 

@@ -18,8 +18,8 @@ import copy
 import re
 from typing import Any, Iterable, Optional
 
-from .characteristic_phrase import KEYWORD_WORDS, parse_absent_quality
-from .count_phrase import parse_count_phrase
+from .characteristic_phrase import FLAG_WORDS, KEYWORD_WORDS, parse_absent_quality
+from .count_phrase import parse_amount_phrase, parse_count_phrase
 from .subtype_vocabulary import SUBTYPES
 
 #: The canonical vocabulary of nouns that name a permanent type/group,
@@ -107,6 +107,8 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
     "enchanted": {"enchanted": True},
     "equipped": {"equipped": True},
     "nonattacking": {"attacking": False},
+    # RULE 509.1: the negation of "blocking" (never a subtype called "Blocking").
+    "nonblocking": {"blocking": False},
     "commander": {"is_commander": True},
     # RULE 700.6: legendary supertype, artifact card type or Saga subtype.
     "historic": {"any_of": [{"legendary": True}, {"card_type": "artifact"}, {"subtype": "Saga"}]},
@@ -116,6 +118,11 @@ SCOPE_ADJECTIVES: dict[str, dict] = {
 _NEGATABLE_CARD_TYPES: frozenset[str] = frozenset(
     {"artifact", "creature", "enchantment", "land", "planeswalker", "battle", "instant", "sorcery"}
 )
+
+#: RULE 205.3m's collective terms (`characteristic_phrase.FLAG_WORDS`) -> the creature types each stands for.
+_COLLECTIVE_TYPE_WORDS: dict[str, list[str]] = {
+    word: fragment["subtype_any"] for word, fragment in FLAG_WORDS.items() if "subtype_any" in fragment
+}
 
 #: "non<word>" / "non-<word>" — the negation of a colour, card type or subtype.
 _NON_WORD_RE = re.compile(r"non-?(?P<word>[a-z]+)")
@@ -131,11 +138,19 @@ def scope_adjective(word: str) -> Optional[dict]:
     negated = m.group("word")
     if negated == "snow":  # a supertype (RULE 205.4g), not a subtype
         return {"without_snow": True}
+    if negated == "commander":  # a designation (RULE 903.3), not a subtype called "Commander"
+        return {"is_commander": False}
     if negated in COLOR_LETTERS:
         return {"without_color": [COLOR_LETTERS[negated]]}
     if negated in _NEGATABLE_CARD_TYPES:
         return {"without_card_type": negated}
-    return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+    if negated in _COLLECTIVE_TYPE_WORDS:
+        # RULE 205.3m: "non-outlaw" excludes every creature type the collective term stands for; naming one subtype
+        # "Outlaw" (which no creature has) would exclude nothing.
+        return {"without_subtype": [t.capitalize() for t in _COLLECTIVE_TYPE_WORDS[negated]]}
+    if negated in SUBTYPES:
+        return {"without_subtype": negated.capitalize()}  # "non-Wall", "nonhuman"
+    return None  # fail closed: an unknown "non<word>" must never become a subtype nobody has (it would match everything)
 
 
 #: PAR-141: an adjective before the noun of a targeted creature — "target **nontoken** creature", "target
@@ -183,14 +198,15 @@ def _adjective_alternation() -> str:
 
 TARGET_ADJECTIVE = _adjective_alternation()
 # RULE 115.1: adjective slots compose as an intersection, never a discarded word.
-TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?: (?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
+#: A comma between two negations ("target nonwhite, nonblack creature", Seize the Soul) stacks them like a space does.
+TARGET_ADJECTIVES = rf"(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped)(?:(?: |, (?=non))(?:{TARGET_ADJECTIVE}|attacking|blocking|tapped|untapped))*"
 
 
 def target_adjectives_filter(words: str) -> Optional[dict]:
     if words.lower() == 'werewolf':
         return {}  # the legacy werewolf target kind already carries this restriction
     fragments = []
-    for word in words.lower().split():
+    for word in words.lower().replace(",", " ").split():
         if word in _ADJECTIVE_STATE_WORDS:
             fragment = {"tapped": word != "untapped"} if word in ("tapped", "untapped") else {word: True}
         elif word == "werewolf":
@@ -200,12 +216,21 @@ def target_adjectives_filter(words: str) -> Optional[dict]:
         if fragment is None:
             return None
         fragments.append(fragment)
-    merged = {}
+    merged: dict = {}
     for fragment in fragments:
+        for key in ("without_color", "without_subtype", "without_card_type"):
+            # RULE 105.2 / 205.2a: "nonwhite, nonblack" excludes both -- the matcher reads each key as a list.
+            if key in fragment and key in merged:
+                merged[key] = [*_as_list(merged[key]), *_as_list(fragment[key])]
+                fragment = {k: v for k, v in fragment.items() if k != key}
         if any(k in merged and merged[k] != v for k, v in fragment.items()):
             return {"all_of": fragments}
         merged.update(fragment)
     return merged
+
+
+def _as_list(value) -> list:
+    return list(value) if isinstance(value, (list, tuple, set)) else [value]
 
 
 
@@ -458,7 +483,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # the controller.
     (r"target opponent or planeswalker", "opponent_or_planeswalker"),
     (r"target player or planeswalker", "player_or_planeswalker"),
-    (r"target opponent", "player"),
+    # RULE 102.3 / 115.1: an opponent is another player, so the controller is never a legal pick.
+    (r"target opponent", "opponent"),
     (r"target player", "player"),
 ]
 #: Deliberately no "each opponent"/"each player" row: RULE 115 targeting
@@ -543,8 +569,35 @@ _ISNT_A_TAIL = r" that isn'?t an? [a-z]+"
 #: (a different shape) and is deliberately outside it.
 #: Ungrouped here (the tail is embedded in handler regexes that may carry two `TARGET`s); `_STAT_BOUND_RE` reads it.
 _DYNAMIC_POWER_TAIL = r" with power less than(?: or equal to)? (?:the number of [a-z]+ you control|~'s power)"
-_STAT_BOUND_TAIL = rf"(?: with (?:power|toughness) \d+ or (?:less|greater)|{_DYNAMIC_POWER_TAIL})"
-_STAT_BOUND_RE = re.compile(r" with (?P<stat>power|toughness) (?P<stat_n>\d+) or (?P<stat_cmp>less|greater)", re.IGNORECASE)
+#: PAR-285: "with power/toughness **X or less**" -- X is the spell's/ability's announced {X} (RULE 107.3, Gang Up,
+#: Entrancing Lyre); read back as ``max_<stat>_from_source_x`` (`targeting.SOURCE_X_STAT_BOUND_KEYS`).
+#: PAR-285: the measured-amount sibling of the literal bound ("target creature with power less than or equal to the
+#: number of treasure counters on ~", Legacy's Allure; "power greater than or equal to your life total", Blazing Hope):
+#: either stat, either direction, the bound any `count_phrase.parse_amount_phrase` amount that is a plain count of the
+#: ability's controller's things. Read back as ``stat_count_bound`` (`combat.matches_object_filter`, RULE 208.1).
+_STAT_COUNT_AMOUNT = (
+    r"(?:the number of [a-z0-9+/' -]+? (?:you control|on ~|on it|in your (?:hand|graveyard|library))"
+    r"|your life total|your devotion to [a-z]+)"
+)
+_STAT_COUNT_BOUND_TAIL = rf" with (?:power|toughness) (?:less|greater) than(?: or equal to)? {_STAT_COUNT_AMOUNT}"
+_STAT_COUNT_BOUND_RE = re.compile(
+    rf" with (?P<stat>power|toughness) (?P<dir>less|greater) than(?P<inclusive> or equal to)? (?P<amount>{_STAT_COUNT_AMOUNT})",
+    re.IGNORECASE,
+)
+#: PAR-285: "target creature with power **or** toughness 4 or greater" is a disjunction (either stat meets the bound,
+#: RULE 208.1; Repel Calamity, Warping Wail), and "with **total** power and toughness 5 or less" bounds their sum
+#: (Cut Down). Read back as ``min|max_power_or_toughness`` / ``min|max_total_power_toughness``.
+_STAT_JOINT_BOUND_TAIL = r" with (?:power or toughness|total power and toughness) \d+ or (?:less|greater)"
+_STAT_JOINT_BOUND_RE = re.compile(
+    r" with (?P<joint>power or toughness|total power and toughness) (?P<n>\d+) or (?P<cmp>less|greater)", re.IGNORECASE,
+)
+_STAT_BOUND_TAIL = (
+    rf"(?: with (?:power|toughness) (?:\d+ or (?:less|greater)|x or less)|{_DYNAMIC_POWER_TAIL}"
+    rf"|{_STAT_COUNT_BOUND_TAIL}|{_STAT_JOINT_BOUND_TAIL})"
+)
+_STAT_BOUND_RE = re.compile(
+    r" with (?P<stat>power|toughness) (?:(?P<stat_n>\d+) or (?P<stat_cmp>less|greater)|(?P<stat_x>x) or less)", re.IGNORECASE,
+)
 TARGET_QUALITY_TAIL = (
     r"(?: (?:without|that doesn't have|that has no) "
     rf"(?:(?:{_QUALITY_KEYWORDS})|(?:an? )?(?:(?:\+1/\+1|-1/-1|[a-z]+) )?counters? on it)"
@@ -917,6 +970,23 @@ def target_quality_filter(phrase: str) -> dict:
             else:
                 selector = parse_count_phrase(quality.group(0).split("the number of ", 1)[1])
                 fragment["power_le_count_selector" if inclusive else "power_lt_count_selector"] = selector
+        elif _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)):
+            counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0))
+            selector = parse_amount_phrase(counted.group("amount"))
+            if selector is not None:
+                fragment["stat_count_bound"] = {
+                    "stat": counted.group("stat").lower(),
+                    "cmp": ("le" if counted.group("inclusive") else "lt") if counted.group("dir").lower() == "less"
+                    else ("ge" if counted.group("inclusive") else "gt"),
+                    "selector": selector,
+                }
+        elif _STAT_JOINT_BOUND_RE.fullmatch(quality.group(0)):
+            joint = _STAT_JOINT_BOUND_RE.fullmatch(quality.group(0))
+            bound = "min" if joint.group("cmp").lower() == "greater" else "max"
+            name = "power_or_toughness" if joint.group("joint").lower() == "power or toughness" else "total_power_toughness"
+            fragment[f"{bound}_{name}"] = int(joint.group("n"))
+        elif stat is not None and stat.group("stat_x"):
+            fragment[f"max_{stat.group('stat').lower()}_from_source_x"] = True
         elif stat is not None:
             bound = "min" if stat.group("stat_cmp").lower() == "greater" else "max"
             fragment[f"{bound}_{stat.group('stat').lower()}"] = int(stat.group("stat_n"))
@@ -952,6 +1022,9 @@ def resolve_target_kind(phrase: str) -> Optional[str]:
         base = resolve_target_kind(rest)
         if base == "attacking_or_blocking_creature" and rest.strip().lower() == _AOB_BARE_PHRASE:
             base = "creature"  # PAR-246: a qualified pair is the creature pool + the filter flag
+        counted = _STAT_COUNT_BOUND_RE.fullmatch(quality.group(0)) if quality is not None else None
+        if counted is not None and parse_amount_phrase(counted.group("amount")) is None:
+            return None  # an amount the engine cannot measure must not become a silently dropped bound
         if (quality is not None and re.fullmatch(_DYNAMIC_POWER_TAIL, quality.group(0), re.IGNORECASE)
                 and "the number of " in quality.group(0)
                 and parse_count_phrase(quality.group(0).split("the number of ", 1)[1]) is None):
@@ -1133,7 +1206,12 @@ IF_COLOR_SUFFIX = rf"(?: if it'?s (?P<cond_color>{_COLOR_ALT}))?"
 #: battle spell" (Assimilate Essence) — a battle *is* castable, so a battle
 #: spell is a legal thing to filter for. Kept in sync with `game/targeting.
 #: _spell_matches_filter`'s ``type_checks`` keys by `tests/test_counter_family.py`.
-_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery)"
+#: PAR-285: "aura" for "counter target creature or Aura spell" (Nullify): an Aura spell is an enchantment spell with the Aura
+#: subtype, so it is its own entry of the OR list (`targeting._spell_matches_filter`).
+_SPELL_TYPE_WORD = r"(?:artifact|battle|creature|enchantment|instant|planeswalker|sorcery|aura)"
+#: PAR-285: the "non<word>" negation slot's card-type words ("nonartifact spell"); a colour or a creature subtype
+#: ("non-Faerie") is the other legal word (validated in `resolve_spell_filter`).
+_SPELL_NON_TYPE_WORDS = ("artifact", "enchantment", "instant", "sorcery", "planeswalker", "battle")
 #: An "or"/comma-separated list of 1+ type words: "creature", "instant or
 #: sorcery", "artifact, creature, or planeswalker".
 _SPELL_TYPE_LIST = (
@@ -1159,8 +1237,11 @@ _SPELL_SUBTYPE_LIST = (
 #: both), so a handler only needs to check whichever group is set.
 _SPELL_TARGET_BODY = (
     r"target "
-    rf"(?:(?P<color>{_COLOR_ALT})\s+)?"
+    # PAR-285: "red or green spell" (Flashfreeze): a spell of either colour.
+    rf"(?:(?P<color>{_COLOR_ALT})(?: or (?P<color2>{_COLOR_ALT}))?\s+)?"
     r"(?:(?P<noncreature>noncreature)\s+)?"
+    # PAR-285: "nonblue spell" (Frazzle), "nonartifact spell" (Revolutionary Rebuff), "non-Faerie spell" (Faerie Trickery).
+    r"(?:non-?(?P<nonword>[a-z]+)\s+)?"
     rf"(?:(?P<subtypes>{_SPELL_SUBTYPE_LIST})\s+|(?P<types>{_SPELL_TYPE_LIST})\s+)?"
     r"spell"
     # Controller and mana-value restrictions compose in either printed order.
@@ -1194,7 +1275,24 @@ def resolve_spell_filter(phrase: str) -> Optional[dict[str, Any]]:
         return None
     filt: dict[str, Any] = {}
     if m.group("color"):
-        filt["color"] = resolve_color_word(m.group("color"))
+        if m.group("color2"):
+            pair = [resolve_color_word(m.group("color")), resolve_color_word(m.group("color2"))]
+            if None in pair:
+                return None
+            filt["color_any"] = pair
+        else:
+            filt["color"] = resolve_color_word(m.group("color"))
+    nonword = m.group("nonword")
+    if nonword:
+        # RULE 105.2 / 205.2a / 205.3: the negated word is a colour, a card type or a creature subtype, nothing else.
+        if resolve_color_word(nonword):
+            filt["non_color"] = resolve_color_word(nonword)
+        elif nonword in _SPELL_NON_TYPE_WORDS:
+            filt["without_card_types"] = [nonword]
+        elif nonword in SUBTYPES:
+            filt["without_subtype"] = nonword.capitalize()
+        else:
+            return None
     if m.group("noncreature"):
         filt["noncreature"] = True
     if m.group("types"):

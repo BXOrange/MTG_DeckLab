@@ -27,6 +27,7 @@ from .misc_helpers import (
     _matches_permanent_type,
     _creature_type_options,
 )
+from .amount_payment_mixin import AmountPaymentMixin
 from .payment_choices_mixin import PaymentChoicesMixin
 from .voting_mixin import VotingMixin
 from .resolution_choices_mixin import ResolutionChoicesMixin
@@ -44,6 +45,7 @@ from .player_costs_mixin import PlayerCostsMixin
 
 class MiscSystemsMixin(
     PaymentChoicesMixin,
+    AmountPaymentMixin,
     VotingMixin,
     ResolutionChoicesMixin,
     SourceChoicesMixin,

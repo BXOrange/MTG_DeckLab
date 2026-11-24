@@ -15,7 +15,7 @@ def _assault_formation() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("combat_restriction", {
-            "kind": "damage_uses_toughness", "affects": "creatures_you_control",
+            "kind": "damage_uses_toughness", "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
         })]),
         AbilitySpec(
             "activated",

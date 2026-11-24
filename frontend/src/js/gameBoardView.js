@@ -18,106 +18,34 @@
 import { getState } from './state.js';
 import { getBoardLayout } from './boardLayout.js';
 import { getGameAudio, gameAudioEvents } from './gameAudio.js';
-import { sendGameAction, rewindGame, cardImageUrl, saveUiDraft, GENERIC_TOKEN_KEY } from './api.js';
+import { sendGameAction, rewindGame, saveUiDraft } from './api.js';
 import { getCookie, setCookie } from './cookies.js';
 import { getBoardScale, onBoardScaleChange } from './boardScale.js';
 import { bannerColorLabel, bannerStyle } from './bannerColors.js';
 import { MANA_SYMBOL_EMOJI, renderOracleText } from './cardTile.js';
-import {
-  getBotSpeedMs,
-  getShowOpponentHand,
-  getCompactView,
-  getStopsPref,
-  setStopsPref,
-  saveSettings,
-} from './settings.js';
-import { t, tPlural } from './i18n.js';
+import { getBotSpeedMs, getCompactView, saveSettings } from './settings.js';
+import { t } from './i18n.js';
 import { serverErrorText } from './serverError.js';
 import { setHeaderMessage } from './headerMessage.js';
 
-const TABLE_EMOTES = ['👍', '👏', 'GG', '🤔', '⏳']; // Quick table reactions.
-const EMOJI_CATEGORIES = [
-  { key: 'faces', icon: '😀', emoji: '😀 😃 😄 😁 😆 😅 😂 🤣 😊 🙂 🙃 😉 😍 🥰 😘 😎 🤓 🧐 🤔 🤨 😐 😑 🙄 😏 😴 🤯 🥳 😇 😈 😬 😱 😭 😢 😤 😡 🤬 🥺 🫡 🤗 🤫 🤭 🫠 🫢 🫣 🤩 😋 🤤 🤮 🤒 🥶 🥵 💀 👻 👽 🤖 💩'.split(' ') },
-  { key: 'gestures', icon: '👋', emoji: '👋 🤚 ✋ 🖐️ 🖖 👌 🤌 🤏 ✌️ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝️ 👍 👎 ✊ 👊 🤛 🤜 👏 🙌 👐 🤲 🤝 🙏 💪 🦾 🫶 🫵 ✍️ 👀 🧠 👑 🧙 🧝 🧛 🧟 🧚 🦸 🦹 👩‍💻 👨‍💻 👩‍🚀 👨‍🚀'.split(' ') },
-  { key: 'nature', icon: '🐱', emoji: '🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🦉 🦇 🐺 🐗 🐴 🦄 🐝 🦋 🐌 🐞 🦂 🕷️ 🐢 🐍 🦎 🐉 🐲 🦖 🦕 🐙 🦑 🦀 🐠 🦈 🐬 🐳 🌵 🌲 🌳 🌴 🌱 🍀 🍄 🌹 🌻 🌞 🌙 ⭐ 🌈 🔥 💧 ❄️ ⚡ 🌪️'.split(' ') },
-  { key: 'food', icon: '🍕', emoji: '🍏 🍎 🍐 🍊 🍋 🍌 🍉 🍇 🍓 🫐 🍒 🍑 🥭 🍍 🥝 🥑 🥦 🥕 🌽 🌶️ 🥔 🍞 🥐 🥨 🧀 🍳 🥞 🥓 🍔 🍟 🍕 🌭 🌮 🌯 🍜 🍣 🍙 🍤 🍦 🍩 🍪 🎂 🍰 🍫 🍿 ☕ 🍵 🧋 🍺 🍻 🥂 🍷 🧃 🥤'.split(' ') },
-  { key: 'objects', icon: '🎲', emoji: '🎲 🃏 🎴 ♟️ 🎯 🏆 🥇 🎮 🕹️ 🎭 🎨 🎸 🎵 🎶 🎧 🎤 🎬 📷 📱 💻 💡 🔦 🕯️ 📚 📖 📜 ✉️ 📦 🎁 🎈 🎉 🎊 🪄 🔮 🧿 💎 💰 🪙 ⚔️ 🛡️ 🏹 🪓 🔨 🔧 ⚙️ 🧪 ⚗️ 🧬 💣 🧨 🚀 🛸 🏰 🏔️ 🗺️ ⛵ ✈️ 🏎️ ⏳ ⌛ ⏰'.split(' ') },
-  { key: 'symbols', icon: '❤️', emoji: '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 🩷 🩵 🩶 💔 ❤️‍🔥 💕 💞 💓 💗 💖 💘 💝 💯 💢 💥 💫 💦 💤 ✅ ❌ ❎ ❗ ❓ 🛑 🚸 ⚠️ 🚫 ⛔ 🔴 🟠 🟡 🟢 🔵 🟣 ⚫ ⚪ 🟤 🔺 🔻 🔶 🔷 ✨ ♻️ ♾️ ⚔️ 🏳️ 🏴 🏳️‍🌈 🇩🇪 🇦🇹 🇨🇭 🇺🇸 🇬🇧 🇫🇷 🇪🇸 🇮🇹 🇯🇵 🇨🇦 🇧🇷 🇦🇺'.split(' ') },
-];
+import { boardOrder, createBoardLayout, planechaseHtml as renderPlanechase } from './gameBoard/boardLayout.js';
+import { wireBoardGeometry as installBoardGeometry } from './gameBoard/boardGeometry.js';
+import { createBoardChat } from './gameBoard/boardChat.js';
+import { createPriorityController } from './gameBoard/priorityController.js';
+import { createPlayerBoardRenderer } from './gameBoard/playerBoards.js';
+import { escapeHtml, escapeAttr } from './gameBoard/html.js';
+import { STEP_LABELS, labelPhase, labelStep, SELECTION_KINDS } from './gameBoard/labels.js';
+import { expandMultiTargetRequirements, defenderPayload, xKey, kickerKey } from './gameBoard/castForm.js';
+import { stackItemSig, ghostItemName, syntheticStackItemFromMoveLabel } from './gameBoard/stackView.js';
+import { zoneListHtml, restrictedManaHtml, positionEffectPopover, measurementValue, triggerOptionKey } from './gameBoard/miscHtml.js';
+import { castTargetHtml, manaPotentialHtml } from './gameBoard/cardForms.js';
+import { staticEffectsPanelHtml, playerCountersHtml, commanderDamageHtml } from './gameBoard/playerPanels.js';
+import { createCastController } from './gameBoard/castController.js';
+import { createCardRenderer } from './gameBoard/cardRenderer.js';
+import { createDragController } from './gameBoard/dragController.js';
+import { createChoiceRenderer } from './gameBoard/choices.js';
+
 const CHAT_BOTTOM_THRESHOLD_PX = 24; // Keep reading position unless near the newest message.
-
-const PHASE_LABELS = {
-  beginning: t('bd.phase.beginning'),
-  precombat_main: t('bd.phase.precombat_main'),
-  combat: t('bd.phase.combat'),
-  postcombat_main: t('bd.phase.postcombat_main'),
-  ending: t('bd.phase.ending'),
-};
-const STEP_LABELS = {
-  untap: t('bd.step.untap'),
-  upkeep: t('bd.step.upkeep'),
-  draw: t('bd.step.draw'),
-  main1: t('bd.step.main1'),
-  begin_combat: t('bd.step.begin_combat'),
-  declare_attackers: t('bd.step.declare_attackers'),
-  declare_blockers: t('bd.step.declare_blockers'),
-  first_strike_damage: t('bd.step.first_strike_damage'),
-  combat_damage: t('bd.step.combat_damage'),
-  end_combat: t('bd.step.end_combat'),
-  main2: t('bd.step.main2'),
-  end: t('bd.step.end'),
-  cleanup: t('bd.step.cleanup'),
-  // Not a real step name on its own — `DelayedTrigger.step` uses this for
-  // "your next main phase" (Mana Drain-shaped), matching whichever of
-  // main1/main2 begins first (`GameEngine._fire_delayed_triggers`).
-  main: t('bd.step.main'),
-};
-function labelPhase(name) {
-  return PHASE_LABELS[name] || name || '—';
-}
-function labelStep(name) {
-  return STEP_LABELS[name] || name || '—';
-}
-
-// Icon per choice kind — search, cascade and discover share the same
-// "answer one of these options" shape, so one renderer covers them.
-// Kinds answered with a checkbox subset (`selection_id` + `option_ids`); they share one draft.
-const SELECTION_KINDS = new Set(['proliferate', 'graveyard_replacement']);
-
-const CHOICE_ICONS = {
-  proliferate: '🌱', graveyard_replacement: '⚖️', search: '🔎', cascade: '🌊', discover: '🔮', replacement_order: '⚖️',
-  land_tapped: '💧', land_tapped_reveal: '💧', order_triggers: '🔀', trigger_target: '🎯', opponent_target: '🎯', opponent_chooser: '🧑‍⚖️',
-  opponent_sacrifice_chooser: '🧑‍⚖️',
-  enter_as_copy: '🪞', counter_unless_pays: '🚫', ward: '🛡️', trigger_doubler_tap: '🔁',
-  flicker_return_timing: '🔁',
-  commander_zone: '👑', trigger_mode: '🎭', add_mana_any_color: '💎', door_choice: '🚪',
-  choose_creature_type: '🐾', choose_color: '🎨', choose_basic_land_type: '🗺️', read_ahead: '📜',
-  // PAR-203 (RULE 608.2d): "choose a creature type / color / card name" made as a spell or ability resolves.
-  choose_for_source: '🏷️',
-  scry: '🔮', reorder_top: '🔮', look_hand: '👁️', surveil: '🕵️', clash: '⚔️', opening_hand_battlefield: '🌅', dredge: '⚰️',
-  explore_bin: '🧭', populate: '🌱', bolster: '💪', blight: '🥀', endure: '🕊️', recruit: '🎖️',
-  // PAR-148: which defender a creature put into combat attacks / who takes "that player or a planeswalker" damage.
-  reselect_attack: '⚔️', damage_recipient: '🎯',
-  meteor_permanent: '☄️',
-  // MEC-108: "your choice of a flying counter or a lifelink counter" — at resolution / as it enters.
-  counter_kind: '🏷️', choose_enter_counter: '🏷️', riot: '🏷️', tribute: '🏷️', tribute_opponent: '👥',
-  // Explorer's Scope's "look at the top card, if it's a land you may put
-  // it onto the battlefield tapped" (bug report, 2026-09-04).
-  peek_top_land: '🔭',
-  // RULE 701.38 vote / RULE 701.55 villainous choice (MEC-46 / ENG-33).
-  vote: '🗳️', vote_object: '🗳️', villainous_choice: '😈',
-  // RULE 724 / Word of Command — pick a card from the target's hand (MEC-51b).
-  word_of_command: '🗣️',
-};
-
-// VIS-13: the player-state zones whose cards have no controller, so a target
-// candidate found there is tagged with its owner instead.
-const TARGET_OWNER_ZONES = ['graveyard', 'exile', 'hand', 'command'];
-// Pending-choice kinds that are RULE 115 target selections (an ability's
-// target, picked from the generic choice popup) — the ones whose candidates
-// can also be clicked on the board once the popup is pushed aside (VIS-14).
-// MEC-118: `opponent_target` is the same pick made by the opponent a spell's controller named ("of an opponent's choice").
-const TARGET_CHOICE_KINDS = new Set(['trigger_target', 'trigger_target_multi', 'copy_targets', 'opponent_target']);
 
 /**
  * @param {object} [opts]
@@ -171,15 +99,6 @@ export function createGameBoardView(opts = {}) {
   // never changes game zones. Keyed by `data-order-zone`.
   const zoneOrder = new Map();
 
-  // `objs` in the player's own drag-and-drop order for `zoneKey`; cards the
-  // order doesn't know yet (just drawn / entered) go to the end.
-  function orderedByLocal(zoneKey, objs) {
-    const byId = new Map(objs.map((o) => [o.instance_id, o]));
-    const order = (zoneOrder.get(zoneKey) || []).filter((id) => byId.has(id));
-    for (const o of objs) if (!order.includes(o.instance_id)) order.push(o.instance_id);
-    zoneOrder.set(zoneKey, order);
-    return order.map((id) => byId.get(id));
-  }
   let dragHandlersInstalled = false;
   let busy = false;
   let status = '';
@@ -263,6 +182,189 @@ export function createGameBoardView(opts = {}) {
   const attackMenuOpen = new Set();
   let attackDraft = new Map();
   let attackDraftKey = null;
+
+  // Live view of board state for the extracted renderers (see gameBoard/choices.js).
+  const boardCtx = {
+    get view() { return view; },
+    get busy() { return busy; },
+    get proliferateDraft() { return proliferateDraft; },
+    set proliferateDraft(value) { proliferateDraft = value; },
+    get measurementDraft() { return measurementDraft; },
+    set measurementDraft(value) { measurementDraft = value; },
+    get choiceTextDraft() { return choiceTextDraft; },
+    set choiceTextDraft(value) { choiceTextDraft = value; },
+    get replacementOrderDraft() { return replacementOrderDraft; },
+    set replacementOrderDraft(value) { replacementOrderDraft = value; },
+    get triggerOrderDraft() { return triggerOrderDraft; },
+    set triggerOrderDraft(value) { triggerOrderDraft = value; },
+    seatStatus,
+    get dragHandlersInstalled() { return dragHandlersInstalled; },
+    set dragHandlersInstalled(value) { dragHandlersInstalled = value; },
+    get dragSource() { return dragSource; },
+    set dragSource(value) { dragSource = value; },
+    get latestByInstance() { return latestByInstance; },
+    set latestByInstance(value) { latestByInstance = value; },
+    confirmReplacementOrder, confirmTriggerOrder,
+    prepareCastTargeting: (...args) => prepareCastTargeting(...args),
+    get abilitySourceInstanceIds() { return abilitySourceInstanceIds; },
+    set abilitySourceInstanceIds(value) { abilitySourceInstanceIds = value; },
+    get assetsSleeveImageUrl() { return assetsSleeveImageUrl; },
+    set assetsSleeveImageUrl(value) { assetsSleeveImageUrl = value; },
+    get attackDraft() { return attackDraft; },
+    set attackDraft(value) { attackDraft = value; },
+    get attackMenuOpen() { return attackMenuOpen; },
+    get cardMenuSerial() { return cardMenuSerial; },
+    set cardMenuSerial(value) { cardMenuSerial = value; },
+    get compactView() { return compactView; },
+    set compactView(value) { compactView = value; },
+    get expandedZones() { return expandedZones; },
+    get flippedForView() { return flippedForView; },
+    get mutualTargetPairIds() { return mutualTargetPairIds; },
+    set mutualTargetPairIds(value) { mutualTargetPairIds = value; },
+    get priority() { return priority; },
+    get resolvedGhosts() { return resolvedGhosts; },
+    set resolvedGhosts(value) { resolvedGhosts = value; },
+    get targetedInstanceIds() { return targetedInstanceIds; },
+    set targetedInstanceIds(value) { targetedInstanceIds = value; },
+    get threeRows() { return threeRows; },
+    set threeRows(value) { threeRows = value; },
+    get tokenImages() { return tokenImages; },
+    set tokenImages(value) { tokenImages = value; },
+    get zoneOrder() { return zoneOrder; },
+    updateTargetOverlays, withBusy,
+    get root() { return root; },
+    get castTargeting() { return castTargeting; },
+    set castTargeting(value) { castTargeting = value; },
+    get castTargetAside() { return castTargetAside; },
+    set castTargetAside(value) { castTargetAside = value; },
+    get choiceAside() { return choiceAside; },
+    act, persistCastTargetingDraft, readKicker, readKickerAnnouncement, readKickerX, readReplicate, readX, render,
+    requirementOwnerIndexForOption, selectedKickerAction, setStatus, submitManaActivation,
+    wire: () => wire(),
+    targetControllerChipHtml: (option) => targetControllerChipHtml(option),
+    playerName: (id) => playerName(id),
+  };
+  const {
+    playerName,
+    targetControllerChipHtml,
+    pendingChoiceHtml,
+    replacementOrderHtml,
+    triggerOrderHtml,
+  } = createChoiceRenderer(boardCtx);
+  const {
+    finishCastIfReady,
+    wireCostPayments,
+    pickablesForBoard,
+    findTargetableAction,
+    wireCastForms,
+    prepareCastTargeting,
+    castTargetModalHtml,
+    wirePickTargets,
+  } = createCastController(boardCtx);
+  const {
+    wireCardActionsAndDrag,
+  } = createDragController(boardCtx);
+  const {
+    battlefieldHtml,
+    objGrid,
+    handAreaHtml,
+    resolveImageUrl,
+    showsBackFace,
+    stackItemHtml,
+    railStackHtml,
+    faceDownCardHtml,
+    collapsibleZoneHtml,
+    blindSideboardHtml,
+  } = createCardRenderer(boardCtx);
+
+  const priority = createPriorityController({
+    getView: () => view,
+    getRoot: () => root,
+    getBusy: () => busy,
+    getSessionId: () => sessionId,
+    getAttackDraftSize: () => attackDraft.size,
+    act,
+    staticEffectsButtonHtml,
+    t,
+    escapeHtml,
+    escapeAttr,
+    stepLabels: STEP_LABELS,
+  });
+  const {
+    actingSeat,
+    cancelAutoPassForThisWindow,
+    clearSkipAttempt,
+    hasPriority,
+    interactivePriority,
+    paintCountdown,
+    passButtonHtml,
+    priorityBadgeHtml,
+    priorityControlsHtml,
+    railStopsHtml,
+    railTimerHtml,
+    resetSession: resetPrioritySession,
+    syncAutoPass,
+    updateTimerSeconds,
+    wireStopsPanel,
+    yieldBadgeHtml,
+    yieldButtonsHtml,
+  } = priority;
+  const { podGrid, zonesSideFor } = createBoardLayout({
+    getView: () => view,
+    podGridMedia,
+    getZonesInside: () => zonesInside,
+  });
+  const { boardsHtml } = createPlayerBoardRenderer({
+    getView: () => view,
+    getBusy: () => busy,
+    seatStatus,
+    transport,
+    t,
+    escapeHtml,
+    escapeAttr,
+    bannerStyle,
+    bannerColorLabel,
+    interactivePriority,
+    yieldBadgeHtml,
+    priorityBadgeHtml,
+    manaPoolHtml,
+    manaPotentialHtml,
+    lifeBox,
+    playerCountersHtml: (p, s) => playerCountersHtml(p, s, view),
+    podGrid,
+    zonesSideFor,
+    getMoreBattlefield: () => moreBattlefield,
+    objGrid,
+    faceDownCardHtml,
+    knownLibraryHtml,
+    libraryTopHtml,
+    collapsibleZoneHtml,
+    zoneListHtml,
+    blindSideboardHtml,
+    getThreeRows: () => threeRows,
+    battlefieldHtml,
+    handAreaHtml,
+  });
+  const chat = createBoardChat({
+    getView: () => view,
+    getSessionId: () => sessionId,
+    getTransport: () => transport,
+    getRoot: () => root,
+    applyView,
+    render,
+    resolveImageUrl,
+    t,
+    escapeHtml,
+    escapeAttr,
+    renderOracleText,
+  });
+  const {
+    chatPanelHtml,
+    resetSession: resetChatSession,
+    revealPopupHtml,
+    updateRevealPopup,
+    wireEvents: wireChatEvents,
+  } = chat;
   // Friedhof / Exil zone bodies the player has expanded. Both zones are
   // collapsed to just their header by default so a full graveyard (60+
   // entries) can't stretch the fixed-width side column and push the rest of
@@ -337,213 +439,6 @@ export function createGameBoardView(opts = {}) {
     }
     abilitySourceInstanceIds = sourceIds;
   }
-  // --- "Time to react" countdown (RULE 117, interactive-priority sessions) ---
-  // This is a *response* clock, not a turn clock: it always runs while this
-  // client holds priority **on another player's turn**, and on your **own**
-  // turn it runs only in the windows where you're genuinely just watching —
-  // something on the stack to respond to, or the passive upkeep/draw/end
-  // steps (`reactTimerSuppressedHere`). It stays out of your own main
-  // phases and combat, where you're the one developing the board/attacking
-  // (RULE 117) and a half-finished turn must not tick away under you; a
-  // genuinely absent active player is the server idle-timeout's job
-  // (`MTG_MULTIPLAYER_IDLE_TIMEOUT`), not this. When it does run, the left
-  // rail shows a shrinking progress bar and the remaining seconds; at zero
-  // it passes for you. It is deliberately *not* silent, and any interaction
-  // with the board — or the explicit "interrupt" button — cancels it for
-  // that window. The number of seconds is a server setting
-  // (`view.priority.timer_seconds`, `config.MULTIPLAYER_SPELL_TIMER_SECONDS`,
-  // per-table overridable); 0 turns the countdown off entirely (manual
-  // passing only).
-  let autoPassSeconds = 0;
-  let autoPassTimer = null;
-  let autoPassRemaining = 0;
-  //: Set once the player touches the board during a priority window; the
-  //: countdown doesn't restart until they next *gain* priority.
-  let autoPassCancelled = false;
-  //: Which priority window the current countdown belongs to, so a repaint
-  //: that doesn't change whose turn it is doesn't restart the clock.
-  let autoPassWindowKey = null;
-
-  // --- Auto-skip empty priority windows ---------------------------------
-  //: A priority window that offers *nothing but* `pass_priority` is passed
-  //: straight through, unconditionally — no countdown, since there is by
-  //: definition nothing to interrupt, and it chains through consecutive
-  //: empty windows one render at a time (`skipEmptyArmed`/`syncAutoPass`).
-  //: The priority window a skip was already *attempted* for
-  //: (`priorityWindowKey()`) — the multiplayer transport intentionally
-  //: returns no fresh `data` from `act()` (see multiplayerView.js: it
-  //: waits for the socket push instead, so it never paints a reply that's
-  //: already stale by the time it arrives), so `view` — and therefore this
-  //: window's key — can stay exactly as it was across several renders
-  //: while the real pass is still in flight to the server and back over
-  //: the socket. Without this guard, every one of those renders would see
-  //: the *same* "nothing to do here" window and fire another
-  //: `pass_priority`, as fast as the JS event loop allows, instead of
-  //: firing once and then genuinely waiting — which is what made casting
-  //: feel "impossible": the resulting flood of redundant (and, once the
-  //: real pass lands server-side, failing) requests kept re-rendering the
-  //: board out from under a click before it could register.
-  let skipAttemptedForKey = null;
-
-  /** Whether this client currently has a choice worth stopping for. */
-  function hasMeaningfulAction() {
-    return (view?.legal_actions || []).some((a) => a.type !== 'pass_priority');
-  }
-
-  /**
-   * Whether a priority window with *nothing to do* should be passed straight
-   * through right now. Always on for an interactive session (there is by
-   * definition nothing to interrupt), so the countdown bar only ever runs on
-   * a window where the player actually has a choice.
-   */
-  function skipEmptyArmed() {
-    if (!interactivePriority() || !hasPriority()) return false;
-    const s = view.state;
-    if (s.game_over || s.pending_choice || busy) return false;
-    return !hasMeaningfulAction();
-  }
-
-  //: On your own turn with an empty stack, the countdown still runs in
-  //: these passive steps — upkeep, draw and the end step, where you're
-  //: mostly just watching for a reason to act rather than developing the
-  //: board. (Untap/cleanup give nobody priority — RULE 117.3a — so they
-  //: never reach this check at all.)
-  const OWN_TURN_TIMER_STEPS = new Set(['upkeep', 'draw', 'end']);
-
-  /**
-   * Whether the "time to react" countdown should be silent for the window
-   * this client currently holds. Never on another player's turn. On your
-   * **own** turn it's suppressed unless there's something on the stack to
-   * respond to, or the current step is one of `OWN_TURN_TIMER_STEPS` — your
-   * main phases and combat always suppress it (RULE 117: you're the one
-   * acting there, not reacting).
-   */
-  function reactTimerSuppressedHere() {
-    const mine = actingSeat();
-    const s = view?.state;
-    if (!mine || !s || s.active_player_id !== mine) return false;
-    if (s.stack && s.stack.length > 0) return false;
-    return !OWN_TURN_TIMER_STEPS.has(s.current_step);
-  }
-
-  /** Whether the countdown should be running right now. */
-  function autoPassArmed() {
-    if (autoPassCancelled || autoPassSeconds <= 0) return false;
-    if (!interactivePriority() || !hasPriority()) return false;
-    const s = view.state;
-    if (s.game_over || s.pending_choice || busy) return false;
-    if (reactTimerSuppressedHere()) return false;
-    return true;
-  }
-
-  // --- "Pass this turn" / "Skip to end step" (VIS-12) -----------------------
-  //: A one-shot *yield* lives on the server (`GameSession._yields`, shown to
-  //: everyone as `view.priority.yields`): "Pass this turn" (an opponent's
-  //: turn) has the server pass this seat's priority windows until that turn
-  //: ends, "Skip to end step" (your own turn) up to the end step; either
-  //: stops passing the moment another player has a spell or ability on
-  //: the stack to respond to. Nothing is armed client-side any more, so a
-  //: reload, a second tab and a Solo bot's reply all see the same state.
-  //: Whether this session's saved stops were already offered to the server
-  //: (reset per game), and whether the rail's stops panel is expanded.
-  let stopsSynced = false;
-  let stopsPanelOpen = false;
-
-  /** The yield this seat has armed (`turn`/`end_step`), or null. */
-  function myYield() {
-    const seat = actingSeat();
-    return (seat && view?.priority?.yields?.[seat]) || null;
-  }
-
-  /** A key identifying the current priority window (see `autoPassWindowKey`). */
-  function priorityWindowKey() {
-    const s = view?.state;
-    if (!s) return null;
-    return [
-      s.internal_turn.number,
-      s.current_step,
-      view.priority?.player_id,
-      (view.priority?.passed || []).join(','),
-      s.stack.length,
-    ].join('|');
-  }
-
-  function stopAutoPass() {
-    if (autoPassTimer !== null) {
-      clearInterval(autoPassTimer);
-      autoPassTimer = null;
-    }
-  }
-
-  /** The per-priority countdown length from the server (0 = off). */
-  function serverTimerSeconds() {
-    const n = Number(view?.priority?.timer_seconds);
-    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
-  }
-
-  /** (Re)start the countdown if this is a new window and it's armed. */
-  function syncAutoPass() {
-    syncStopsPref();
-    // The countdown length is a server setting (per-table overridable);
-    // pick it up fresh from every view.
-    autoPassSeconds = serverTimerSeconds();
-    const windowKey = priorityWindowKey();
-    // Skipping wins over the countdown — a window with no options at all
-    // shouldn't cost anyone three seconds of watching a timer. Fired at
-    // most once per window (`skipAttemptedForKey`) — see that field's
-    // comment for why a second, third, … attempt against an unchanged
-    // window is a bug, not extra safety.
-    if (skipEmptyArmed() && windowKey !== skipAttemptedForKey) {
-      skipAttemptedForKey = windowKey;
-      stopAutoPass();
-      act({ type: 'pass_priority' });
-      return;
-    }
-    const key = windowKey;
-    if (key !== autoPassWindowKey) {
-      autoPassWindowKey = key;
-      autoPassCancelled = false; // a new window is a fresh decision
-      stopAutoPass();
-    }
-    if (!autoPassArmed()) {
-      stopAutoPass();
-      return;
-    }
-    if (autoPassTimer !== null) return; // already counting down this window
-    autoPassRemaining = autoPassSeconds;
-    paintCountdown();
-    autoPassTimer = setInterval(() => {
-      autoPassRemaining -= 1;
-      paintCountdown();
-      if (autoPassRemaining > 0) return;
-      stopAutoPass();
-      // Re-check on fire: a lot can have happened in three seconds.
-      if (autoPassArmed()) act({ type: 'pass_priority' });
-    }, 1000);
-  }
-
-  // Repaint just the number + the shrinking bar, not the board — a full
-  // re-render every second would tear down and rebuild every card tile under
-  // the player's cursor.
-  function paintCountdown() {
-    const remaining = Math.max(0, autoPassRemaining);
-    root?.querySelectorAll('[data-timer-count]').forEach((el) => {
-      el.textContent = String(remaining);
-    });
-    const frac = autoPassSeconds > 0 ? remaining / autoPassSeconds : 0;
-    root?.querySelectorAll('[data-timer-bar]').forEach((el) => {
-      el.style.setProperty('--gf-timer-frac', String(frac));
-    });
-  }
-
-  /** The player is doing something — don't pass out from under them. */
-  function cancelAutoPassForThisWindow() {
-    if (autoPassTimer === null && !autoPassCancelled) return;
-    autoPassCancelled = true;
-    stopAutoPass();
-    root?.querySelector('.gf-rail-timer')?.classList.add('gf-timer-off');
-  }
-
   // A block being assembled (RULE 509.1a), `blockerInstanceId -> attackerId`.
   // Collected client-side and submitted as *one* `declare_blockers` action,
   // because the menace family (RULE 702.111b, "…can't be blocked except by
@@ -578,186 +473,6 @@ export function createGameBoardView(opts = {}) {
   //: So `mtg-game-ended` (which re-opens the app's side menu) fires once
   //: when the game finishes, not on every repaint of the finished board.
   let gameEndAnnounced = false;
-  // A single requirement with `count > 1` (RULE 115.1a generalized to N>=2 —
-  // "destroy two target creatures"/"up to two target artifacts") is expanded
-  // into `count` synthetic one-per-round requirements sharing the same
-  // options, reusing the exact same "pick N from one pool, one at a time"
-  // modal + `excludePicked` de-dup a "tap N untapped <type>s you control"
-  // cost choice already uses (`data-tap-choice-start` below) — an optional
-  // requirement's existing per-round "∅ Kein Ziel" decline button then
-  // doubles as "stop after fewer than N", giving "up to N" for free.
-  //
-  // `distinct_controllers` (Run Away Together/Protector of the Wastes-
-  // shaped "N target creatures controlled by different players") is the one
-  // cross-target constraint modeled so far (`targeting.TargetSpec.
-  // distinct_controllers`) — `excludeControllers` mirrors `excludePicked`
-  // exactly, just keyed on an already-picked round's `controller_id`
-  // instead of its `instance_id`, so a later round's pool drops every
-  // permanent sharing a controller with anything already chosen.
-  //
-  // `owners` maps each expanded round back to the index of the requirement
-  // it came from, so the picks can be regrouped into `target_groups` — one
-  // list per *requirement*, in printed order — for the server (RULE 115.1,
-  // `StackItem.target_groups`). A flat list alone can't say which slot a
-  // declined "up to one" left empty, which is exactly what a spell like
-  // Epic Confrontation ("target creature you control gets +1/+2 …. It
-  // fights target creature you don't control.") needs to get right: pump
-  // and fight must land on *different* creatures.
-  //
-  // ENG-30: a `count_max` requirement ("N or M target X", a genuine RULE
-  // 601.2c range rather than "up to M") expands to `count_max` rounds
-  // instead of `count` — but only the rounds past the printed minimum
-  // (`count`) get the decline button (`castTargetModalHtml`'s `req.optional`
-  // read), so a per-round *clone* with its own `optional` is pushed instead
-  // of reusing one shared `req` reference the way every other requirement
-  // here still does.
-  function expandMultiTargetRequirements(requirements, x = 0) {
-    const expanded = [];
-    const owners = [];
-    let excludePicked = false;
-    let excludeControllers = false;
-    for (const [reqIndex, originalReq] of requirements.entries()) {
-      const req = originalReq.mana_value_from_x
-        ? { ...originalReq, options: (originalReq.options || []).filter((option) => Number(option.mana_value) === Number(x)) }
-        : originalReq;
-      const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
-      const total = req.any_number ? (req.count_max || 0) : (req.count_max || minimum);
-      if (total > 1) excludePicked = true;
-      if (req.distinct_controllers) excludeControllers = true;
-      for (let i = 0; i < total; i += 1) {
-        expanded.push(
-          req.count_max ? { ...req, optional: i >= minimum } : req
-        );
-        owners.push(reqIndex);
-      }
-    }
-    return {
-      requirements: expanded,
-      owners,
-      groupCount: requirements.length,
-      excludePicked,
-      excludeControllers,
-    };
-  }
-
-  function isPlayableCardAction(a) {
-    return a.type === 'cast_spell' || a.type === 'play_land' || a.type === 'activate_ability';
-  }
-
-  function dragActionsForInstance(instanceId) {
-    if (!latestByInstance || !latestByInstance[instanceId]) return [];
-    return latestByInstance[instanceId].filter(isPlayableCardAction).map((action) => selectedKickerAction(action)).filter((action) => !action.locked);
-  }
-
-  function dragTargetsForActions(actions) {
-    const ids = new Set();
-    const playerIds = new Set();
-    let battlefield = false;
-    for (const action of actions) {
-      if (action.type === 'play_land'
-          || ((action.type === 'cast_spell' || action.type === 'activate_ability') && !action.requires_target)) {
-        battlefield = true;
-      }
-      if (Array.isArray(action.targets)) {
-        for (const req of action.targets) {
-          if (!Array.isArray(req.options)) continue;
-          for (const option of req.options) {
-            if (option.instance_id != null) ids.add(String(option.instance_id));
-            if (option.player_id != null) playerIds.add(String(option.player_id));
-          }
-        }
-      }
-    }
-    return { battlefield, instanceIds: ids, playerIds };
-  }
-
-  function findDragTarget(element) {
-    if (!element) return null;
-    let el = element instanceof Element ? element : element.parentElement;
-    while (el) {
-      if (el.dataset && el.dataset.instanceId != null) {
-        return { type: 'instance', instanceId: el.dataset.instanceId, element: el };
-      }
-      if (el.dataset && el.dataset.dropZone != null) {
-        return { type: el.dataset.dropZone, element: el };
-      }
-      if (el.dataset && el.dataset.playerId != null) {
-        return { type: 'player', playerId: el.dataset.playerId, element: el };
-      }
-      el = el.parentElement;
-    }
-    return null;
-  }
-
-  function isValidDragTarget(target) {
-    if (!dragSource || !target) return false;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return false;
-    const targets = dragTargetsForActions(actions);
-    if (target.type === 'battlefield') {
-      if (!targets.battlefield) return false;
-      // A played land/permanent always joins *this card's own controller's*
-      // battlefield — never another player's board, however many are on
-      // screen — so a drop only counts here if it landed on that same
-      // player's own battlefield section (see the `dragstart` handler).
-      if (!dragSource.playerId) return true;
-      return target.element?.closest('[data-player-id]')?.dataset.playerId === dragSource.playerId;
-    }
-    if (target.type === 'instance') return targets.instanceIds.has(target.instanceId);
-    if (target.type === 'player') return targets.playerIds.has(target.playerId);
-    return false;
-  }
-
-  function clearDragHighlights() {
-    root?.querySelectorAll('.gf-drag-target-valid, .gf-drag-source').forEach((el) => {
-      el.classList.remove('gf-drag-target-valid', 'gf-drag-source');
-    });
-  }
-
-  function highlightDragTargets() {
-    clearDragHighlights();
-    if (!dragSource) return;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return;
-    const targets = dragTargetsForActions(actions);
-    const getByInstance = (id) => root?.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
-    for (const id of targets.instanceIds) {
-      const el = getByInstance(id);
-      if (el) el.classList.add('gf-drag-target-valid');
-    }
-    for (const id of targets.playerIds) {
-      const el = root?.querySelector(`[data-player-id="${CSS.escape(id)}"]`);
-      if (el) el.classList.add('gf-drag-target-valid');
-    }
-    if (targets.battlefield) {
-      // Scoped to the dragged card's *own* board — a shared/multiplayer view
-      // renders one battlefield per player, and an unscoped querySelector
-      // would always find whichever one happens to come first in
-      // `boardOrder` (never this client's own, which is drawn last),
-      // highlighting the wrong player's battlefield whenever they aren't it.
-      const ownBoard = dragSource.playerId
-        ? root?.querySelector(`[data-player-id="${CSS.escape(dragSource.playerId)}"]`)
-        : root;
-      const battlefield = ownBoard?.querySelector('[data-drop-zone="battlefield"]');
-      if (battlefield) battlefield.classList.add('gf-drag-target-valid');
-    }
-    const sourceEl = root?.querySelector(`[data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
-    if (sourceEl) sourceEl.classList.add('gf-drag-source');
-  }
-
-  function findTargetOptionForAction(action, instanceId, playerId) {
-    if (!Array.isArray(action.targets)) return null;
-    for (const req of action.targets) {
-      if (!Array.isArray(req.options)) continue;
-      for (const option of req.options) {
-        if ((instanceId != null && String(option.instance_id) === instanceId) || (playerId != null && String(option.player_id) === playerId)) {
-          return option;
-        }
-      }
-    }
-    return null;
-  }
-
   function requirementOwnerIndexForOption(action, selectedOption) {
     if (!Array.isArray(action.targets)) return 0;
     const expanded = expandMultiTargetRequirements(action.targets || [], readX(action.instance_id, action.face, action.blitz, action.splice_ids));
@@ -774,142 +489,8 @@ export function createGameBoardView(opts = {}) {
   }
 
   function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
-    return kicked > 0 && action.kicker_variant ? action.kicker_variant : action;
-  }
-
-  function resolvedDamageDivisions(divisions, x) {
-    return divisions?.map((division) => division.total_from_x == null ? division
-      : { ...division, total: x * division.total_from_x });
-  }
-
-  function prepareCastTargeting(action, selectedOption = null) {
-    action = selectedKickerAction(action);
-    const requirements = action.targets || [];
-    const expanded = expandMultiTargetRequirements(requirements, readX(action.instance_id, action.face, action.blitz, action.splice_ids));
-    const send = {
-      type: action.type,
-      instance_id: action.instance_id,
-      face: action.face,
-      mode: action.mode,
-      ability_index: action.ability_index,
-    };
-    if (action.has_x) {
-      send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
-    }
-    if (action.alt_cost) send.alt_cost = true;
-    if (action.free) send.free = true;
-    if (action.warp) send.warp = true;
-    if (action.evoke) send.evoke = true;
-    if (action.surge) send.surge = true;
-    if (action.blitz != null) send.blitz = action.blitz;
-    if (action.has_kicker || action.kicked) {
-      send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
-      if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
-    }
-    if (action.pay_additional) send.pay_additional = true;
-    if (action.bargained) send.bargained = true;
-    if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
-    if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
-    castTargeting = {
-      instanceId: action.instance_id,
-      damageDivisions: resolvedDamageDivisions(action.damage_divisions, send.x || 0),
-      divisionRequirements: requirements,
-      requirements: expanded.requirements,
-      owners: expanded.owners,
-      reqIndex: 0,
-      targets: [],
-      groups: Array.from({ length: expanded.groupCount }, () => []),
-      x: readX(action.instance_id, action.face, action.blitz, action.splice_ids),
-      send,
-      excludePicked: expanded.excludePicked,
-      excludeControllers: expanded.excludeControllers,
-    };
-    if (selectedOption) {
-      const owner = requirementOwnerIndexForOption(action, selectedOption);
-      const target = targetOptionPayload(selectedOption);
-      castTargeting.targets.push(target);
-      castTargeting.groups[owner].push(target);
-      castTargeting.reqIndex = 1;
-    }
-    finishCastIfReady();
-  }
-
-  // Cost picks `finishCastIfReady` opens a picker for after targets are chosen
-  // (RULE 601.2b / 602.2b): a drop-shortcut must not bypass them and let the
-  // engine auto-pick. Activations only open sacrifice/discard/reveal/counter pickers.
-  function actionHasCostPick(action) {
-    if (action.graveyard_exile_cost || action.tap_cost || action.return_cost) return true;
-    return action.type === 'activate_ability'
-      && Boolean(action.sacrifice_cost || action.discard_cost || action.reveal_cost || action.counter_cost);
-  }
-
-  function executeDroppedAction(target) {
-    if (!dragSource || !target) return;
-    const actions = dragActionsForInstance(dragSource.instanceId);
-    if (!actions.length) return;
-
-    // RULE 700.2: a drop must not silently announce the first mode. Show
-    // all server-provided modes, including ones that need targets elsewhere.
-    if (actions.some(a => (a.type === 'cast_spell' || a.type === 'activate_ability') && a.mode != null)) {
-      const slot = root?.querySelector(`[data-card-menu][data-instance-id="${CSS.escape(dragSource.instanceId)}"]`);
-      slot?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-      return;
-    }
-
-    if (target.type === 'battlefield') {
-      const action = actions.find((a) => a.type === 'play_land'
-        || ((a.type === 'cast_spell' || a.type === 'activate_ability') && !a.requires_target));
-      if (!action) return;
-      if (action.graveyard_exile_cost) {
-        prepareCastTargeting(action);
-        return;
-      }
-      act({ type: action.type, instance_id: action.instance_id, face: action.face, mode: action.mode, ability_index: action.ability_index, warp: action.warp, x: readX(action.instance_id, action.face, action.blitz, action.splice_ids) });
-      return;
-    }
-
-    const action = actions.find((a) => findTargetOptionForAction(a, target.instanceId, target.playerId));
-    if (!action) return;
-    const option = findTargetOptionForAction(action, target.instanceId, target.playerId);
-    if (!option) return;
-
-    if (action.targets && action.targets.length <= 1 && !action.damage_divisions?.length && !action.kicker_variant
-        && !actionHasCostPick(action)) {
-      const send = {
-        type: action.type,
-        instance_id: action.instance_id,
-        face: action.face,
-        mode: action.mode,
-        ability_index: action.ability_index,
-      };
-      if (action.has_x) {
-        send.x = readX(action.instance_id, action.face, action.blitz, action.splice_ids);
-      }
-      if (action.warp) send.warp = true;
-      if (action.evoke) send.evoke = true;
-      if (action.surge) send.surge = true;
-      if (action.blitz != null) send.blitz = action.blitz;
-      if (action.has_kicker) {
-        send.kicked = readKicker(action.instance_id, action.face, action.splice_ids);
-        if (action.kicker_has_x) send.kicker_x = readKickerX(action.instance_id, action.face, action.splice_ids);
-      }
-      if (action.pay_additional) send.pay_additional = true;
-      if (action.bargained) send.bargained = true;
-      if (action.gift_opponent_id) send.gift_opponent_id = action.gift_opponent_id;
-      if (action.free) send.free = true;
-      if (action.alt_cost) send.alt_cost = true;
-      if (action.splice_ids?.length) send.splice_ids = action.splice_ids;
-      act({ ...send, targets: [option], x: send.x || 0 });
-      return;
-    }
-
-    prepareCastTargeting(action, option);
-  }
-
-  function maybeReadDropTargetData(element) {
-    if (!element) return null;
-    const target = findDragTarget(element);
-    return target && isValidDragTarget(target) ? target : null;
+    const count = Array.isArray(kicked) ? kicked.length : kicked;
+    return count > 0 && action.kicker_variant ? action.kicker_variant : action;
   }
 
   function setLatestByInstance(byInstance) {
@@ -930,15 +511,7 @@ export function createGameBoardView(opts = {}) {
   // See `triggerOrderHtml`/`confirmTriggerOrder`.
   let triggerOrderDraft = null;
 
-  // A stable identity for one `order_triggers` option, for matching the
-  // same trigger across rounds despite its `id` being re-numbered each time
-  // (see `triggerOrderDraft` above). Source name + ability text is what a
-  // player actually distinguishes triggers by, so two genuinely
-  // indistinguishable triggers (same source, same text) are — correctly —
-  // not told apart here either.
-  function triggerOptionKey(opt) {
-    return `${opt.source_name || ''}␟${opt.label || opt.id}`;
-  }
+
 
   function mount(el) {
     root = el;
@@ -947,117 +520,14 @@ export function createGameBoardView(opts = {}) {
     root.addEventListener('keydown', () => { void audio.unlock(); });
   }
 
-  let chatSending = false;
-  let chatError = '';
-  let customEmojiOpen = false;
-  let emojiCategory = EMOJI_CATEGORIES[0].key;
-
-  let revealItems = [];
-  let lastRevealId = 0;
-  let revealAside = true;
-
-  function updateRevealPopup(data) {
-    const messages = (data.table_messages || []).filter(message => message.action === 'reveal');
-    const available = new Set(messages.map(message => message.id));
-    revealItems = revealItems.filter(message => available.has(message.id));
-    const fresh = messages.filter(message => message.id > lastRevealId);
-    if (fresh.length) {
-      revealItems.push(...fresh);
-      lastRevealId = Math.max(lastRevealId, ...fresh.map(message => message.id));
-      revealAside = true;
-    }
-  }
-
-  function revealPopupHtml() {
-    if (!revealItems.length) return '';
-    return `<div class="gf-modal-overlay gf-revealed-modal${revealAside ? ' aside' : ''}">
-      <section class="gf-modal" role="dialog" aria-modal="${!revealAside}" aria-label="${escapeAttr(t('bd.reveal.heading'))}" tabindex="-1">
-        <div class="gf-modal-head"><div><h4>${escapeHtml(t('bd.reveal.heading'))}</h4></div>
-          <button type="button" class="gf-modal-aside" data-reveal-aside>${escapeHtml(t(revealAside ? 'bd.choice.asideShow' : 'bd.choice.asidePush'))}</button>
-          <button type="button" data-reveal-close aria-label="${escapeAttr(t('bd.reveal.close'))}">×</button>
-        </div>
-        <ul class="gf-revealed-list">${revealItems.map(message => {
-          const card = message.revealed_card || { name: message.card_name, card_id: message.card_id };
-          const image = resolveImageUrl(card, getState().imageCache);
-          return `<li><span>${escapeHtml(message.author)}</span><strong data-hover-card="${escapeAttr(card.name || '')}">${escapeHtml(card.name || '')}</strong>
-            ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(card.name || '')}" loading="lazy" data-hover-card="${escapeAttr(card.name || '')}" />` : ''}</li>`;
-        }).join('')}</ul>
-      </section></div>`;
-  }
-
-  function chatPanelHtml() {
-    const messages = (view.table_messages || []).map((message) => {
-      const card = message.card_name || t('bd.chat.faceDownSpell');
-      const text = message.kind === 'emote' ? message.text
-        : t(`bd.chat.${message.action}`, { card, cost: message.cost_label || '' }) + (message.ability_text ? ` ${message.ability_text}` : '');
-      const reveal = message.action === 'reveal' && message.card_id
-        ? `<img class="gf-chat-reveal" src="${escapeAttr(cardImageUrl(message.card_id))}" alt="${escapeAttr(card)}" data-hover-card="${escapeAttr(card)}" loading="lazy">`
-        : '';
-      // No whitespace between tags: .gf-chat-message is white-space: pre-wrap, so
-      // template-literal indentation would render as leading space.
-      return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
-        + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`
-        + `<span>${renderOracleText(text)}</span>`
-        + (message.action === 'reveal' ? `<button type="button" data-reveal-open="${message.id}" aria-label="${escapeAttr(t('bd.reveal.heading'))}">👁</button>` : '')
-        + reveal
-        + '</li>';
-    }).join('');
-    return `<section class="gf-chat" aria-label="${escapeAttr(t('bd.chat.heading'))}">
-      <h4>${escapeHtml(t('bd.chat.heading'))}</h4>
-      <ol class="gf-chat-messages" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
-        ${messages || `<li class="hint">${escapeHtml(t('bd.chat.empty'))}</li>`}
-      </ol>
-      ${view.observer ? '' : `<div class="gf-chat-emotes">${TABLE_EMOTES.map((text, index) => `<button type="button" data-chat-emote="${escapeAttr(text)}" title="${escapeAttr(t(`bd.chat.emote${index}`))}" aria-label="${escapeAttr(t(`bd.chat.emote${index}`))}" ${chatSending ? 'disabled' : ''}>${escapeHtml(text)}</button>`).join('')}<button type="button" data-chat-custom aria-expanded="${customEmojiOpen}" title="${escapeAttr(t('bd.chat.custom'))}" aria-label="${escapeAttr(t('bd.chat.custom'))}">☺️＋</button></div>
-      ${customEmojiOpen ? emojiPickerHtml() : ''}`}
-      ${chatError ? `<p class="gf-chat-error" role="alert">${escapeHtml(chatError)}</p>` : ''}
-    </section>`;
-  }
-
-  function emojiPickerHtml() {
-    const selected = EMOJI_CATEGORIES.find(category => category.key === emojiCategory) || EMOJI_CATEGORIES[0];
-    return `<section class="gf-emoji-picker" aria-label="${escapeAttr(t('bd.chat.custom'))}">
-      <div class="gf-emoji-categories" aria-label="${escapeAttr(t('bd.chat.categories'))}">${EMOJI_CATEGORIES.map(category =>
-        `<button type="button" data-emoji-category="${category.key}" aria-pressed="${category.key === selected.key}" title="${escapeAttr(t(`bd.chat.category.${category.key}`))}" aria-label="${escapeAttr(t(`bd.chat.category.${category.key}`))}">${category.icon}</button>`
-      ).join('')}</div>
-      <h5>${escapeHtml(t(`bd.chat.category.${selected.key}`))}</h5>
-      <div class="gf-emoji-grid">${selected.emoji.map(emoji => `<button type="button" data-chat-emote="${escapeAttr(emoji)}" aria-label="${escapeAttr(t('bd.chat.sendEmoji', { emoji }))}" ${chatSending ? 'disabled' : ''}>${emoji}</button>`).join('')}</div>
-    </section>`;
-  }
-
-  async function sendChat(emote) {
-    if (!sessionId || chatSending || typeof emote !== 'string' || !emote.trim()) return;
-    chatSending = true;
-    chatError = '';
-    render();
-    try {
-      const action = { type: 'emote', emote };
-      const res = transport.sendAction ? await transport.sendAction(action)
-        : await sendGameAction(sessionId, action);
-      if (res.ok) {
-        customEmojiOpen = false;
-        if (res.data) applyView(res.data);
-      } else {
-        chatError = t('bd.chat.failed');
-      }
-    } finally {
-      chatSending = false;
-      render();
-    }
-  }
-
   /** Begin driving `sessionId`, rendering `initialView` immediately. */
   function start(sid, initialView) {
     const isNewSession = sid !== sessionId;
     if (isNewSession) {
       showStatics = false;
       staticsAside = false;
-      revealItems = [];
-      lastRevealId = 0;
-      revealAside = true;
+      resetChatSession();
       zoneOrder.clear();
-      chatError = '';
-      customEmojiOpen = false;
-      emojiCategory = EMOJI_CATEGORIES[0].key;
       waitingChoiceAside = false;
     }
     sessionId = sid;
@@ -1069,7 +539,7 @@ export function createGameBoardView(opts = {}) {
     // session, not on every repaint.
     if (isNewSession) {
       resolvedGhosts = [];
-      stopsSynced = false;
+      resetPrioritySession();
       document.dispatchEvent(new CustomEvent('mtg-game-started'));
       gameEndAnnounced = false;
     }
@@ -1088,14 +558,6 @@ export function createGameBoardView(opts = {}) {
     setHeaderMessage(kind === 'warning' ? text : '');
   }
 
-  // A stable-ish signature for one stack item, for spotting which entries
-  // disappeared between two views (i.e. resolved / were countered) so they
-  // can linger a moment as greyed-out ghosts in the rail.
-  function stackItemSig(item) {
-    const obj = item.object || item.source || {};
-    return `${obj.instance_id ?? ''}|${item.description || ''}|${item.kind || ''}|${obj.name || ''}`;
-  }
-
   function pushResolvedGhost(item) {
     const key = `${Date.now()}-${Math.random()}`;
     // Keep the raw stack item so the ghost renders as the same mini card
@@ -1108,32 +570,6 @@ export function createGameBoardView(opts = {}) {
       resolvedGhosts = resolvedGhosts.filter((g) => g.key !== key);
       if (!stopped) render();
     }, GHOST_LIFETIME_MS);
-  }
-
-  /** A ghost item's card name (spell card, or ability source). */
-  function ghostItemName(item) {
-    return (item.object || item.source || {}).name || '';
-  }
-
-  // A bot opponent's cast/activation is drained off the stack by the server
-  // before the client ever sees a view with it on the stack (`run_bots` in
-  // multiplayer, `_advance_solo_bots` in solo, both answer to completion
-  // before returning) — so the stack-diff above never fires a ghost for it.
-  // Build a minimal synthetic stack item from the `move_log` label instead
-  // so it still flashes up in the rail as a resolved ghost. `null` for
-  // labels that don't put anything on the stack (play_land, pass_priority…).
-  function syntheticStackItemFromMoveLabel(label) {
-    const sep = label.indexOf(': ');
-    const kind = sep === -1 ? label : label.slice(0, sep);
-    const name = sep === -1 ? '' : label.slice(sep + 2);
-    if (!name) return null;
-    if (kind === 'cast_spell') {
-      return { kind: 'spell', object: { name }, type_line: '' };
-    }
-    if (kind === 'activate_ability') {
-      return { kind: 'ability', category: 'activated_ability', source: { name }, description: name };
-    }
-    return null;
   }
 
   function applyView(data) {
@@ -1308,6 +744,9 @@ export function createGameBoardView(opts = {}) {
 
   async function act(action) {
     if (!sessionId) return;
+    if (action.type === 'cast_spell' && action.replicate == null) {
+      action.replicate = readReplicate(action.instance_id, action.face, action.splice_ids);
+    }
     // Never leave combat with an unsent selection. The first forward click
     // confirms it; the next click resumes priority/step advancement.
     if (attackDraft.size && ['advance_step', 'advance_to_decision', 'pass_priority', 'set_yield'].includes(action.type)
@@ -1328,12 +767,13 @@ export function createGameBoardView(opts = {}) {
         setStatus('', '');
       } else {
         // A failed action never changes `priorityWindowKey()`, so if this
-        // was the auto-skip's own `pass_priority` attempt, `skipAttemptedForKey`
+        // was the auto-skip's own `pass_priority` attempt, the controller's
+        // attempted-window guard
         // would otherwise stay set to a window that never actually got
         // passed — wedging the ⏭/auto-skip logic for the rest of the game
         // (nothing else ever resets it). Clearing it here lets the next
         // render retry instead of silently going inert.
-        skipAttemptedForKey = null;
+        clearSkipAttempt();
         if (res.status === 400) {
           setStatus(t('bd.msg.actionNotAllowed', { detail: serverErrorText(res.data?.detail) }), 'warning');
         } else if (res.status === 404) {
@@ -1367,57 +807,12 @@ export function createGameBoardView(opts = {}) {
 
   function wireBoardGeometry() {
     boardGeometryCleanup();
-    const svg = root.querySelector('.gf-connection-lines');
-    const find = (attr, id) => root.querySelector(`[${attr}="${CSS.escape(String(id))}"]`);
-    const card = id => find('data-instance-id', id)?.querySelector('.card');
-    const stack = id => find('data-stack-id', id)?.querySelector('.card');
-    const draw = () => {
-      if (!svg || !view) return;
-      const lines = [];
-      const connect = (from, to, kind) => {
-        if (!from || !to) return;
-        const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
-        if (!a.width || !b.width) return;
-        const offset = kind === 'block' ? 5 : 0;
-        lines.push(`<line class="gf-connection--${kind}" x1="${a.x + a.width / 2 + offset}" y1="${a.y + a.height / 2 + offset}" x2="${b.x + b.width / 2 + offset}" y2="${b.y + b.height / 2 + offset}" />`);
-      };
-      for (const item of view.state.stack || []) {
-        const source = card(item.source?.instance_id) || stack(item.stack_id);
-        for (const target of item.targets || []) {
-          const destination = target.instance_id != null ? card(target.instance_id) || find('data-stack-instance-id', target.instance_id)?.querySelector('.card')
-            : target.player_id != null ? find('data-player-id', target.player_id)?.querySelector('.gf-player-board-head') || find('data-player-id', target.player_id)
-            : stack(target.stack_id);
-          connect(source, destination, 'target');
-        }
-      }
-      for (const object of view.state.battlefield || []) {
-        const draft = attackDraft.get(object.instance_id);
-        const defender = draft ? draft.defender : object.attacking ? object.combat_defender : null;
-        if (defender) {
-          const destination = defender.kind === 'player'
-            ? find('data-player-id', defender.id)?.querySelector('.life-total, .gf-opp-life')
-            : card(defender.instance_id);
-          connect(card(object.instance_id), destination, 'attack');
-        }
-        const attackers = blockDraft.has(object.instance_id) ? [blockDraft.get(object.instance_id)]
-          : [object.blocking, ...(object.additional_blocking || [])].filter(id => id != null);
-        for (const attacker of attackers) connect(card(object.instance_id), card(attacker), 'block');
-      }
-      svg.innerHTML = lines.join('');
-    };
-    const controller = new AbortController();
-    const closeMenus = event => root.querySelectorAll('.gf-card-menu:popover-open').forEach(menu => {
-      if (event.type === 'keydown' ? event.key === 'Escape' : !menu.contains(event.target)) menu.hidePopover();
+    boardGeometryCleanup = installBoardGeometry({
+      root,
+      view: () => view,
+      attackDraft,
+      blockDraft,
     });
-    document.addEventListener('pointerdown', closeMenus, { signal: controller.signal });
-    document.addEventListener('keydown', closeMenus, { signal: controller.signal });
-    window.addEventListener('scroll', draw, { capture: true, signal: controller.signal });
-    window.addEventListener('resize', draw, { signal: controller.signal });
-    const observer = new ResizeObserver(draw);
-    observer.observe(root);
-    root.addEventListener('load', draw, { capture: true, signal: controller.signal });
-    boardGeometryCleanup = () => { controller.abort(); observer.disconnect(); };
-    draw();
   }
 
   function render() {
@@ -1429,7 +824,7 @@ export function createGameBoardView(opts = {}) {
     // Keep the countdown length (a server setting) current before anything
     // reads it — `railTimerHtml`/`autoPassArmed` both do, and `render()`
     // runs before `syncAutoPass()`.
-    autoPassSeconds = serverTimerSeconds();
+    updateTimerSeconds();
     const dummy = s.players.find((p) => p.is_dummy) || null;
     // The seat this client is playing (multiplayer; null in every solo mode
     // and for an observer). Their board is drawn *last* — i.e. nearest the
@@ -1439,6 +834,8 @@ export function createGameBoardView(opts = {}) {
     const actions = view.legal_actions || [];
     const gameOver = s.game_over;
     const pending = s.pending_choice;
+    // The payer can use the normal card menus while the mana prompt is aside.
+    const paymentMana = pending?.kind === 'amount_payment' && pending.resource === 'mana';
     syncAttackDraft(actions, s);
 
     // Index per-object actions for each card’s context menu and attack selection. `legal_actions` is already scoped server-side
@@ -1485,7 +882,7 @@ export function createGameBoardView(opts = {}) {
 
           ${dummy ? opponentStripHtml(dummy) : ''}
 
-          ${planechaseHtml(s, actions)}
+          ${renderPlanechase(s, actions, { t, escapeHtml, escapeAttr, renderOracleText })}
 
           ${gameOver ? gameOverHtml(s, seatId ? s.players.find((p) => p.id === seatId) : live[0]) : ''}
           ${statusHtml()}
@@ -1499,7 +896,7 @@ export function createGameBoardView(opts = {}) {
           ${attackerPanelHtml(actions, s)}
           ${blockerPanelHtml(actions, s)}
 
-          ${boardsHtml(live, s, byInstance, pending, seatId)}
+          ${boardsHtml(live, s, byInstance, paymentMana ? null : pending, seatId)}
 
           ${delayedTriggersPanelHtml(view)}
         </div>
@@ -1513,111 +910,7 @@ export function createGameBoardView(opts = {}) {
     // A repaint mid-countdown rebuilds the bar at its inline default; catch
     // it up to the live remaining value straight away so it doesn't flash
     // back to full for up to a second.
-    if (autoPassTimer !== null) paintCountdown();
-  }
-
-  // RULE 901: the Planechase strip — the face-up plane (901.7) with its own
-  // text, how many planes are left behind it, and the planar-die roll (a
-  // special action, RULE 901.6, offered by the server only on its roller's
-  // own turn and only when the {X} is payable). Renders nothing at all in a
-  // game with no planar deck, which is every non-Planechase game.
-  function planechaseHtml(s, actions) {
-    const plane = s.active_plane;
-    if (!plane) return '';
-    const roll = (actions || []).find((a) => a.type === 'roll_planar_die');
-    const rollButton = roll
-      ? `<button type="button" class="primary" data-action='${escapeAttr(JSON.stringify({ type: 'roll_planar_die' }))}' title="${escapeAttr(t('bd.planar.rollTitle'))}">${renderOracleText(t('bd.planar.rollButton', { cost: roll.cost_label || '{0}' }))}</button>`
-      : '';
-    return `
-      <div class="gf-planechase">
-        <div class="gf-planechase-plane">
-          <span class="gf-planechase-label" title="Aktive Ebene (Regel 901.7)">🌌 Ebene</span>
-          <!-- Deliberately no data-hover-card: a plane is not in the card
-               cache at all (the bulk importer drops the "planar" layout), so
-               a hover lookup by name could only ever miss. Note: no
-               backticks in here — this comment sits inside a template
-               literal, where one would end the string mid-comment. -->
-          <strong title="${escapeAttr(plane.type_line || '')}">${escapeHtml(plane.name)}</strong>
-          <span class="gf-planechase-count" title="${escapeAttr(t('bd.planar.remaining'))}">${escapeHtml(t('bd.planar.inStack', { count: s.planar_deck_count || 0 }))}</span>
-        </div>
-        ${rollButton}
-      </div>`;
-  }
-
-  // --- Board layout: turn order, stacked column vs. 2x2 pod grid ------------
-
-  /**
-   * The boards in the order they're drawn — **turn order**, rotated so this
-   * client's own seat comes last.
-   *
-   * `GameState.players` *is* the turn order: `next_active_index` walks that
-   * list cyclically (RULE 500.1), skipping dummies and players who have
-   * left (RULE 104.3a). Rotating rather than sorting keeps that cycle
-   * intact while preserving the older rule that your own board is drawn
-   * last, i.e. nearest you. Reading the layout row-major then goes around
-   * the table the way the turns actually do: the first board is whoever
-   * plays after you, the last one is you.
-   *
-   * No seat (solo modes, and an observer) means nothing to rotate to, so
-   * the plain turn order stands.
-   */
-  function boardOrder(players, seatId) {
-    const live = players.filter((p) => !p.is_dummy);
-    const mine = live.findIndex((p) => p.id === seatId);
-    if (mine < 0) return live;
-    return live.slice(mine + 1).concat(live.slice(0, mine + 1));
-  }
-
-  // (The turn-order strip that used to sit in the topbar is gone: who is
-  // active and who holds priority is shown on each player's own banner now,
-  // and the topbar itself has been replaced by the left rail.)
-
-  // --- Board layout: stacked column vs. 2x2 pod grid ------------------------
-
-  /**
-   * Whether the boards tile 2x2 instead of stacking.
-   *
-   * From three live boards up (`services/lobby.py` opens up to four seats).
-   * Two boards stack better than they tile — full width is worth more than
-   * having them side by side — but three or four stacked means the player
-   * below the fold is off-screen entirely. Deliberately derived from the
-   * live view rather than persisted: it's a consequence of how many people
-   * are at the table, not a preference. Observers get it too (they watch
-   * the same pod), which is why this doesn't key off `view.perspective`.
-   *
-   * Also off on a screen too narrow for two columns — see `podGridMedia`.
-   */
-  function podGrid() {
-    if (podGridMedia && !podGridMedia.matches) return false;
-    return (view?.state?.players || []).filter((p) => !p.is_dummy).length >= 3;
-  }
-
-  //: Which column of the 2x2 each board lands in. The grid places seats
-  //: **clockwise** — top-left, top-right, bottom-right, bottom-left — so
-  //: turn order runs around the table and the last seat is back beside the
-  //: first. That is deliberately *not* `index % 2`: the third board is on
-  //: the right, not the left. Mirrors main.css's `.gf-pod-grid` placement
-  //: rules; change one and you must change the other.
-  const POD_COLUMNS = ['left', 'right', 'right', 'left'];
-
-  /**
-   * Which side one board's zone column sits on, as a `gf-zones-*` suffix.
-   *
-   * Stacked: inside/outside maps to left/right for every board. Pod grid:
-   * mirrored per column so "innen"/"außen" means the same thing on both
-   * sides of the grid — see `zonesInside`.
-   *
-   * @param {number} index Position in the rendered board list.
-   * @param {number} total How many boards are drawn — an odd count means
-   *   the last one spans the whole bottom row, so it follows the left
-   *   column's rule (it starts at the left edge) rather than its nominal
-   *   clockwise slot.
-   */
-  function zonesSideFor(index, total) {
-    if (!podGrid()) return zonesInside ? 'left' : 'right';
-    const spansTheRow = total % 2 === 1 && index === total - 1;
-    const leftColumn = spansTheRow || POD_COLUMNS[index] === 'left';
-    return zonesInside === leftColumn ? 'right' : 'left';
+    if (priority.autoPassRunning()) paintCountdown();
   }
 
   function staticEffectsButtonHtml() {
@@ -1645,7 +938,7 @@ export function createGameBoardView(opts = {}) {
     // advanced by anyone deciding it should be — it moves when players
     // pass, so "Nächster Schritt" is replaced by "Passen" and the whole
     // toolbar keys off who holds priority rather than whose turn it is.
-    if (interactivePriority()) return priorityControlsHtml(pending, gameOver, extra);
+    if (interactivePriority()) return priorityControlsHtml(extra);
 
     // Whether *this* client may drive the turn. In a shared game only the
     // active player can (RULE 500.1, enforced server-side too); solo modes
@@ -1660,101 +953,6 @@ export function createGameBoardView(opts = {}) {
         ${staticEffectsButtonHtml()}
         ${extra}
       </div>`;
-  }
-
-  /** Whether this session plays priority out for real (RULE 117). */
-  function interactivePriority() {
-    return !!view?.priority?.interactive && !view.observer;
-  }
-
-  /**
-   * The seat this client currently acts as (MEC-51 / RULE 724): its own,
-   * or another player's whose turn/combat it controls. The server sets
-   * `view.acting_as` (= `perspective` when not controlling anyone).
-   */
-  function actingSeat() {
-    return view?.acting_as || view?.perspective || null;
-  }
-
-  /** Whether this client is the one the game is currently waiting on. */
-  function hasPriority() {
-    // RULE 117.2e: resolving choices suspend priority, including choices whose
-    // details are hidden from this seat and represented only by a waiting marker.
-    if (!view?.priority || view.state?.pending_choice || view.state?.waiting_on_choice) return false;
-    const pid = view.priority.player_id;
-    return (
-      (!!actingSeat() && pid === actingSeat()) ||
-      (!!view.perspective && pid === view.perspective)
-    );
-  }
-
-  // The shared-game toolbar. "Passen" is the only way forward: a step ends
-  // when every player passes in succession on an empty stack (RULE 117.4),
-  // so there is deliberately no "advance the turn" button to press.
-  function priorityControlsHtml(pending, gameOver, extra) {
-    // Priority actions sit directly below the phase display; this section
-    // retains layout and table controls.
-    return `
-      <div class="gf-controls gf-rail-controls gf-priority-controls">
-        ${staticEffectsButtonHtml()}
-        ${extra}
-      </div>`;
-  }
-
-  // Shared pass action, rendered below the phase display in the left rail.
-  function passButtonHtml(disabled, extraClass = '') {
-    // With an empty stack, say where passing leads ("To combat →") rather
-    // than a bare "Pass"; with something on it, passing resolves it.
-    const next = view.priority?.next_step;
-    const toNext = next ? t(`bd.ctrl.passTo.${next}`) : '';
-    const label = attackDraft.size && !view.state.stack.length
-      ? t('bd.attack.confirm', { count: attackDraft.size })
-      : view.state.stack.length > 0
-      ? t('bd.ctrl.passResolve')
-      : (toNext && toNext !== `bd.ctrl.passTo.${next}` ? toNext : t('bd.ctrl.pass'));
-    return `<button type="button" class="primary${extraClass}" data-pass-priority title="${escapeAttr(t('bd.ctrl.passTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
-  }
-
-  // Empty priority windows are already skipped automatically and
-  // unconditionally (`skipEmptyArmed`/`syncAutoPass`), so there is no manual
-  // button for *that*. These are the deliberate speed-ups (VIS-12), offered
-  // next to "Passen": "Pass this turn" (opponents' turns only) and "Skip to
-  // end step" (your own turn only) arm a server-side yield; while one is
-  // armed it is replaced by a single cancel button, which — unlike the pass button — works
-  // without priority, because a yielding seat is passed for and so rarely
-  // holds it. (Goldfisch's `#gf-next-decision` is unrelated — a server-side
-  // fast-forward over whole *steps*, solo only.)
-  function yieldButtonsHtml(disabled, extraClass = '') {
-    const armed = myYield();
-    if (armed) {
-      const label = armed === 'end_step' ? t('bd.ctrl.yieldEndStepActive') : t('bd.ctrl.yieldTurnActive');
-      return `<button type="button" class="gf-yield gf-yield-active${extraClass}" data-yield="clear" title="${escapeAttr(t('bd.ctrl.yieldCancelTitle'))}" ${disabled ? 'disabled' : ''}>${label}</button>`;
-    }
-    const s = view.state;
-    if (!view.perspective) return '';
-    if (s.active_player_id !== actingSeat()) {
-      return `<button type="button" class="gf-yield${extraClass}" data-yield="turn" title="${escapeAttr(t('bd.ctrl.passTurnTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.passTurn')}</button>`;
-    }
-    if (s.current_step === 'end') return '';
-    return `<button type="button" class="gf-yield${extraClass}" data-yield="end_step" title="${escapeAttr(t('bd.ctrl.skipToEndTitle'))}" ${disabled ? 'disabled' : ''}>${t('bd.ctrl.skipToEnd')}</button>`;
-  }
-
-  // VIS-12: a seat that has armed a yield is visibly passing its turn.
-  function yieldBadgeHtml(playerId) {
-    const mode = view.priority?.yields?.[playerId];
-    if (!mode) return '';
-    const label = mode === 'end_step' ? t('bd.badge.yieldEndStep') : t('bd.badge.yieldTurn');
-    return `<span class="gf-yield-badge">${escapeHtml(label)}</span>`;
-  }
-
-  // The priority indicator on a player's banner (`playerBoardHtml`): a bare
-  // ⚡, shown only on whichever banner currently holds priority — never a
-  // standing "waiting for X" state on anyone else's. The live countdown that
-  // used to sit here has moved to the rail's progress bar (`railTimerHtml`).
-  function priorityBadgeHtml(holdsPriority, isMe, playerName_) {
-    if (!holdsPriority) return '';
-    const title = isMe ? t('bd.priority.mine') : t('bd.priority.holder', { name: playerName_ });
-    return `<span class="gf-priority-badge${isMe ? ' gf-priority-mine' : ''}" title="${escapeAttr(title)}">⚡</span>`;
   }
 
   function waitingOnChoiceHtml(s) {
@@ -1821,14 +1019,37 @@ export function createGameBoardView(opts = {}) {
       const legal = offer && (!selection.defender || (offer.legal_defenders || []).some(d =>
         JSON.stringify(defenderPayload(d)) === JSON.stringify(selection.defender)));
       if (!legal) attackDraft.delete(iid);
+      else if (selection.enlist_ids) {
+        const options = new Set((offer.enlist_options || []).map(o => o.instance_id));
+        selection.enlist_ids = selection.enlist_ids.map(id => options.has(id) && !attackDraft.has(id) ? id : null);
+      }
     }
   }
 
   function attackerPanelHtml(actions, state) {
     if (view.observer || state.pending_choice || state.stack.length || !actions.some(a => a.type === 'attack')) return '';
+    const enlisted = new Set([...attackDraft.values()].flatMap(a => a.enlist_ids || []));
+    const rows = actions.filter(a => a.type === 'attack' && attackDraft.has(a.instance_id)).flatMap(a => {
+      const picks = attackDraft.get(a.instance_id).enlist_ids || [];
+      return Array.from({ length: a.enlist_count || 0 }, (_, index) => {
+        const options = a.enlist_options.filter(candidate => {
+          const id = candidate.instance_id;
+          return !attackDraft.has(id) && (!enlisted.has(id) || picks[index] === id);
+        });
+        if (!options.length) return '';
+        return `<label class="gf-block-row">${escapeHtml(a.name)} · Enlist
+          <select data-enlist-attacker="${a.instance_id}" data-enlist-index="${index}" ${busy ? 'disabled' : ''}>
+            <option value="">${t('bd.attack.noEnlist')}</option>
+            ${options.map(({ instance_id, name }) =>
+              `<option value="${instance_id}"${picks[index] === instance_id ? ' selected' : ''}>${escapeHtml(name)}</option>`
+            ).join('')}
+          </select>
+        </label>`;
+      });
+    }).join('');
     return `<section class="gf-block-panel">
       <h4>${t('bd.attack.heading')}</h4>
-      <p class="hint">${t('bd.attack.hint')}</p>
+      <p class="hint">${t('bd.attack.hint')}</p>${rows}
       <div class="gf-controls">
         <button type="button" class="primary" data-attack-confirm ${busy || !attackDraft.size ? 'disabled' : ''}>${escapeHtml(t('bd.attack.confirm', { count: attackDraft.size }))}</button>
         <button type="button" data-attack-clear ${busy || !attackDraft.size ? 'disabled' : ''}>${t('bd.attack.clear')}</button>
@@ -1840,9 +1061,12 @@ export function createGameBoardView(opts = {}) {
     if (busy || !attackDraft.size) return;
     const selected = [...attackDraft.values()];
     const tax = selected.reduce((sum, a) => sum + (a.attack_tax_amount || 0), 0);
-    if (tax && !window.confirm(t('bd.attackTax.confirm', { cost: `{${tax}}` }))) return;
+    const life = selected.reduce((sum, a) => sum + (a.attack_life_amount || 0), 0);
+    const cost = [tax && `{${tax}}`, life && t('bd.combatCost.life', { count: life })].filter(Boolean).join(' + ');
+    if (cost && !window.confirm(t('bd.attackTax.confirm', { cost }))) return;
     await act({ type: 'declare_attackers', declarations: selected.map(a => ({
       instance_id: a.instance_ids[0], defender: a.defender, pay_attack_tax: true,
+      enlist_ids: (a.enlist_ids || []).filter(Boolean),
     })) });
   }
 
@@ -1894,186 +1118,11 @@ export function createGameBoardView(opts = {}) {
     const offers = (view?.legal_actions || []).filter((a) => a.type === 'declare_blockers');
     const tax = assignments.reduce((sum, { blocker }) =>
       sum + (offers.find((a) => a.instance_id === blocker)?.block_tax_amount || 0), 0);
-    if (tax > 0 && !window.confirm(t('bd.blockTax.confirm', { cost: `{${tax}}` }))) return;
+    const life = assignments.reduce((sum, { blocker, attacker }) => sum + (offers
+      .find(a => a.instance_id === blocker)?.legal_attackers.find(a => a.instance_id === attacker)?.life_cost || 0), 0);
+    const cost = [tax && `{${tax}}`, life && t('bd.combatCost.life', { count: life })].filter(Boolean).join(' + ');
+    if (cost && !window.confirm(t('bd.blockTax.confirm', { cost }))) return;
     await act({ type: 'declare_blockers', assignments, pay_block_tax: true });
-  }
-
-  // Every board, in order. Stacked they're just concatenated, as they always
-  // were; in the pod grid they need a wrapper to tile in, and each board
-  // needs to know its own position so its zone column can mirror (see
-  // `zonesSideFor`). DOM order is unchanged either way — opponents first,
-  // this client's own seat last — so "row-major" and "drawn last is nearest
-  // you" stay the same statement.
-  function boardsHtml(live, s, byInstance, pending, seatId) {
-    const boards = live
-      .map((p, i) => playerBoardHtml(p, s, byInstance, pending, seatId, i, live.length))
-      .join('');
-    return podGrid() ? `<div class="gf-pod-grid">${boards}</div>` : boards;
-  }
-
-  // One player's full board: mana/life header, command/library/graveyard/
-  // exile column, battlefield (row-grouped by type) + hand.
-  function playerBoardHtml(p, s, byInstance, pending, seatId = null, index = 0, total = 1) {
-    const bf = s.battlefield.filter((o) => o.controller_id === p.id);
-    const isMe = seatId != null && p.id === seatId;
-    // "Is this hand mine to look at?" — true for my own seat, and for both
-    // boards in a solo/Replay session (no perspective means no opponent:
-    // the puzzle editor is meant to see everything). An observer has no
-    // seat *and* no hand, so every hand there is somebody else's.
-    const ownHand = isMe || (seatId == null && !view.observer);
-    const isActive = s.active_player_id === p.id;
-    const seat = seatStatus(p.id);
-    const badges = [
-      p.has_lost
-        ? `<span class="gf-seat-badge gf-seat-out">${p.loss_reason === 'conceded' ? t('bd.seat.conceded') : t('bd.seat.out')}</span>`
-        : '',
-      // Not a rules state at all — this player's browser is gone. The
-      // server passes priority for them meanwhile, so the game keeps
-      // moving; the badge is why it looks like they're doing nothing.
-      seat?.connected === false
-        ? `<span class="gf-seat-badge gf-seat-away" title="${escapeAttr(t('bd.seat.awayTitle'))}">${t('bd.seat.away')}</span>`
-        : '',
-    ].join('');
-    // The banner colour this seat picked in the Multiplayer setup — the
-    // whole title bar, so at a pod of four you find your own board (and
-    // your opponents') by colour rather than by reading four names.
-    const bannerCss = bannerStyle(seat?.banner_color);
-    const bannerAttrs = bannerCss
-      ? ` style="${escapeAttr(bannerCss)}" title="${escapeAttr(`Banner-Farbe: ${bannerColorLabel(seat.banner_color)}`)}"`
-      : '';
-    // Keep status separate from the fixed action slots on the left.
-    const holdsPriority = interactivePriority() && !s.pending_choice && !s.waiting_on_choice
-      && view.priority?.player_id === p.id;
-    // "Zurücknehmen (n)" only for this client's own banner, only when the
-    // table configured a take-back budget and this seat has some left, and
-    // only when the transport actually offers a take-back (multiplayer).
-    const takebacksLeft = isMe ? view.takebacks_remaining?.[view.perspective] : undefined;
-    const takebackBtn = isMe && transport.takeBack && takebacksLeft > 0
-      ? `<button type="button" class="gf-banner-takeback" data-banner-takeback ${busy ? 'disabled' : ''}>${escapeHtml(t('bd.banner.takeback', { count: takebacksLeft }))}</button>`
-      : '';
-    const priorityBits = s.game_over
-      ? takebackBtn
-      : !interactivePriority()
-        ? takebackBtn
-        : isMe
-          ? takebackBtn
-          : yieldBadgeHtml(p.id);
-    const upper = total > 1 && (podGrid() ? index < 2 : index < Math.floor(total / 2));
-    const banner = `        <header class="gf-player-board-head${bannerCss ? ' gf-banner-tinted' : ''}"${bannerAttrs}>
-          <div class="gf-banner-identity">
-          <h3 title="${escapeAttr(p.name)}">${escapeHtml(p.name)}${badges}</h3>
-            ${priorityBits && !moreBattlefield ? `<div class="gf-banner-priority">${priorityBits}</div>` : ''}
-          </div>
-          <div class="gf-banner-center">
-            <div class="gf-banner-status">
-              <span>${isActive ? `<span class="gf-seat-badge gf-seat-active">${t('bd.seat.active')}</span>` : ''}</span>
-              <span>${priorityBadgeHtml(holdsPriority, isMe, p.name)}</span>
-            </div>
-          </div>
-          ${priorityBits && moreBattlefield ? `<div class="gf-banner-priority gf-banner-outer-status">${priorityBits}</div>` : ''}
-          <div class="gf-banner-stats">
-            ${moreBattlefield ? '<div class="gf-banner-mana">' : ''}
-            ${manaPoolHtml(p.mana_pool)}
-            ${manaPotentialHtml(view.mana_potential?.[p.id])}
-            ${moreBattlefield ? '</div>' : ''}
-            ${lifeBox(t('bd.zone.life'), p.life)}
-            ${moreBattlefield ? `<div class="gf-banner-extra">${playerCountersHtml(p, s)}</div>` : playerCountersHtml(p, s)}
-          </div>
-        </header>`;
-    return `
-      <section class="gf-player-board${upper ? ' gf-upper-board' : ''}${isMe ? ' gf-own-board' : ''}${seatId && !isMe ? ' gf-opponent-board' : ''}${p.has_lost ? ' gf-board-out' : ''}${moreBattlefield ? ' gf-more-battlefield' : ' gf-banner-layout'}" data-player-id="${escapeAttr(p.id)}">
-        ${moreBattlefield ? '' : banner}
-        <div class="gf-play gf-zones-${zonesSideFor(index, total)}">
-          <aside class="gf-side">
-            ${moreBattlefield ? banner : ''}
-            <div class="gf-zone gf-command" aria-label="${escapeAttr(t('bd.zone.commandZone'))}">
-              ${p.command.length ? objGrid(p.command, '–', byInstance, pending) : `<div class="card-grid"><div class="gf-card-slot gf-command-placeholder">${faceDownCardHtml(t('bd.zone.emptyCommand'))}</div></div>`}
-            </div>
-            <div class="gf-zone gf-library">
-              <h4>${t('bd.zone.library')}</h4>
-              <p class="library-count">${escapeHtml(t('bd.zone.libraryCount', { count: p.library_count }))}</p>
-              ${knownLibraryHtml(p)}
-              ${libraryTopHtml(p, byInstance, pending)}
-            </div>
-            ${collapsibleZoneHtml('gf-graveyard', t('bd.zone.graveyard'), `${p.id}:graveyard`, p.graveyard.length, zoneListHtml(p.graveyard, t('bd.zone.empty')))}
-            ${collapsibleZoneHtml('gf-exile', t('bd.zone.exile'), `${p.id}:exile`, p.exile.length, objGrid(p.exile, t('bd.zone.empty'), byInstance, pending))}
-            ${ownHand && (p.sideboard || []).length ? collapsibleZoneHtml('gf-sideboard', t('bd.zone.sideboard'), `${p.id}:sideboard`, p.sideboard.length, objGrid(p.sideboard, t('bd.zone.empty'), byInstance, pending)) : ''}
-            ${blindSideboardHtml(p, s)}
-          </aside>
-
-          <div class="gf-main">
-            <div class="gf-zone gf-battlefield" data-drop-zone="battlefield">
-              <div class="gf-bf-head">
-                <h4>Battlefield (${bf.length})</h4>
-                <label class="gf-bf-toggle" title="${escapeAttr(t('bd.bf.landsOwnRowTitle'))}">
-                  <input type="checkbox" class="gf-rows-toggle" ${threeRows ? 'checked' : ''} />
-                  ${t('bd.bf.landsOwnRow')}
-                </label>
-
-              </div>
-              ${battlefieldHtml(s.battlefield, p.id, byInstance, pending)}
-            </div>
-
-
-            ${handAreaHtml(p, s, byInstance, pending, ownHand)}
-          </div>
-        </div>
-      </section>`;
-  }
-
-  // A hand the server redacted (RULE 400.2 — an opponent's hand never
-  // leaves the server, `services/game_session.py`) arrives as an empty
-  // `hand` plus a non-zero `hand_count`; draw that many card backs so the
-  // board still shows *how much* they're holding. A genuinely empty hand
-  // has `hand_count === 0` and falls through to the normal "leer".
-  function handHtml(p, byInstance, pending, isOwn = true) {
-    const count = p.hand_count != null ? p.hand_count : p.hand.length;
-    if (!isOwn && p.hand.length && count > p.hand.length) {
-      const hidden = count - p.hand.length;
-      const backs = getShowOpponentHand()
-        ? `<div class="card-grid">${Array.from({ length: hidden }, () => `<div class="gf-card-slot">${faceDownCardHtml()}</div>`).join('')}</div>`
-        : `<p class="empty-state gf-hand-hidden">${escapeHtml(tPlural('bd.hand.hiddenCount', hidden))}</p>`;
-      return objGrid(p.hand, '–', byInstance, pending) + backs;
-    }
-    if (!p.hand.length && count > 0) {
-      // Nothing here is information — the cards themselves never left the
-      // server — so an opponent's row of backs is off unless asked for.
-      if (!isOwn && !getShowOpponentHand()) {
-        return `<p class="empty-state gf-hand-hidden">${escapeHtml(tPlural('bd.hand.hiddenCount', count))}</p>`;
-      }
-      return `<div class="card-grid">${Array.from(
-        { length: count },
-        () => `<div class="gf-card-slot">${faceDownCardHtml()}</div>`,
-      ).join('')}</div>`;
-    }
-    // Cards actually *in* the array for someone else's hand are ones the
-    // server chose to send, i.e. revealed — always shown, whatever the
-    // toggle says.
-    if (!isOwn || !p.hand.length) return objGrid(p.hand, 'leer', byInstance, pending);
-    const imageCache = getState().imageCache;
-    return `<div class="card-grid" data-order-zone="${escapeAttr(`hand:${p.id}`)}">${orderedByLocal(`hand:${p.id}`, p.hand).map(o =>
-      objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || [], true)
-    ).join('')}</div>`;
-  }
-
-  // Only rendered on a hand that isn't yours (see `ownHand`) — in
-  // Replay/Puzzle mode both boards are yours to edit, so there is nothing
-  // to hide and no toggle.
-  function opponentHandToggleHtml() {
-    return `
-      <label class="gf-bf-toggle gf-hand-toggle" title="${escapeAttr(t('bd.hand.showOppTitle'))}">
-        <input type="checkbox" class="gf-opp-hand-toggle" ${getShowOpponentHand() ? 'checked' : ''} />
-        ${t('bd.hand.showOppShort')}
-      </label>`;
-  }
-
-  // One face-down card: the player's own chosen sleeve if they uploaded one
-  // (Einstellungen tab, `setAssets`), otherwise a plain patterned back.
-  function faceDownCardHtml(label = t('bd.hand.faceDownAlt')) {
-    if (assetsSleeveImageUrl) {
-      return `<div class="card has-image gf-face-down"><img src="${escapeAttr(assetsSleeveImageUrl)}" alt="${escapeAttr(label)}" /></div>`;
-    }
-    return `<div class="card gf-face-down" title="${escapeAttr(label)}"></div>`;
   }
 
   // The top card of a library is normally face-down (`library_count` is
@@ -2102,402 +1151,6 @@ export function createGameBoardView(opts = {}) {
     return `
       <p class="library-top-hint">${t('bd.libraryTop.visible')}</p>
       ${objGrid([top], '', byInstance, pending)}
-    `;
-  }
-
-  function playerName(id) {
-    const p = (view.state?.players || []).find((pl) => pl.id === id);
-    return p ? p.name : id;
-  }
-
-  // VIS-13: which player controls a target candidate. A permanent's
-  // controller (RULE 108.4) is on the battlefield; a spell/ability on the
-  // stack carries its own controller; a card in a hand/graveyard/exile
-  // zone has no controller, so its owner stands in. Players are their own
-  // candidates and need no tag. The server only puts `controller_id` on some
-  // descriptors, so the view is the one source that covers every kind.
-  function targetControllerId(o) {
-    if (!o || o.player_id != null || o.instance_id == null) return null;
-    if (o.controller_id != null) return o.controller_id;
-    const s = view.state;
-    if (!s) return null;
-    const onBattlefield = (s.battlefield || []).find((x) => x.instance_id === o.instance_id);
-    if (onBattlefield) return onBattlefield.controller_id;
-    const onStack = (s.stack || []).find(
-      (it) => (it.object?.instance_id ?? it.source?.instance_id) === o.instance_id,
-    );
-    if (onStack) return onStack.controller_id ?? null;
-    for (const pl of s.players || []) {
-      for (const zone of TARGET_OWNER_ZONES) {
-        if ((pl[zone] || []).some((x) => x.instance_id === o.instance_id)) return pl.id;
-      }
-    }
-    return null;
-  }
-
-  // The controller tag shown beside a target candidate: the player's name in
-  // their banner colour, "(you)" for the viewer's own seat.
-  function targetControllerChipHtml(o) {
-    const id = targetControllerId(o);
-    if (id == null) return '';
-    const mine = view.perspective != null && id === view.perspective;
-    const label = mine ? t('bd.target.controllerMine', { name: playerName(id) }) : playerName(id);
-    const css = bannerStyle(seatStatus(id)?.banner_color);
-    return `<span class="gf-target-ctrl${mine ? ' gf-target-ctrl--mine' : ''}${css ? ' gf-banner-tinted' : ''}"${css ? ` style="${escapeAttr(css)}"` : ''} title="${escapeAttr(t('bd.target.controllerTitle', { name: playerName(id) }))}">${escapeHtml(label)}</span>`;
-  }
-
-  // The candidates of the current RULE 115 target round, after the
-  // per-round exclusions (same permanent twice, same controller twice).
-  function castTargetOptions() {
-    if (!castTargeting) return [];
-    const req = castTargeting.requirements[castTargeting.reqIndex] || {};
-    let options = req.options || [];
-    if (castTargeting.excludePicked || req.distinct_from_others) {
-      // A "tap N untapped <type>s you control" cost (RULE 602.1): the same
-      // permanent can't pay two of the N picks. `distinct_from_others` is
-      // RULE 109.5's "**another** target creature" (Pit Fight, Ulvenwald
-      // Tracker) — same exclusion, but across *requirements*: whatever the
-      // other half of the clause already chose is off this round's pool.
-      // A player option has a `player_id` and no `instance_id`, so the key names which of the two it is
-      // (ENG-52: "any other target" can be a player; `undefined` must not exclude every player).
-      const targetKey = (o) => (o.player_id != null ? `p:${o.player_id}` : `i:${o.instance_id}`);
-      const pickedKeys = new Set(castTargeting.targets.map(targetKey));
-      options = options.filter((o) => !pickedKeys.has(targetKey(o)));
-    }
-    if (castTargeting.excludeControllers) {
-      // Run Away Together/Protector of the Wastes-shaped "controlled by
-      // different players": once one round has picked a permanent, no
-      // later round may pick another one sharing that controller.
-      const pickedControllers = new Set((castTargeting.pickedControllers || []).filter((c) => c != null));
-      options = options.filter((o) => !pickedControllers.has(o.controller_id));
-    }
-    if (req.same_graveyard) {
-      const owner = castTargeting.owners?.[castTargeting.reqIndex];
-      const picked = castTargeting.groups?.[owner] || [];
-      const first = req.options.find((o) => o.instance_id === picked[0]?.instance_id);
-      if (first) options = options.filter((o) => o.graveyard_owner_id === first.graveyard_owner_id);
-    }
-    for (const [field, limit] of [['power', req.total_power_max], ['mana_value', req.total_mana_value_max]]) {
-      if (limit == null) continue;
-      const owner = castTargeting.owners?.[castTargeting.reqIndex];
-      const picked = castTargeting.groups?.[owner] || [];
-      const used = picked.reduce((sum, target) => sum + (req.options.find((o) => o.instance_id === target.instance_id)?.[field] || 0), 0);
-      options = options.filter((o) => used + (o[field] || 0) <= limit);
-    }
-    return options;
-  }
-
-  // One RULE 115 pick, whether it came from the popup button or a click on
-  // the board (VIS-14). `target === null` is the "no target" decline.
-  function pickCastTarget({ instance_id: iid, target, controller_id: controllerId }) {
-    if (!castTargeting || castTargeting.instanceId !== iid) return;
-    if (target !== null) {
-      castTargeting.targets.push(target);
-      // …and into this round's own requirement group, so a declined
-      // "up to one" leaves an *empty* group rather than shifting every
-      // later pick one slot up (see `expandMultiTargetRequirements`).
-      const owner = castTargeting.owners?.[castTargeting.reqIndex];
-      if (owner != null) castTargeting.groups?.[owner]?.push(target);
-      // Tracked separately from `target` (the wire-format pick sent to
-      // the server) purely for `excludeControllers`'s client-side
-      // per-round filtering — see `castTargetOptions`.
-      (castTargeting.pickedControllers ||= []).push(controllerId ?? null);
-    }
-    const requirement = castTargeting.requirements[castTargeting.reqIndex];
-    if (target === null && requirement?.any_number) {
-      const owner = castTargeting.owners[castTargeting.reqIndex];
-      while (castTargeting.owners[castTargeting.reqIndex] === owner) castTargeting.reqIndex += 1;
-      finishCastIfReady();
-      return;
-    }
-    castTargeting.reqIndex = target === null && castTargeting.isSacrificeCountChoice
-      ? castTargeting.requirements.length : castTargeting.reqIndex + 1;
-    finishCastIfReady();
-  }
-
-  // VIS-14: what can be clicked on the board right now because the target
-  // popup is pushed aside — `{instanceId | playerId, activate}` per legal
-  // candidate. Covers both target UIs: the cast/activate picker and the
-  // `trigger_target` pending choice. Cost choices (tap/sacrifice/discard)
-  // are not targets and stay popup-only.
-  function pickablesForBoard() {
-    const out = [];
-    if (castTargeting && castTargetAside && !castTargeting.isTapChoice
-        && !castTargeting.isSacrificeChoice && !castTargeting.isDiscardChoice && !castTargeting.isReturnChoice && !castTargeting.isBlightChoice) {
-      for (const o of castTargetOptions()) {
-        const payload = { instance_id: castTargeting.instanceId, target: targetOptionPayload(o), controller_id: o.controller_id ?? null };
-        out.push({ instanceId: o.instance_id, playerId: o.player_id, activate: () => pickCastTarget(payload) });
-      }
-    }
-    const pending = view?.state?.pending_choice;
-    if (pending && choiceAside && TARGET_CHOICE_KINDS.has(pending.kind)) {
-      const players = new Set((view.state.players || []).map((pl) => pl.id));
-      for (const opt of pending.options || []) {
-        if (opt.id === 'decline' || opt.id === 'do') continue;
-        const action = opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label };
-        out.push({
-          instanceId: opt.instance_id,
-          playerId: opt.instance_id == null && players.has(opt.id) ? opt.id : undefined,
-          activate: () => act(action),
-        });
-      }
-    }
-    return out;
-  }
-
-  // A pending choice is rendered as a modal popup for the deciding player:
-  // the board behind it is dimmed/locked (`.goldfish.choosing`) so the only
-  // thing to do is answer. Each server-provided option becomes one button —
-  // except `replacement_order` (RULE 616.1) and `order_triggers`
-  // (RULE 603.3b), which get a drag-and-drop reorderable list instead (see
-  // `replacementOrderHtml`/`triggerOrderHtml`), and `scry`/`surveil`, which
-  // get inline card-face thumbnails instead of bare name buttons (see
-  // `lookTopChoiceHtml`). `aside` is a push-aside escape hatch
-  // (`data-choice-aside` below) — a player deciding e.g. a surveil may want
-  // to check the board (a graveyard, a permanent's text) before answering
-  // rather than being fully blocked.
-  function pendingChoiceHtml(pending, aside = false) {
-    const icon = CHOICE_ICONS[pending.kind] || '❔';
-    const heading = pending.kind === 'proliferate' ? t('bd.proliferate.title')
-      : pending.prompt || pending.description || t('bd.choice.needed');
-    const body = pending.kind === 'proliferate'
-      ? proliferateChoiceHtml(pending)
-      : pending.kind === 'graveyard_replacement'
-      ? graveyardReplacementHtml(pending)
-      : ['physical_property_measurement', 'physical_environment_measurement'].includes(pending.kind)
-      ? physicalMeasurementHtml(pending)
-      : pending.kind === 'replacement_order'
-      ? replacementOrderHtml(pending)
-      : pending.kind === 'order_triggers'
-        ? triggerOrderHtml(pending)
-        : pending.kind === 'scry' || pending.kind === 'surveil' || pending.kind === 'reorder_top' || pending.kind === 'look_hand'
-          ? lookTopChoiceHtml(pending)
-          : pending.kind === 'clash'
-            ? clashChoiceHtml(pending)
-          // MEC-46: a "vote for one of these objects" ballot (Council's
-          // Judgment / Custodi Squire) — options carry a `card_id`, so the
-          // same face-thumbnail renderer scry/surveil use reads far better
-          // than bare name buttons.
-          : pending.kind === 'vote_object'
-            ? lookTopChoiceHtml(pending)
-            : simpleChoiceButtonsHtml(pending);
-    const asideLabel = aside ? t('bd.choice.asideShow') : t('bd.choice.asidePush');
-
-    return `
-      <div class="gf-modal-overlay${aside ? ' aside' : ''}">
-        <div class="gf-modal" role="dialog" aria-modal="true">
-          <div class="gf-modal-head">
-            <span class="gf-modal-icon">${icon}</span>
-            <div>
-              <h4>${escapeHtml(heading)}</h4>
-              <p class="gf-modal-who">${escapeHtml(t('bd.choice.forWhom', { name: playerName(pending.player_id) }))}</p>
-              ${pending.source_name ? `<p class="gf-modal-source">${escapeHtml(t('bd.choice.triggeredBy', { name: pending.source_name }))}</p>` : ''}
-            </div>
-            <button type="button" class="gf-modal-aside" data-choice-aside title="${escapeAttr(t('bd.choice.asideTitle'))}">${asideLabel}</button>
-          </div>
-          ${body}
-        </div>
-      </div>
-    `;
-  }
-
-  function proliferateChoiceHtml(pending) {
-    const options = (pending.options || []).filter(o => o.id !== 'decline');
-    if (proliferateDraft.key !== pending.selection_id) {
-      proliferateDraft = { key: pending.selection_id, ids: new Set(pending.recommended_ids || []) };
-    }
-    const rows = options.map(option => {
-      const player = (view.state.players || []).find(p => p.id === option.player_id);
-      const object = (view.state.battlefield || []).find(o => o.instance_id === option.instance_id);
-      const counters = { ...(player?.counters || object?.counters || {}) };
-      if (player?.poison) counters.poison = player.poison;
-      const marks = Object.entries(counters).filter(([,n]) => n > 0).map(([kind,n]) => `${kind}: ${n} → ${Number(n) + 1}`).join(', ');
-      const owner = object ? playerName(object.controller_id) : playerName(option.player_id);
-      return `<label class="gf-proliferate-option">
-        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
-        <span><strong>${escapeHtml(option.label)}</strong>${object ? ` · ${escapeHtml(owner)}` : ''}<br><small>${escapeHtml(marks)}</small></span>
-      </label>`;
-    }).join('');
-    return `<p>${escapeHtml(t('bd.proliferate.hint'))}</p>
-      <div class="gf-proliferate-options">${rows}</div>
-      <div class="gf-choice-options">
-        <button type="button" data-proliferate-reset ${busy ? 'disabled' : ''}>${t('bd.proliferate.recommend')}</button>
-        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.proliferate.clear')}</button>
-        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
-      </div>`;
-  }
-
-  // RULE 616.1: the chooser ticks which cards of a simultaneous batch take Dauthi Voidwalker's void-counter exile;
-  // nothing ticked (the default) is the plain exile. Reuses the proliferate draft and its change/confirm handlers.
-  function graveyardReplacementHtml(pending) {
-    const options = (pending.options || []).filter(o => o.id !== 'decline');
-    if (proliferateDraft.key !== pending.selection_id) proliferateDraft = { key: pending.selection_id, ids: new Set() };
-    const rows = options.map(option => `<label class="gf-proliferate-option">
-        <input type="checkbox" data-proliferate-option="${escapeAttr(option.id)}" ${proliferateDraft.ids.has(option.id) ? 'checked' : ''} ${busy ? 'disabled' : ''}>
-        <span><strong>${escapeHtml(option.label)}</strong></span>
-      </label>`).join('');
-    return `<p>${escapeHtml(t('bd.graveyardReplacement.hint'))}</p>
-      <div class="gf-proliferate-options">${rows}</div>
-      <div class="gf-choice-options">
-        <button type="button" data-proliferate-clear ${busy ? 'disabled' : ''}>${t('bd.graveyardReplacement.none')}</button>
-        <button type="button" class="primary" data-proliferate-confirm ${busy ? 'disabled' : ''}>${t('bd.proliferate.confirm')}</button>
-      </div>`;
-  }
-
-  function measurementValue(text, pending) {
-    if (!/^\d+$/.test(text)) return null;
-    const value = Number(text);
-    const maximum = Number.isSafeInteger(pending.maximum) && pending.maximum >= 0
-      ? Math.min(pending.maximum, Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
-    return Number.isSafeInteger(value) && value >= 0 && value <= maximum ? String(value) : null;
-  }
-
-  function physicalMeasurementHtml(pending) {
-    const subject = pending.subject || {};
-    const key = JSON.stringify([pending.kind, pending.observation_id, pending.property, subject.printing_id, subject.face]);
-    if (measurementDraft.key !== key) measurementDraft = { key, text: '' };
-    const environmental = pending.kind === 'physical_environment_measurement';
-    const text = measurementDraft.text;
-    const valid = measurementValue(text, pending) !== null;
-    const image = subject.image_url || (subject.printing_id
-      ? cardImageUrl(subject.printing_id, 'normal', subject.face || 'front') : null);
-    return `<form data-physical-measurement novalidate>
-      ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(subject.name || '')}" width="300" style="max-width:100%;height:auto">` : ''}
-      <p>${escapeHtml(subject.name || '')}</p>
-      ${environmental ? '' : `<p>${escapeHtml(subject.printing_label
-        ? t('bd.measurement.printing', { printing: subject.printing_label, face: subject.face || 'front' })
-        : t('bd.measurement.face', { face: subject.face || 'front' }))}</p>`}
-      <p>${escapeHtml(t(environmental ? 'bd.measurement.mirrorsInstructions' : 'bd.measurement.instructions'))}</p>
-      <label>${escapeHtml(t(environmental ? 'bd.measurement.mirrors' : 'bd.measurement.lines'))}
-        <input data-measurement-value type="text" inputmode="numeric" pattern="[0-9]+" autocomplete="off" required
-          value="${escapeAttr(text)}" aria-describedby="gf-measurement-error" ${busy ? 'disabled' : ''}>
-      </label>
-      <p id="gf-measurement-error" data-measurement-error role="status">${text && !valid ? escapeHtml(t('bd.measurement.invalid')) : ''}</p>
-      <button type="submit" class="primary" data-measurement-submit ${busy || !valid ? 'disabled' : ''}>${escapeHtml(t(environmental ? 'bd.measurement.confirmObservation' : 'bd.measurement.confirm'))}</button>
-    </form>`;
-  }
-
-  function simpleChoiceButtonsHtml(pending) {
-    const options = pending.options
-      || (pending.eligible || []).map((e) => ({ id: String(e.instance_id), label: e.name, instance_id: e.instance_id }));
-
-    const buttons = options
-      .map((opt) => {
-        if (opt.action?.type === 'cast_spell') return `<span>${escapeHtml(opt.action.name || '')}</span>${castTargetHtml(opt.action)}`;
-        if (opt.id === 'decline') {
-          const action = JSON.stringify({ type: 'decline' });
-          return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || t('bd.choice.chooseNothing'))}</button>`;
-        }
-        const action = JSON.stringify(opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
-        const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
-        // VIS-13: a RULE 115 target offered through the generic choice popup
-        // (`trigger_target`) says who controls each candidate.
-        const chip = TARGET_CHOICE_KINDS.has(pending.kind) ? targetControllerChipHtml(opt) : '';
-        return `<button type="button"${hover} data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}${chip}</button>`;
-      })
-      .join('');
-
-    return `<div class="gf-choice-options">${buttons}</div>${choiceTextHtml(pending)}`;
-  }
-
-  // PAR-203: a choice whose answer space is not enumerable (a card name, RULE 201.3; a creature type, RULE 205.3m)
-  // offers the options above as suggestions and lets the player type any legal answer.
-  function choiceTextHtml(pending) {
-    if (!pending.free_text) return '';
-    const key = JSON.stringify([pending.kind, pending.source_id, pending.what, pending.prompt]);
-    if (choiceTextDraft.key !== key) choiceTextDraft = { key, text: '' };
-    return `<form class="gf-choice-text" data-choice-text novalidate>
-      <label>${escapeHtml(t('bd.choice.typeLabel'))}
-        <input data-choice-text-value type="text" autocomplete="off" value="${escapeAttr(choiceTextDraft.text)}" ${busy ? 'disabled' : ''}>
-      </label>
-      <button type="submit" class="primary" data-choice-text-submit ${busy || !choiceTextDraft.text.trim() ? 'disabled' : ''}>${escapeHtml(t('bd.choice.typeSubmit'))}</button>
-    </form>`;
-  }
-
-  // scry/surveil (RULE 701.18/701.31): the away and order phases both offer
-  // exactly the looked-at cards plus a decline, but unlike a generic search
-  // the player needs to actually *read* each card to decide — a bare name
-  // button forces a hover to see it, so this renders an inline face thumbnail
-  // per option (`opt.card_id`, see `_look_top_choice`) alongside the label,
-  // still hoverable for the full-size tooltip via `data-hover-card`.
-  function lookTopChoiceHtml(pending) {
-    const options = pending.options || [];
-    const cards = options
-      .map((opt) => {
-        if (opt.id === 'decline') {
-          const action = JSON.stringify({ type: 'decline' });
-          return `<button type="button" class="gf-lt-card gf-lt-decline" data-action='${escapeAttr(action)}'>
-            <span class="gf-lt-decline-label">${escapeHtml(opt.label || 'Fertig')}</span>
-          </button>`;
-        }
-        const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
-        const img = opt.card_id ? cardImageUrl(opt.card_id, 'small', 'front') : null;
-        return `<button type="button" class="gf-lt-card" data-hover-card="${escapeHtml(opt.label || '')}" data-action='${escapeAttr(action)}'>
-          ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(opt.label || '')}" loading="lazy">` : ''}
-          <span class="gf-lt-card-label">${escapeHtml(opt.label || opt.id)}</span>
-        </button>`;
-      })
-      .join('');
-    return `<div class="gf-lt-options">${cards}</div>`;
-  }
-
-  // RULE 701.30c: both clash cards are public while their owners decide,
-  // even though they are still physically in hidden libraries.  The server
-  // sends them separately as `state.clash_revealed`; show both faces here,
-  // then offer only this pending choice's owner the top/bottom decision.
-  function clashChoiceHtml(pending) {
-    const revealed = view.state?.clash_revealed || [];
-    const faces = revealed.map((card) => {
-      const img = card.card_id ? cardImageUrl(card.card_id, 'small', 'front') : null;
-      return `<article class="gf-clash-card" data-hover-card="${escapeHtml(card.name || '')}">
-        ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(card.name || '')}" loading="lazy">` : ''}
-        <span class="gf-lt-card-label">${escapeHtml(card.name || 'Karte')}</span>
-      </article>`;
-    }).join('');
-    const buttons = (pending.options || []).map((opt) => {
-      const action = JSON.stringify({ type: 'choose', option_id: opt.id, name: opt.label });
-      return `<button type="button" class="${opt.id === 'bottom' ? 'gf-decline' : 'primary'}" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || opt.id)}</button>`;
-    }).join('');
-    return `<div class="gf-clash-reveal">${faces}</div><div class="gf-choice-options">${buttons}</div>`;
-  }
-
-  // RULE 616.1: 2+ simultaneously-applicable replacement effects (e.g.
-  // Doubling Season + Parallel Lives, or Furnace of Rath + Torbran) are
-  // ordered by the affected player. The server only ever asks "which one
-  // applies *next*" (RULE 616.1f: applying one can expose new ones — the
-  // set the choice re-offers can genuinely change), so a full drag-and-drop
-  // arrangement is a client-side convenience: the player drags all
-  // currently-offered effects into their desired order, and confirming
-  // replays that order as a sequence of single picks (`confirmReplacementOrder`).
-  function replacementOrderHtml(pending) {
-    const options = pending.options || [];
-    const ids = options.map((o) => o.id);
-    // (Re)seed the draft whenever the offered option set doesn't match what
-    // was last dragged (a fresh choice, or the previous one was just
-    // answered and the remaining effects re-offered).
-    if (!replacementOrderDraft
-        || replacementOrderDraft.length !== ids.length
-        || !ids.every((id) => replacementOrderDraft.includes(id))) {
-      replacementOrderDraft = ids.slice();
-    }
-    const byId = Object.fromEntries(options.map((o) => [o.id, o]));
-    const items = replacementOrderDraft
-      .map((id, i) => {
-        const opt = byId[id];
-        if (!opt) return '';
-        return `<li class="gf-reorder-item" draggable="true" data-id="${escapeAttr(id)}">
-          <span class="gf-reorder-handle" aria-hidden="true">⠿</span>
-          <span class="gf-reorder-index">${i + 1}.</span>
-          <span class="gf-reorder-label">${escapeHtml(opt.label || opt.id)}</span>
-        </li>`;
-      })
-      .join('');
-    return `
-      <p class="gf-reorder-hint">${t('bd.reorder.hintEffects')}</p>
-      <ul class="gf-reorder-list">${items}</ul>
-      <div class="gf-modal-foot">
-        <button type="button" class="primary" data-reorder-confirm>${t('bd.common.confirm')}</button>
-      </div>
     `;
   }
 
@@ -2532,50 +1185,6 @@ export function createGameBoardView(opts = {}) {
       }
     });
     replacementOrderDraft = null;
-  }
-
-  // RULE 603.3b: 2+ of the active player's triggers fired simultaneously
-  // (`state.interactive_ordering` opt-in). Same drag-and-drop convenience as
-  // `replacementOrderHtml` above: the player arranges the *whole* set once,
-  // confirming replays it as a sequence of single picks
-  // (`confirmTriggerOrder`). Each item shows the source permanent's name
-  // and the ability's own oracle text (`label` — see `_trigger_order_
-  // choice`'s docstring) rather than just a bare description, so ordering
-  // two similarly-named triggers doesn't come down to guessing which is
-  // which (ENG-4's frontend half).
-  function triggerOrderHtml(pending) {
-    const options = pending.options || [];
-    const keys = options.map(triggerOptionKey);
-    // (Re)seed the draft whenever the offered option set doesn't match what
-    // was last dragged (a fresh choice, or the previous one was just
-    // answered and the remaining triggers re-offered).
-    if (!triggerOrderDraft
-        || triggerOrderDraft.length !== keys.length
-        || !keys.every((k) => triggerOrderDraft.includes(k))) {
-      triggerOrderDraft = keys.slice();
-    }
-    const byKey = Object.fromEntries(options.map((o) => [triggerOptionKey(o), o]));
-    const items = triggerOrderDraft
-      .map((key, i) => {
-        const opt = byKey[key];
-        if (!opt) return '';
-        const source = opt.source_name
-          ? `<span class="gf-reorder-source">${escapeHtml(opt.source_name)}</span>`
-          : '';
-        return `<li class="gf-reorder-item" draggable="true" data-key="${escapeAttr(key)}">
-          <span class="gf-reorder-handle" aria-hidden="true">⠿</span>
-          <span class="gf-reorder-index">${i + 1}.</span>
-          <span class="gf-reorder-text">${source}<span class="gf-reorder-label">${escapeHtml(opt.label || opt.id)}</span></span>
-        </li>`;
-      })
-      .join('');
-    return `
-      <p class="gf-reorder-hint">${t('bd.reorder.hintTriggers')}</p>
-      <ul class="gf-reorder-list gf-trigger-order-list">${items}</ul>
-      <div class="gf-modal-foot">
-        <button type="button" class="primary" data-trigger-order-confirm>${t('bd.common.confirm')}</button>
-      </div>
-    `;
   }
 
   // Replays the player's dragged order as a sequence of single `choose`
@@ -2613,23 +1222,6 @@ export function createGameBoardView(opts = {}) {
     triggerOrderDraft = null;
   }
 
-  // Anchor each per-card effect popover (top layer) at its Σ-badge when it
-  // opens — the top layer otherwise centres it — flipping above / clamping to
-  // the viewport so it never spills off-screen.
-  function positionEffectPopover(pop, badge) {
-    const r = badge.getBoundingClientRect();
-    const pw = pop.offsetWidth;
-    const ph = pop.offsetHeight;
-    const margin = 8;
-    let left = Math.min(r.left, window.innerWidth - pw - margin);
-    left = Math.max(margin, left);
-    let top = r.bottom + 4;
-    if (top + ph > window.innerHeight - margin) top = r.top - ph - 4; // flip above
-    top = Math.max(margin, top);
-    pop.style.left = `${left}px`;
-    pop.style.top = `${top}px`;
-  }
-
   function wireEffectPopovers() {
     root.querySelectorAll('.gf-effects-pop').forEach((pop) => {
       const badge = root.querySelector(`[popovertarget="${CSS.escape(pop.id)}"]`);
@@ -2640,7 +1232,8 @@ export function createGameBoardView(opts = {}) {
     });
   }
 
-  function wire() {
+  // Event wiring is split by concern; `wire()` runs them in the original order after each repaint.
+  function wireTurnControls() {
     root.querySelectorAll('[data-card-menu]').forEach(slot => {
       const open = (event) => {
         if (event.target.closest('.gf-card-menu')) return;
@@ -2661,28 +1254,7 @@ export function createGameBoardView(opts = {}) {
       });
     });
     wireEffectPopovers();
-    root.querySelector('[data-chat-custom]')?.addEventListener('click', () => {
-      customEmojiOpen = !customEmojiOpen;
-      render();
-      root.querySelector('.gf-emoji-categories button')?.focus();
-    });
-    root.querySelectorAll('[data-emoji-category]').forEach(button => {
-      button.addEventListener('click', () => {
-        emojiCategory = button.dataset.emojiCategory;
-        render();
-        root.querySelector(`[data-emoji-category="${emojiCategory}"]`)?.focus();
-      });
-    });
-    root.querySelector('.gf-emoji-picker')?.addEventListener('keydown', event => {
-      if (event.key === 'Escape') {
-        customEmojiOpen = false;
-        render();
-        root.querySelector('[data-chat-custom]')?.focus();
-      }
-    });
-    root.querySelectorAll('[data-chat-emote]').forEach((button) => {
-      button.addEventListener('click', () => sendChat(button.dataset.chatEmote));
-    });
+    wireChatEvents();
     root.querySelector('#gf-advance')?.addEventListener('click', () => act({ type: 'advance_step' }));
     root.querySelector('#gf-next-decision')?.addEventListener('click', () => act({ type: 'advance_to_decision' }));
     root.querySelector('#gf-rewind')?.addEventListener('click', rewind);
@@ -2735,7 +1307,9 @@ export function createGameBoardView(opts = {}) {
         cancelAutoPassForThisWindow();
       });
     }
+  }
 
+  function wireBlocksAndExtras() {
     // RULE 509.1a block assembly: each pick only updates the local draft
     // (and re-renders so the confirm button's count follows); nothing is
     // sent until "Block bestätigen".
@@ -2760,7 +1334,9 @@ export function createGameBoardView(opts = {}) {
       const control = extraControlsFn(busy).find((c) => c.id === el.dataset.extra);
       if (control) el.addEventListener('click', control.onClick);
     });
+  }
 
+  function wireChoiceForms() {
     root.querySelectorAll('[data-blind-cast]').forEach(el => {
       el.addEventListener('click', () => {
         const form = el.closest('.gf-blind-sideboard');
@@ -2831,126 +1407,9 @@ export function createGameBoardView(opts = {}) {
     } else {
       choiceTextDraft = { key: null, text: '' };
     }
-    root.querySelectorAll('[data-action]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const action = JSON.parse(el.dataset.action);
-        if (action.type === 'declare_attackers') {
-          const iid = action.instance_ids[0];
-          attackDraft.set(iid, action);
-          attackMenuOpen.delete(iid);
-          render();
-          return;
-        }
-        act(action);
-      });
-    });
+  }
 
-    if (!dragHandlersInstalled) {
-      dragHandlersInstalled = true;
-      root.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        const target = maybeReadDropTargetData(e.target);
-        if (!target) return;
-      });
-      root.addEventListener('drop', (e) => {
-        // A drop on a specific valid target (equip onto a creature) is a real
-        // game action; any other drop inside the card's own zone only re-sorts
-        // the local presentation order.
-        const zoneEl = e.target.closest('[data-order-zone]');
-        if (dragSource && zoneEl && zoneEl.dataset.orderZone === dragSource.zone
-            && !['instance', 'player'].includes(maybeReadDropTargetData(e.target)?.type)) {
-          e.preventDefault();
-          const order = zoneOrder.get(dragSource.zone) || [];
-          let targetSlot = e.target.closest('[data-instance-id]');
-          // Dropped on an attachment: its host is what sits in the row.
-          // `dataset` values are strings, instance ids on the wire may be numbers.
-          const indexOfId = (id) => order.findIndex((known) => String(known) === String(id));
-          if (targetSlot && indexOfId(targetSlot.dataset.instanceId) < 0) {
-            targetSlot = targetSlot.closest('.gf-attach-group')?.querySelector('[data-instance-id]') || null;
-          }
-          const targetId = targetSlot?.dataset.instanceId;
-          const from = indexOfId(dragSource.instanceId);
-          const to = targetId ? indexOfId(targetId) : order.length - 1;
-          if (from >= 0 && to >= 0 && from !== to) {
-            order.splice(to, 0, order.splice(from, 1)[0]);
-          }
-          dragSource = null;
-          clearDragHighlights();
-          render();
-          return;
-        }
-        const target = maybeReadDropTargetData(e.target);
-        e.preventDefault();
-        if (target) {
-          executeDroppedAction(target);
-        }
-        dragSource = null;
-        clearDragHighlights();
-      });
-    }
-
-    root.querySelectorAll('[data-draggable-card="true"]').forEach((el) => {
-      el.addEventListener('dragstart', (e) => {
-        const slot = el.closest('[data-instance-id]');
-        const instanceId = slot?.dataset.instanceId;
-        if (!instanceId) return;
-        // Which player's own board this card lives on — a shared/multiplayer
-        // board renders one `[data-drop-zone="battlefield"]` *per player*, so
-        // "the battlefield" is ambiguous without this: an unscoped
-        // `querySelector` always finds whichever board happens to come first
-        // in `boardOrder` (every board but this client's own, which is drawn
-        // last/nearest), highlighting — and, worse, accepting a drop onto —
-        // some other player's battlefield whenever they aren't that first one.
-        dragSource = {
-          instanceId,
-          playerId: slot.closest('[data-player-id]')?.dataset.playerId || null,
-          zone: slot.closest('[data-order-zone]')?.dataset.orderZone || null,
-        };
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', '');
-        highlightDragTargets();
-      });
-      el.addEventListener('dragend', () => {
-        dragSource = null;
-        clearDragHighlights();
-      });
-    });
-
-    // RULE 616.1 replacement-order popup: drag & drop reordering. Dragging
-    // reorders the list purely client-side (`replacementOrderDraft` is only
-    // read again on the next render/confirm); "Bestätigen" replays the final
-    // order via `confirmReplacementOrder`.
-    const reorderList = root.querySelector('.gf-reorder-list');
-    if (reorderList) {
-      reorderList.querySelectorAll('.gf-reorder-item').forEach((el) => {
-        el.addEventListener('dragstart', () => {
-          el.classList.add('dragging');
-        });
-        el.addEventListener('dragend', () => el.classList.remove('dragging'));
-        el.addEventListener('dragover', (e) => {
-          e.preventDefault();
-          const dragging = reorderList.querySelector('.dragging');
-          if (!dragging || dragging === el) return;
-          const rect = el.getBoundingClientRect();
-          const before = (e.clientY - rect.top) < rect.height / 2;
-          reorderList.insertBefore(dragging, before ? el : el.nextSibling);
-        });
-        el.addEventListener('drop', (e) => e.preventDefault());
-      });
-      root.querySelector('[data-reorder-confirm]')?.addEventListener('click', () => {
-        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.id);
-        confirmReplacementOrder(order);
-      });
-      // RULE 603.3b trigger-order popup shares the same `.gf-reorder-list`
-      // drag mechanics above; only the confirm step differs — items carry
-      // `data-key` (a stable `triggerOptionKey`, not a round-numbered id).
-      root.querySelector('[data-trigger-order-confirm]')?.addEventListener('click', () => {
-        const order = Array.from(reorderList.querySelectorAll('.gf-reorder-item')).map((li) => li.dataset.key);
-        confirmTriggerOrder(order);
-      });
-    }
-
+  function wireBoardChrome() {
     // Battlefield 2-/3-row layout toggle (persisted, one checkbox per board).
     root.querySelectorAll('.gf-rows-toggle').forEach((el) => {
       el.addEventListener('change', (e) => {
@@ -2960,27 +1419,6 @@ export function createGameBoardView(opts = {}) {
       });
     });
 
-    const closeReveal = () => {
-      revealItems = [];
-      render();
-    };
-    root.querySelector('[data-reveal-close]')?.addEventListener('click', closeReveal);
-    root.querySelector('[data-reveal-aside]')?.addEventListener('click', () => {
-      revealAside = !revealAside;
-      render();
-      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
-    });
-    root.querySelector('.gf-revealed-modal')?.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { event.stopPropagation(); closeReveal(); }
-    });
-    root.querySelectorAll('[data-reveal-open]').forEach(button => button.addEventListener('click', () => {
-      const message = (view.table_messages || []).find(item => item.id === Number(button.dataset.revealOpen));
-      if (!message) return;
-      revealItems = [message];
-      revealAside = true;
-      render();
-      root.querySelector('.gf-revealed-modal .gf-modal')?.focus();
-    }));
     const focusStatics = () => root.querySelector('.gf-statics-modal .gf-modal')?.focus();
     root.querySelector('[data-statics-open]')?.addEventListener('click', () => {
       showStatics = true;
@@ -3013,7 +1451,17 @@ export function createGameBoardView(opts = {}) {
       waitingChoiceAside = !waitingChoiceAside;
       render();
     });
+  }
 
+  function wireAttackDeclaration() {
+    root.querySelectorAll('[data-enlist-attacker]').forEach(el => {
+      el.addEventListener('change', () => {
+        const selection = attackDraft.get(Number(el.dataset.enlistAttacker));
+        const picks = selection.enlist_ids ||= [];
+        picks[Number(el.dataset.enlistIndex)] = Number(el.value) || null;
+        render();
+      });
+    });
     root.querySelectorAll('[data-attack-remove]').forEach(el => {
       el.addEventListener('click', () => {
         attackDraft.delete(Number(el.dataset.attackRemove));
@@ -3047,343 +1495,25 @@ export function createGameBoardView(opts = {}) {
         render();
       });
     });
-
-    // {X} spells read the announced value from the adjacent number input at
-    // click time rather than baking it into a static data-action attribute.
-    root.querySelectorAll('[data-cast-x]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const { iid, face, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost } = JSON.parse(el.dataset.castX);
-        const x = readX(iid, face, blitz, splice_ids);
-        const kicked = readKicker(iid, face, splice_ids);
-        const kicker_x = readKickerX(iid, face, splice_ids);
-        act({ type: 'cast_spell', instance_id: iid, x, face, kicked, kicker_x, mode, entwine, warp, evoke, surge, blitz, pay_additional, bargained, gift_opponent_id, splice_ids, free, alt_cost });
-      });
-    });
-
-    root.querySelectorAll('[data-suspend-x]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const iid = Number(el.dataset.suspendX);
-        act({ type: 'suspend', instance_id: iid, x: readX(iid, 'suspend') });
-      });
-    });
-
-    root.querySelectorAll('[data-tap-x]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const { iid, ability_index, option_index } = JSON.parse(el.dataset.tapX);
-        submitManaActivation({ type: 'tap_for_mana', instance_id: iid, ability_index, option_index, x: readX(iid, null) });
-      });
-    });
-
-    root.querySelectorAll('[data-mana-choice-activate]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.manaChoiceActivate);
-        const iid = Number(info.iid);
-        const option_index = Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value);
-        const send = { type: info.type, instance_id: iid, ability_index: info.ability_index, option_index };
-        if (info.has_x) send.x = readX(iid, null);
-        if (info.type === 'tap_for_mana') {
-          submitManaActivation(send);
-        } else {
-          act(send);
-        }
-      });
-    });
-
-    root.querySelectorAll('[data-activate-x]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const { iid, ability_index, mode } = JSON.parse(el.dataset.activateX);
-        const x = readX(iid, null);
-        const action = (view?.legal_actions || []).find(a => a.type === 'activate_ability'
-          && a.instance_id === Number(iid) && a.ability_index === ability_index
-          && sameActivationMode(a, mode));
-        if (action?.graveyard_exile_cost) {
-          prepareCastTargeting(action);
-          return;
-        }
-        if (action?.reveal_cost || action?.counter_cost) {
-          // PAR-247: an announced X that is paid with chosen cards (Martyr of Ashes) goes through the cost pickers.
-          castTargeting = {
-            instanceId: Number(iid), requirements: [], reqIndex: 0, targets: [], x,
-            send: { type: 'activate_ability', instance_id: iid, ability_index, mode, x },
-          };
-          finishCastIfReady();
-          return;
-        }
-        act({ type: 'activate_ability', instance_id: iid, ability_index, mode, x });
-      });
-    });
-
-    root.querySelectorAll('[data-cast-target-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.castTargetStart);
-        const iid = Number(info.iid);
-        let action = findTargetableAction(
-          iid, info.type, info.ability_index, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
-        );
-        if (!action) return;
-        const kicked = action.has_kicker ? readKicker(iid, info.face, info.splice_ids) : 0;
-        action = selectedKickerAction(action, kicked);
-        if (action.locked) {
-          setStatus(action.lock_reason || t('bd.cast.noValidTarget'), 'error');
-          render();
-          return;
-        }
-        const x = action.has_x ? readX(iid, info.face, info.blitz, info.splice_ids) : 0;
-        const kicker_x = action.kicker_has_x ? readKickerX(iid, info.face, info.splice_ids) : 0;
-        const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode, name: action.name }
-          : {
-            type: 'cast_spell', instance_id: iid, name: action.name, face: info.face, kicked, kicker_x,
-            mode: info.mode, entwine: info.entwine, alt_cost: action.alt_cost, free: action.free, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz, pay_additional: action.pay_additional,
-            bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids,
-          };
-        const {
-          requirements, owners, groupCount, excludePicked, excludeControllers,
-        } = expandMultiTargetRequirements(action.targets || [], x);
-        castTargeting = {
-          instanceId: iid, requirements, owners, reqIndex: 0, targets: [], x, send,
-          damageDivisions: resolvedDamageDivisions(action.damage_divisions, x), divisionRequirements: action.targets,
-          groups: Array.from({ length: groupCount }, () => []),
-          excludePicked, excludeControllers,
-        };
-        finishCastIfReady();
-      });
-    });
-
-    root.querySelectorAll('[data-damage-requirement]').forEach((input) => {
-      input.addEventListener('input', () => {
-        if (!castTargeting) return;
-        const index = input.dataset.damageRequirement;
-        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
-        (castTargeting.damageDraft ||= {})[index] = inputs.map((field) => field.value);
-        persistCastTargetingDraft();
-      });
-    });
-
-    root.querySelector('[data-damage-confirm]')?.addEventListener('click', () => {
-      const ct = castTargeting;
-      if (!ct) return;
-      const allocations = {};
-      let valid = true;
-      for (const division of ct.damageDivisions || []) {
-        const index = division.requirement_index;
-        const inputs = [...root.querySelectorAll(`[data-damage-requirement="${index}"]`)];
-        const values = inputs.map((input) => input.value === '' ? NaN : Number(input.value));
-        if (values.length !== (ct.groups?.[index] || []).length
-            || values.some((value) => !Number.isInteger(value) || value < division.min_each)
-            || (values.length > 0 && values.reduce((sum, value) => sum + value, 0) !== division.total)) valid = false;
-        allocations[index] = values;
-      }
-      if (!valid) {
-        root.querySelector('[data-damage-error]').textContent = 'Bitte den gesamten Schaden in ganzen Zahlen auf alle gewählten Ziele verteilen.';
-        return;
-      }
-      ct.allocatedDamage = allocations;
-      finishCastIfReady();
-    });
-
-    root.querySelectorAll('[data-cast-target-pick]').forEach((el) => {
-      el.addEventListener('click', () => pickCastTarget(JSON.parse(el.dataset.castTargetPick)));
-    });
-
-    // VIS-14: push the target popup aside / bring it back.
-    root.querySelector('[data-cast-target-aside]')?.addEventListener('click', () => {
-      castTargetAside = !castTargetAside;
-      render();
-    });
-    wirePickTargets();
-
-    root.querySelectorAll('[data-cast-target-cancel]').forEach((el) => {
-      el.addEventListener('click', () => {
-        castTargeting = null;
-        persistCastTargetingDraft();
-        render();
-      });
-    });
-
-    // RULE 605.1a "any combination of colours" split builder's confirm
-    // button: reads its own container's number inputs, rejects a sum that
-    // doesn't match the ability's fixed/variable total client-side (the
-    // server's own `validate_color_split` would reject it too, but catching
-    // it here avoids a round-trip for the common "forgot to fill it in" slip).
-    root.querySelectorAll('.gf-mana-split').forEach((container) => {
-      container.querySelector('[data-split-confirm]')?.addEventListener('click', () => {
-        const info = JSON.parse(container.dataset.splitAction);
-        const x = container.dataset.splitTotal === 'x' ? readX(info.instance_id, null) : null;
-        const total = x ?? Number(container.dataset.splitTotal);
-        const split = {};
-        let sum = 0;
-        container.querySelectorAll('[data-split-color]').forEach((inp) => {
-          const n = Math.max(0, Math.floor(Number(inp.value) || 0));
-          if (n > 0) split[inp.dataset.splitColor] = n;
-          sum += n;
-        });
-        if (sum !== total) {
-          setStatus(`Summe muss genau ${total} sein (aktuell ${sum}).`, 'warning');
-          render();
-          return;
-        }
-        const send = { ...info, color_split: split, ...(x !== null ? { x } : {}) };
-        if (info.type === 'tap_for_mana') submitManaActivation(send);
-        else act(send);
-      });
-    });
-
-    root.querySelectorAll('[data-tap-choice-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.tapChoiceStart);
-        const iid = Number(info.iid);
-        const option_index = info.option_from_select
-          ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
-          : info.option_index;
-        const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
-            && sameActivationMode(a, info.mode),
-        );
-        if (!action || !(action.tap_cost || action.exile_cost)) return;
-        const { count, options } = action.tap_cost || action.exile_cost;
-        // One synthetic "requirement" per permanent to tap — reuses the
-        // same one-pick-at-a-time modal RULE 115 targets use, since it's
-        // the same UX (choose N from a pool); `excludePicked` stops the
-        // same permanent being picked twice. `isTapChoice` (not a RULE 115
-        // target at all — a cost) picks the "pay a cost" heading/glyph and
-        // the `tap_choices` dispatch in `finishCastIfReady`, distinct from a
-        // real multi-target requirement's own `excludePicked` (RULE 115.1a
-        // "N target X", `expandMultiTargetRequirements`) which still sends
-        // `targets`.
-        const requirements = Array.from({ length: count }, () => ({
-          label: action.exile_cost ? t('bd.exile.permanent') : action.tap_cost?.untap ? t('bd.untap.permanent') : 'zu tappende Kreatur', options, optional: false,
-        }));
-        const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
-          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
-        castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isTapChoice: true, isExileChoice: !!action.exile_cost,
-        };
-        finishCastIfReady();
-      });
-    });
-
-    root.querySelectorAll('[data-sacrifice-choice-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.sacrificeChoiceStart);
-        const iid = Number(info.iid);
-        const option_index = info.option_from_select
-          ? Number(el.closest('.gf-mana-choice')?.querySelector('[data-mana-option]')?.value)
-          : info.option_index;
-        const action = (view?.legal_actions || []).find(
-          (a) => a.type === info.type && a.instance_id === iid && a.ability_index === info.ability_index
-            && sameActivationMode(a, info.mode),
-        );
-        if (!action || !action.sacrifice_cost) return;
-        const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
-        // "Sacrifice a <type>" cost (RULE 602.1) — which permanent pays it
-        // is the player's own choice, not an engine auto-pick; same
-        // picker as `tap_cost` above. Paired costs gather a second distinct
-        // pick, dispatched as `sacrifice_also_choice`. A cost with several slots ("a green creature, a white
-        // creature, and a blue creature", "~ and 2 lands", RULE 701.17a: distinct objects) lists one option
-        // list per pick in `slots`; the picks go back in that order as `tap_choices`.
-        const requirements = slots
-          ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
-          : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-        if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
-        const send = info.type === 'activate_ability'
-          ? { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode }
-          : { type: 'tap_for_mana', instance_id: iid, ability_index: info.ability_index, option_index };
-        castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots),
-        };
-        finishCastIfReady();
-      });
-    });
-
-    root.querySelectorAll('[data-counter-choice-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.counterChoiceStart);
-        const iid = Number(info.iid);
-        castTargeting = {
-          instanceId: iid, requirements: [], reqIndex: 0, targets: [], x: 0,
-          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
-        };
-        finishCastIfReady();
-      });
-    });
-
-    root.querySelectorAll('[data-discard-activate-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.discardActivateStart);
-        const iid = Number(info.iid);
-        const action = (view?.legal_actions || []).find(
-          (a) => a.type === 'activate_ability' && a.instance_id === iid && a.ability_index === info.ability_index
-            && sameActivationMode(a, info.mode),
-        );
-        if (!action || !action.discard_cost) return;
-        const { count, options } = action.discard_cost;
-        // An activated ability's "Discard N cards" cost (RULE 602.2b): same one-pick-at-a-time modal as the cast
-        // path's `discard_cost`, answered with `discard_choices`.
-        const requirements = Array.from({ length: count }, () => ({
-          label: t('bd.discard.card'), options, optional: false,
-        }));
-        castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0,
-          send: { type: 'activate_ability', instance_id: iid, ability_index: info.ability_index, mode: info.mode },
-          excludePicked: true, isDiscardChoice: true,
-        };
-        finishCastIfReady();
-      });
-    });
-
-    root.querySelectorAll('[data-discard-choice-start]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const info = JSON.parse(el.dataset.discardChoiceStart);
-        const iid = Number(info.iid);
-        const action = findTargetableAction(
-          iid, 'cast_spell', undefined, info.face, info.mode,
-          info.pay_additional, info.bargained, info.evoke, info.gift_opponent_id, info.surge, info.blitz, info.alt_cost, info.warp, info.splice_ids, info.free,
-        );
-        if (!action || !action.discard_cost) return;
-        const { count, options } = action.discard_cost;
-        // "As an additional cost to cast this spell, discard N cards" (RULE
-        // 601.2b) — which cards pay it is the player's own choice (RULE
-        // 602.1), not an engine auto-pick. Same one-pick-at-a-time modal as
-        // `tap_cost`/`sacrifice_cost` above; `excludePicked` stops the same
-        // card being picked twice, `isDiscardChoice` routes the picks to
-        // `discard_choices` in `finishCastIfReady`.
-        const requirements = Array.from({ length: count }, () => ({
-          label: t('bd.discard.card'), options, optional: false,
-        }));
-        const send = {
-          type: 'cast_spell', instance_id: iid, name: action.name,
-          face: info.face, mode: info.mode, warp: action.warp, evoke: action.evoke, surge: action.surge, blitz: action.blitz,
-          pay_additional: action.pay_additional,
-          bargained: action.bargained, gift_opponent_id: action.gift_opponent_id, splice_ids: action.splice_ids, free: !!action.free, alt_cost: !!action.alt_cost,
-        };
-        castTargeting = {
-          instanceId: iid, requirements, reqIndex: 0, targets: [], x: 0, send,
-          excludePicked: true, isDiscardChoice: true,
-        };
-        finishCastIfReady();
-      });
-    });
   }
 
-  // Modal-DFC (RULE 712.10) actions for the same card differ only by
-  // `face` — key any face-scoped DOM lookup on `instance_id:face` so a
-  // card offering both faces at once (e.g. both `has_x`) doesn't collide
-  // on a bare instance_id. Blitz instances also get separate X inputs.
-  function xKey(instanceId, face, blitz, spliceIds) {
-    const key = face ? `${instanceId}:${face}` : String(instanceId);
-    const paymentKey = blitz != null ? `${key}:blitz:${blitz}` : key;
-    return spliceIds?.length ? `${paymentKey}:splice:${spliceIds.join('_')}` : paymentKey;
+  function wire() {
+    wireTurnControls();
+    wireBlocksAndExtras();
+    wireChoiceForms();
+    wireCardActionsAndDrag();
+    wireBoardChrome();
+    wireAttackDeclaration();
+    wireCastForms();
+    wireCostPayments();
   }
 
   function submitManaActivation(send) {
     const action = (view?.legal_actions || []).find(
       (a) => a.type === send.type && a.instance_id === send.instance_id && a.ability_index === send.ability_index,
     );
+    const selectedOption = action?.options?.find((option) => option.index === send.option_index);
+    if (selectedOption?.cost_land) send.cost_land = selectedOption.cost_land;
     if (!action?.tap_cost) { act(send); return; }
     const count = action.tap_cost.count === 'x' ? send.x : action.tap_cost.count;
     castTargeting = {
@@ -3402,15 +1532,29 @@ export function createGameBoardView(opts = {}) {
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
-  // Kicker/Multikicker (RULE 702.33): same face-scoped keying as `xKey`, and
-  // the same "read the adjacent input at click time" idiom as `x`.
-  function kickerKey(instanceId, face, spliceIds) {
-    return xKey(instanceId, face, null, spliceIds);
+  // RULE 702.33b/d (ENG-62): the checked kicker costs of a two-cost spell as a list of indices, or undefined when the
+  // spell has the single count field.
+  function readKickerCosts(instanceId, face, spliceIds) {
+    const boxes = [...root.querySelectorAll(`[data-kicker-cost-input="${kickerKey(instanceId, face, spliceIds)}"]`)];
+    return boxes.length ? boxes.filter((box) => box.checked).map((box) => Number(box.dataset.costIndex)) : undefined;
+  }
+
+  // What goes on the wire as `kicked`: the index list for a two-cost spell, else the count.
+  function readKickerAnnouncement(instanceId, face, spliceIds) {
+    return readKickerCosts(instanceId, face, spliceIds) ?? readKicker(instanceId, face, spliceIds);
   }
 
   function readKicker(instanceId, face, spliceIds) {
+    const costs = readKickerCosts(instanceId, face, spliceIds);
+    if (costs) return costs.length;
     const input = root.querySelector(`[data-kicker-input="${kickerKey(instanceId, face, spliceIds)}"]`);
     return Math.max(0, Math.floor(Number(input?.value) || 0));
+  }
+
+  function readReplicate(instanceId, face, spliceIds) {
+    const group = root.querySelector(`[data-replicate-group="${kickerKey(instanceId, face, spliceIds)}"]`);
+    const inputs = [...(group?.querySelectorAll('[data-replicate-input]') || [])];
+    return inputs.length ? inputs.map((input) => Math.max(0, Math.floor(Number(input.value) || 0))) : undefined;
   }
 
   // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem-shaped): a
@@ -3420,1566 +1564,7 @@ export function createGameBoardView(opts = {}) {
     return Math.max(0, Math.floor(Number(input?.value) || 0));
   }
 
-  // ``mode`` disambiguates a modal spell's several `cast_spell` offers
-  // (RULE 700.2 — same instance_id/type/face, one per mode or mode
-  // combination via `_modal_cast_actions`) — without it this always
-  // returned whichever mode `legal_actions` happened to list first,
-  // regardless of which of the offered buttons was actually clicked.
-  // Compared via JSON (not `===`) since a "choose N" mode is an array of
-  // indices; absent on both sides (a non-modal spell/activated ability)
-  // normalizes to the same `null` key either way.
-  function findTargetableAction(iid, type, abilityIndex, face, mode, payAdditional, bargained, evoke, giftOpponentId, surge, blitz, altCost, warp, spliceIds, free) {
-    const modeKey = JSON.stringify(mode ?? null);
-    return (view?.legal_actions || []).find(
-      (a) =>
-        a.type === type &&
-        a.instance_id === iid &&
-        (type !== 'activate_ability' || a.ability_index === abilityIndex) &&
-        (a.face || undefined) === (face || undefined) &&
-        JSON.stringify(a.mode ?? null) === modeKey &&
-        (altCost == null || Boolean(a.alt_cost) === Boolean(altCost)) &&
-        Boolean(a.pay_additional) === Boolean(payAdditional) &&
-        Boolean(a.bargained) === Boolean(bargained) &&
-        Boolean(a.warp) === Boolean(warp) &&
-        Boolean(a.evoke) === Boolean(evoke) &&
-        Boolean(a.surge) === Boolean(surge) &&
-        (a.blitz ?? null) === (blitz ?? null) &&
-        // RULE 702.174a: the per-opponent "cast + promise a gift" offers are distinct entries.
-        (a.gift_opponent_id || null) === (giftOpponentId || null) &&
-        JSON.stringify(a.splice_ids || []) === JSON.stringify(spliceIds || []) &&
-        (free == null || Boolean(a.free) === Boolean(free)),
-    );
-  }
-
-  // VIS-14: with a target popup pushed aside, mark every legal candidate on
-  // the board and make a click on it answer the popup. A permanent is its
-  // card face (hand/battlefield/exile — or its stack entry in the rail), a
-  // player is the title bar of their board (or the goldfish opponent strip).
-  // A candidate with no element on the board (a graveyard list entry) simply
-  // stays answerable from the popup.
-  function wirePickTargets() {
-    for (const pick of pickablesForBoard()) {
-      let el = null;
-      if (pick.instanceId != null) {
-        const id = CSS.escape(String(pick.instanceId));
-        el = root.querySelector(`[data-instance-id="${id}"] > .card`)
-          || root.querySelector(`[data-stack-instance-id="${id}"] > .card`);
-      } else if (pick.playerId != null) {
-        const id = CSS.escape(String(pick.playerId));
-        el = root.querySelector(`.gf-player-board[data-player-id="${id}"] .gf-player-board-head`)
-          || root.querySelector(`.gf-opponent[data-player-id="${id}"]`);
-      }
-      if (!el) continue;
-      el.classList.add('gf-pick-target');
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        pick.activate();
-      }, true);
-    }
-  }
-
-  function finishCastIfReady() {
-    if (!castTargeting) return;
-    if (castTargeting.reqIndex < castTargeting.requirements.length) {
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    if (castTargeting.damageDivisions?.length && !castTargeting.allocatedDamage) {
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    const ct = castTargeting;
-    const { send, targets, groups, x, isTapChoice, isSacrificeChoice, isDiscardChoice, isGraveyardExileChoice, isSacrificeCountChoice, isReturnChoice, isBlightChoice, isRevealChoice, isCounterChoice } = ct;
-    let payload;
-    if (isRevealChoice) {
-      // PAR-247 (RULE 701.20a): the X cards shown for "Reveal X <colour> cards from your hand".
-      payload = { ...send, hand_card_choices: targets.map((t) => t.instance_id) };
-    } else if (isCounterChoice) {
-      // PAR-247 (RULE 602.2b): the permanent and the counter kind a "remove a counter from ..." cost comes off.
-      payload = { ...send, counter_choice: targets[0].instance_id, counter_kind: targets[0].counter_kind };
-    } else if (isBlightChoice) {
-      payload = { ...send, blight_choice: targets[0].instance_id };
-    } else if (isReturnChoice) {
-      payload = { ...send, return_choices: targets.map((t) => t.instance_id) };
-    } else if (isSacrificeCountChoice) {
-      payload = { ...send, sacrifice_choices: targets.map((t) => t.instance_id) };
-    } else if (isGraveyardExileChoice) {
-      payload = { ...send, graveyard_exile_choices: targets.map((t) => t.instance_id) };
-    } else if (isTapChoice) {
-      payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
-    } else if (isSacrificeChoice && ct.sacrificeSlots) {
-      payload = { ...send, tap_choices: targets.map((t) => t.instance_id) };
-    } else if (isSacrificeChoice) {
-      payload = { ...send, sacrifice_choice: targets[0].instance_id,
-        ...(targets[1] ? { sacrifice_also_choice: targets[1].instance_id } : {}),
-      };
-    } else if (isDiscardChoice) {
-      payload = { ...send, discard_choices: targets.map((t) => t.instance_id) };
-    } else {
-      payload = { ...send, targets, x, ...((groups || []).length > 1 ? { target_groups: groups } : {}),
-        ...(ct.allocatedDamage ? { damage_divisions: ct.allocatedDamage } : {}) };
-    }
-    let action = findTargetableAction(ct.instanceId, send.type, send.ability_index,
-      send.face, send.mode, send.pay_additional, send.bargained, send.evoke,
-      send.gift_opponent_id, send.surge, send.blitz, send.alt_cost, send.warp, send.splice_ids, send.free);
-    if (action) action = selectedKickerAction(action, send.kicked);
-    if (!payload.tap_choices && action?.tap_cost) {
-      const { options } = action.tap_cost;
-      const count = action.tap_cost.count === 'x' ? x : action.tap_cost.count;
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({
-          label: action.tap_cost.untap ? t('bd.untap.permanent') : 'zu tappende bleibende Karte', options, optional: false,
-        })),
-        reqIndex: 0, targets: [], excludePicked: true, isTapChoice: true,
-      };
-      finishCastIfReady();
-      return;
-    }
-    if (!payload.return_choices && action?.return_cost) {
-      const { count, options } = action.return_cost;
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({
-          label: t('bd.return.costCard'), options, optional: false,
-        })),
-        reqIndex: 0, targets: [], excludePicked: true, isReturnChoice: true,
-      };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    // PAR-247: "Reveal X <colour> cards from your hand" (the Martyrs) -- X was announced above, now the cards.
-    if (send.type === 'activate_ability' && !isRevealChoice && action?.reveal_cost && !payload.hand_card_choices) {
-      const { options } = action.reveal_cost;
-      const count = Math.min(payload.x ?? x ?? 0, options.length);
-      if (count > 0) {
-        castTargeting = { instanceId: ct.instanceId, send: payload, x,
-          requirements: Array.from({ length: count }, () => ({ label: t('bd.reveal.card'), options, optional: false })),
-          reqIndex: 0, targets: [], excludePicked: true, isRevealChoice: true };
-        persistCastTargetingDraft();
-        render();
-        return;
-      }
-      payload.hand_card_choices = [];
-    }
-    // PAR-247: "Remove a counter from a permanent you control" -- the player picks the holder and the counter kind.
-    if (send.type === 'activate_ability' && !isCounterChoice && action?.counter_cost && payload.counter_choice == null) {
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: [{ label: t('bd.counter.holder'), options: action.counter_cost.options, optional: false }],
-        reqIndex: 0, targets: [], excludePicked: true, isCounterChoice: true };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    // RULE 602.2b: an activated ability that targets *and* sacrifices / discards asks for those payments after its
-    // targets, so the engine never auto-picks the permanents or cards (PAR-232: Doom Cannon, Sanctum Spirit, ...).
-    if (send.type === 'activate_ability' && !isSacrificeChoice && action?.sacrifice_cost
-        && payload.sacrifice_choice == null && !payload.tap_choices) {
-      const { options, second_options: secondOptions, slots } = action.sacrifice_cost;
-      const requirements = slots
-        ? slots.map((slotOptions) => ({ label: t('bd.sacrifice.permanent'), options: slotOptions, optional: false }))
-        : [{ label: t('bd.sacrifice.permanent'), options, optional: false }];
-      if (!slots && secondOptions) requirements.push({ label: t('bd.sacrifice.permanent'), options: secondOptions, optional: false });
-      castTargeting = { instanceId: ct.instanceId, send: payload, x, requirements, reqIndex: 0, targets: [],
-        excludePicked: true, isSacrificeChoice: true, sacrificeSlots: Boolean(slots) };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    if (send.type === 'activate_ability' && !isDiscardChoice && action?.discard_cost && !payload.discard_choices) {
-      const { count, options } = action.discard_cost;
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({ label: t('bd.discard.card'), options, optional: false })),
-        reqIndex: 0, targets: [], excludePicked: true, isDiscardChoice: true };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    // RULE 701.68: which creature pays a "Blight N" cost is the player's choice (one candidate needs no prompt).
-    if (payload.blight_choice == null && action?.blight_cost?.options?.length > 1) {
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: [{ label: t('bd.blight.costCreature'), options: action.blight_cost.options, optional: false }],
-        reqIndex: 0, targets: [], excludePicked: true, isBlightChoice: true,
-      };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    if (!payload.sacrifice_choices && action?.sacrifice_count_cost) {
-      const { count, count_max: maximum, options, verb } = action.sacrifice_count_cost;
-      const minimum = count === 'x' ? (payload.x || 0) : count;
-      const total = maximum ?? minimum;
-      if (total > 0) {
-        castTargeting = { instanceId: ct.instanceId, send: payload, x,
-          requirements: Array.from({ length: total }, (_, index) => ({
-            label: t(verb === 'return' ? 'bd.return.costCard' : 'bd.sacrifice.permanent'), options, optional: index >= minimum,
-          })),
-          reqIndex: 0, targets: [], excludePicked: true, isSacrificeCountChoice: true,
-        };
-        persistCastTargetingDraft();
-        render();
-        return;
-      }
-      payload.sacrifice_choices = [];
-    }
-    if (!isGraveyardExileChoice && action?.graveyard_exile_cost) {
-      const { count, options } = action.graveyard_exile_cost;
-      const eligible = action.graveyard_exile_cost.mana_value_equals_x
-        ? options.filter(option => option.mana_value === (payload.x || 0)) : options;
-      castTargeting = { instanceId: ct.instanceId, send: payload, x,
-        requirements: Array.from({ length: count }, () => ({
-          label: t('bd.exile.graveyardCostCard'), options: eligible, optional: false,
-        })),
-        reqIndex: 0, targets: [], excludePicked: true, isGraveyardExileChoice: true,
-      };
-      persistCastTargetingDraft();
-      render();
-      return;
-    }
-    castTargeting = null;
-    act(payload);
-    persistCastTargetingDraft();
-  }
-
   // --- Rendering helpers ------------------------------------------------
-
-  // The battlefield, laid out in rows by card type (creatures / artifacts &
-  // enchantments / lands). Attachments (Auras, Equipment — RULE 301/303) are
-  // pulled out of the flow and drawn inside a dashed group box around the
-  // permanent they're attached to, rather than as loose cards.
-  function battlefieldHtml(objs, controllerId, byInstance = {}, pending = null) {
-    if (!objs.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
-    const imageCache = getState().imageCache;
-    const byId = new Map(objs.map((o) => [o.instance_id, o]));
-
-    const attachments = new Map();
-    const attachedIds = new Set();
-    for (const o of objs) {
-      if (o.attached_to != null && byId.has(o.attached_to)) {
-        if (!attachments.has(o.attached_to)) attachments.set(o.attached_to, []);
-        attachments.get(o.attached_to).push(o);
-        attachedIds.add(o.instance_id);
-      }
-    }
-    // Attachments can be controlled by a different player than their host (RULE 303.4e).
-    // Build the group from the whole battlefield, then place it on the host's board.
-    const top = objs.filter((o) => !attachedIds.has(o.instance_id) && o.controller_id === controllerId);
-    if (!top.length) return `<p class="empty-state">${t('bd.bf.none')}</p>`;
-
-    const creatures = top.filter((o) => o.is_creature);
-    const lands = top.filter((o) => !o.is_creature && o.is_land);
-    const other = top.filter((o) => !o.is_creature && !o.is_land);
-
-    // A Reconfigure permanent is itself a legal Aura/Equipment target while
-    // unattached, then becomes non-creature "equipment" once attached to a
-    // host (RULE 702.151b) — so its own attachments form a second chain link
-    // (Aura/Equipment -> Reconfigure permanent -> host). Render that nested,
-    // rather than dropping it: only `top`-level hosts were being walked here,
-    // so anything attached to an *attachment* never appeared at all.
-    const renderAttached = (o) => {
-      const tile = objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []);
-      const card = o.controller_id !== controllerId
-        ? `<div class="gf-foreign-attachment">${tile}<small>${escapeHtml(t('bd.target.controllerTitle', { name: playerName(o.controller_id) }))}</small></div>`
-        : tile;
-      const nested = attachments.get(o.instance_id);
-      if (!nested || !nested.length) return card;
-      return card + nested.map(renderAttached).join('');
-    };
-
-    const renderObj = (o) => {
-      const actions = pending ? [] : byInstance[o.instance_id] || [];
-      const host = objCard(o, imageCache, actions, true);
-      const atts = attachments.get(o.instance_id);
-      if (!atts || !atts.length) return host;
-      const attached = atts.map(renderAttached).join('');
-      return `<div class="gf-attach-group" title="${escapeAttr(t('bd.bf.attachTitle'))}">${host}${attached}</div>`;
-    };
-
-    const rowHtml = (rowKey, label, list) =>
-      `<div class="gf-bf-row">
-        <span class="gf-bf-row-label">${label} (${list.length})</span>
-        ${list.length ? `<div class="card-grid" data-order-zone="${escapeAttr(`bf:${controllerId}:${rowKey}`)}">${orderedByLocal(`bf:${controllerId}:${rowKey}`, list).map(renderObj).join('')}</div>` : '<p class="empty-state">–</p>'}
-      </div>`;
-
-    const rows = threeRows
-      ? [
-          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
-          rowHtml('other', t('bd.bf.rowArtEnch'), other),
-          rowHtml('lands', t('bd.bf.rowLands'), lands),
-        ]
-      : [
-          rowHtml('creatures', t('bd.bf.rowCreatures'), creatures),
-          rowHtml('mixed', t('bd.bf.rowLandsPermanents'), other.concat(lands)),
-        ];
-    return `<div class="gf-bf-rows">${rows.join('')}</div>`;
-  }
-
-  function blindSideboardHtml(player, state) {
-    const slots = (view.legal_actions || []).filter(a => a.blind_sideboard && player.id === view.acting_as);
-    if (!slots.length) return '';
-    // RULE 724.4: choices use only public objects, never hidden cast metadata.
-    const targets = [
-      ...(state.players || []).map(p => ({value: {player_id: p.id}, label: p.name})),
-      ...(state.battlefield || []).map(o => ({value: {instance_id: o.instance_id}, label: o.name})),
-      ...(state.stack || []).map(o => ({value: o.object ? {instance_id: o.object.instance_id} : {stack_id: o.stack_id}, label: o.object?.name || o.description || 'Stack'})),
-    ];
-    return `<details class="gf-blind-sideboard"><summary>${t('bd.sideboard.blind')}</summary>
-      <label>${t('bd.sideboard.card')} <select data-blind-slot>${slots.map((a, i) => `<option value="${a.instance_id}">${i + 1}</option>`).join('')}</select></label>
-      <label>X <input data-blind-x type="number" min="0" value="0"></label>
-      <label>${t('bd.sideboard.face')} <select data-blind-face><option value="front">1</option><option value="back">2</option></select></label>
-      <label>${t('bd.sideboard.mode')} <input data-blind-mode type="number" min="1" placeholder="–"></label>
-      <label>${t('bd.sideboard.targets')} <select data-blind-targets multiple>${targets.map(o => `<option value='${escapeAttr(JSON.stringify(o.value))}'>${escapeHtml(o.label)}</option>`).join('')}</select></label>
-      <button type="button" data-blind-cast>${t('bd.sideboard.cast')}</button></details>`;
-  }
-
-  function objGrid(objs, empty, byInstance = {}, pending = null) {
-    if (!objs.length) return `<p class="empty-state">${empty}</p>`;
-    const imageCache = getState().imageCache;
-    return `<div class="card-grid">${objs
-      .map((o) => objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || []))
-      .join('')}</div>`;
-  }
-
-  // The source card's art as a mini card; an ability overlays only its own
-  // description (never the whole Oracle text: a source can have several
-  // unrelated abilities). Without art, a text box shows the same content.
-  function stackItemHtml(item, index, total, opts = {}) {
-    const isAbility = item.kind === 'ability';
-    const visual = item.object || item.source;
-    const badge = stackKindBadge(item);
-    const actionText = isAbility
-      ? (item.description && item.description !== visual?.name ? item.description : badge.label)
-      : item.kind === 'spell' ? 'Cast' : (item.description || item.kind);
-    const displayName = visual?.name || '';
-    const imageUrl = visual ? resolveImageUrl(visual, getState().imageCache) : null;
-    const isTop = !opts.ghost && index === total - 1;
-    // `opts.ghost` = a just-resolved entry lingering for a moment: no LIFO
-    // position, just an "aufgelöst" caption.
-    const orderText = opts.ghost
-      ? t('bd.rail.stackResolved')
-      : total > 1
-        ? (isTop ? t('bd.stack.topResolves') : `#${total - index}`)
-        : '';
-    const order = orderText ? `<span class="gf-stack-order">${escapeHtml(orderText)}</span>` : '';
-    return `
-      <div data-stack-id="${escapeAttr(item.stack_id)}" class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
-        <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
-        ${imageUrl
-          ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}" title="${escapeAttr(displayName)}"` : ''}>
-          <img src="${imageUrl}" alt="${escapeAttr(displayName)}" loading="lazy" />
-          ${isAbility ? `<div class="gf-stack-ability-overlay">${renderOracleText(actionText)}</div>` : ''}
-        </div>`
-          : `<div class="card gf-stack-action"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"` : ''}>
-          ${displayName ? `<strong class="gf-stack-source-name">${escapeHtml(displayName)}</strong>` : ''}
-          <span class="gf-stack-action-text">${renderOracleText(actionText)}</span>
-        </div>`}
-        ${order}
-      </div>`;
-  }
-
-  // The per-priority countdown, as a shrinking progress bar in the rail.
-  // Only for an interactive-priority session, only while this client holds
-  // priority, and only when the server timer is > 0. The bar width is driven
-  // by the `--gf-timer-frac` custom property, updated each second by
-  // `paintCountdown()` without a full re-render.
-  function railTimerHtml() {
-    // Shown for the whole priority window this client holds (given a server
-    // timer > 0), so interrupting it leaves a visibly *stopped* bar rather
-    // than making the whole widget vanish. `paintCountdown()` keeps the
-    // number + bar live from here; `autoPassArmed()` decides whether it is
-    // actually running.
-    if (!interactivePriority() || !hasPriority() || autoPassSeconds <= 0) return '';
-    const s = view.state;
-    if (s.game_over || s.pending_choice) return '';
-    // A response clock: silent during your own main phases/combat — see
-    // `reactTimerSuppressedHere`.
-    if (reactTimerSuppressedHere()) return '';
-    const off = autoPassCancelled;
-    const shown = off ? Math.max(0, autoPassRemaining) : autoPassSeconds;
-    const frac = off ? Math.max(0, autoPassRemaining) / autoPassSeconds : 1;
-    return `
-      <div class="gf-rail-timer${off ? ' gf-timer-off' : ''}">
-        <div class="gf-rail-timer-head">
-          <span>${escapeHtml(t('bd.rail.timerLabel'))}</span>
-          <span><span data-timer-count>${shown}</span>s</span>
-        </div>
-        <div class="gf-rail-timer-track">
-          <div class="gf-rail-timer-fill" data-timer-bar style="--gf-timer-frac: ${frac}"></div>
-        </div>
-        <button type="button" class="gf-rail-timer-stop" data-timer-interrupt ${off ? 'disabled' : ''}>${escapeHtml(t('bd.rail.timerInterrupt'))}</button>
-      </div>`;
-  }
-
-  //: VIS-12: the steps a seat can be stopped at — the server's `STOP_STEPS`
-  //: (`services/game_session.py`) — and the two that can't be unticked on your
-  //: own turn (both main phases: that is where you act at all).
-  const STOP_STEPS = [
-    'upkeep', 'draw', 'main1', 'begin_combat', 'declare_attackers',
-    'declare_blockers', 'combat_damage', 'end_combat', 'main2', 'end',
-  ];
-  const ALWAYS_STOP_OWN_TURN = ['main1', 'main2'];
-
-  /** This seat's standing stops: the server's, else "everywhere". */
-  function currentStops() {
-    const seat = view?.perspective;
-    return view?.priority?.stops?.[seat] || { own: [...STOP_STEPS], opponent: [...STOP_STEPS] };
-  }
-
-  /** Offer the saved stops to the server once per game (never over its own). */
-  function syncStopsPref() {
-    if (stopsSynced || busy || !interactivePriority() || !view.perspective) return;
-    stopsSynced = true;
-    if (view.priority.stops?.[view.perspective]) return;
-    const pref = getStopsPref();
-    if (pref) act({ type: 'set_stops', own: pref.own, opponent: pref.opponent });
-  }
-
-  // The stops panel, in the rail: for each step, whether *you* want to be
-  // asked on your own turn / on everyone else's. A step without a stop is
-  // passed for you when the stack is empty; anything another player puts on
-  // the stack always reaches you regardless. A seat's armed yield is public
-  // (`yieldBadgeHtml` on its banner), so the table sees who is passing.
-  function railStopsHtml() {
-    if (!interactivePriority() || !view.perspective || view.state.game_over) return '';
-    const stops = currentStops();
-    const rows = STOP_STEPS.map((step) => {
-      const own = stops.own.includes(step);
-      const opp = stops.opponent.includes(step);
-      const locked = ALWAYS_STOP_OWN_TURN.includes(step);
-      return `<tr>
-        <td>${escapeHtml(STEP_LABELS[step] || step)}</td>
-        <td><input type="checkbox" data-stop="own" data-step="${step}" ${own ? 'checked' : ''} ${locked || busy ? 'disabled' : ''}></td>
-        <td><input type="checkbox" data-stop="opponent" data-step="${step}" ${opp ? 'checked' : ''} ${busy ? 'disabled' : ''}></td>
-      </tr>`;
-    }).join('');
-    return `
-      <details class="gf-rail-stops" data-stops-panel ${stopsPanelOpen ? 'open' : ''}>
-        <summary>${escapeHtml(t('bd.rail.stopsHeading'))}</summary>
-        <p class="gf-rail-stops-help">${escapeHtml(t('bd.rail.stopsHelp'))}</p>
-        <table>
-          <thead><tr><th></th><th>${escapeHtml(t('bd.rail.stopsOwn'))}</th><th>${escapeHtml(t('bd.rail.stopsOpponent'))}</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </details>`;
-  }
-
-  function wireStopsPanel() {
-    const panel = root.querySelector('[data-stops-panel]');
-    if (!panel) return;
-    panel.addEventListener('toggle', () => { stopsPanelOpen = panel.open; });
-    panel.querySelectorAll('input[data-stop]').forEach((box) => {
-      box.addEventListener('change', () => {
-        const next = { own: [], opponent: [] };
-        panel.querySelectorAll('input[data-stop]:checked').forEach((c) => {
-          next[c.dataset.stop].push(c.dataset.step);
-        });
-        setStopsPref(next);
-        act({ type: 'set_stops', own: next.own, opponent: next.opponent });
-      });
-    });
-  }
-
-  // VIS-12 keyboard shortcuts, after Arena/MTGO: Space passes priority (Arena
-  // Space / MTGO F2), Enter passes this (opponent's) turn (Arena Enter / MTGO
-  // F4 — a yield that still stops for anything an opponent puts on the
-  // stack), E skips to the end step of your own turn. Ignored while typing, with a modifier held, on a focused
-  // control (it handles its own Enter/Space) and for a board that isn't the
-  // one on screen (each tab keeps its own).
-  function onShortcutKey(event) {
-    if (!sessionId || !view || !root?.isConnected || root.offsetParent === null) return;
-    if (!interactivePriority() || busy || view.state.game_over || view.state.pending_choice) return;
-    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
-    const el = event.target;
-    if (el instanceof Element && el.closest('input, textarea, select, button, a, summary, [contenteditable]')) return;
-    if (document.querySelector('dialog[open]')) return;
-    if (event.key === ' ') {
-      if (!hasPriority()) return;
-      event.preventDefault();
-      act({ type: 'pass_priority' });
-      return;
-    }
-    const ownTurn = view.state.active_player_id === actingSeat();
-    const mode = event.key === 'Enter' ? 'turn' : event.key.toLowerCase() === 'e' ? 'end_step' : null;
-    if (!mode || myYield() || (mode === 'turn') === ownTurn) return; // Enter: opponents' turns, E: yours
-    if (mode === 'end_step' && view.state.current_step === 'end') return;
-    event.preventDefault();
-    act({ type: 'set_yield', mode });
-  }
-  document.addEventListener('keydown', onShortcutKey);
-
-  // The stack, in the rail — always rendered (every mode), so it stays
-  // visible what is going onto the stack. Each entry is a mini card view
-  // (`stackItemHtml`): the spell's own card, or a triggered/activated
-  // ability's source permanent with the ability text overlaid, plus a badge
-  // saying which it is (Zauber / ausgelöste / aktivierte Fähigkeit) and its
-  // LIFO position. Below the live entries sit the greyed-out ghosts of
-  // entries that resolved in the last couple of seconds (`resolvedGhosts`).
-  function railStackHtml(s) {
-    const items = s.stack.map((it, i) => stackItemHtml(it, i, s.stack.length)).join('');
-    const ghosts = resolvedGhosts
-      .map((g) => stackItemHtml(g.item, 0, 1, { ghost: true }))
-      .join('');
-    const body = items || ghosts
-      ? `<div class="gf-rail-stack-cards">${items}${ghosts}</div>`
-      : `<p class="gf-rail-stack-empty">${escapeHtml(t('bd.rail.stackEmpty'))}</p>`;
-    return `
-      <div class="gf-rail-stack">
-        <h4>${escapeHtml(t('bd.stack.heading', { count: s.stack.length }))}</h4>
-        ${body}
-      </div>`;
-  }
-
-  function stackKindBadge(item) {
-    if (item.category === 'triggered_ability') {
-      return { cls: 'triggered', icon: '⚡', label: t('bd.stack.triggered') };
-    }
-    if (item.category === 'activated_ability') {
-      return { cls: 'activated', icon: '🔧', label: t('bd.stack.activated') };
-    }
-    return { cls: 'spell', icon: '🃏', label: spellTypeLabel(item.type_line) };
-  }
-
-  function spellTypeLabel(typeLine) {
-    const tl = (typeLine || '').toLowerCase();
-    // NB: match on `tl` (the lower-cased type line), not `t` (the i18n
-    // function) — `t.includes(...)` threw `TypeError: t.includes is not a
-    // function` for every non-creature spell, which bubbled out of
-    // `render()` and, because `withBusy` renders before its try block, left
-    // `busy` stuck true and every control disabled the moment a
-    // non-creature spell hit the stack.
-    if (tl.includes('creature')) return t('bd.stack.creatureSpell');
-    if (tl.includes('instant')) return t('bd.stack.instantSpell');
-    if (tl.includes('sorcery')) return t('bd.stack.sorcerySpell');
-    if (tl.includes('planeswalker')) return t('bd.stack.planeswalkerSpell');
-    if (tl.includes('artifact')) return t('bd.stack.artifactSpell');
-    if (tl.includes('enchantment')) return t('bd.stack.enchantmentSpell');
-    return t('bd.stack.genericSpell');
-  }
-
-  function zoneListHtml(objs, empty) {
-    if (!objs.length) return `<p class="empty-state">${empty}</p>`;
-    return `<ul class="gf-zone-list">${objs
-      .map((o) => `<li data-hover-card="${escapeHtml(o.name)}">${escapeHtml(o.name)}</li>`)
-      .join('')}</ul>`;
-  }
-
-  // A side-column zone (Friedhof / Exil) whose body collapses to just the
-  // header by default (`expandedZones`), so a large graveyard can't stretch
-  // the fixed-width column and shove the rest of the board around. An empty
-  // zone shows its "leer" body outright with no toggle; a non-empty one
-  // turns the header into a ▸/▾ button and height-caps the open body so it
-  // scrolls inside itself rather than growing the layout. `bodyHtml` already
-  // carries its own "leer" empty-state, so the count drives everything here.
-  function collapsibleZoneHtml(cls, label, key, count, bodyHtml) {
-    const empty = count === 0;
-    if (empty) {
-      return `<div class="gf-zone ${cls}"><h4>${escapeHtml(label)} (0) — <span class="gf-zone-empty">leer</span></h4></div>`;
-    }
-    const open = expandedZones.has(key);
-    return `
-      <div class="gf-zone ${cls}">
-        <h4><button type="button" class="gf-zone-toggle" data-zone-toggle="${escapeAttr(key)}" aria-expanded="${open ? 'true' : 'false'}"><span class="gf-zone-caret">${open ? '▾' : '▸'}</span> ${escapeHtml(label)} (${count})</button></h4>
-        <div class="gf-zone-body"${open ? '' : ' hidden'}>${bodyHtml}</div>
-      </div>`;
-  }
-
-  // Whether this permanent's tile should currently show its *back* face —
-  // its real transformed state (RULE 712.6), inverted by a client-only
-  // "🔄 peek" toggle (`flippedForView`) that doesn't touch game state.
-  function showsBackFace(o) {
-    return flippedForView.has(o.instance_id) ? !o.transformed : !!o.transformed;
-  }
-
-  // Art URL for a game object: prefer the by-name `imageCache` (populated
-  // from a deck import — see state.js, indexed under both the front *and*
-  // back face names so a transformed permanent's now-current name still
-  // hits it), but fall back to building the URL straight from the object's
-  // own `card_id` (always present on non-tokens, see GameObject.to_dict) so
-  // objects added directly in Replay/Puzzle mode (never resolved into
-  // imageCache) still show art in Spielmodus.
-  function resolveImageUrl(o, imageCache) {
-    // RULE 701.20a: a card exiled face down (Beseech the Mirror) shows its
-    // back, not its art — the one place the sleeve fallback below has a
-    // real, reachable use today. Checked before the name cache so a card
-    // whose art is already loaded doesn't leak through it.
-    if (o.face_down_in_exile) return assetsSleeveImageUrl || null;
-    // RULE 708.2: a face-down permanent (morph/disguise/manifest/cloak) is a
-    // 2/2 with no identity at all — the backend already ships only the
-    // synthetic face (`game/face_down.py`), so there is nothing to leak, but
-    // there is also no art to show: render the player's card back. This is
-    // the case the sleeve fallback below was written for before any state
-    // could actually reach it.
-    if (o.face_down) return assetsSleeveImageUrl || null;
-    const showBack = showsBackFace(o);
-    const isToken = o.is_token || (o.card_id || '').startsWith('token:');
-    // Tokens first try an exact-id match: the same token *name* is reprinted
-    // at different stat lines across Magic's history (several "Shapeshifter"
-    // tokens exist as a 1/1, a 2/2, …), so a same-named-but-different-P/T
-    // token in the same game needs its own art, not whichever variant's
-    // entry happened to land last in the shared by-name cache below (see
-    // `preloadDeckTokens`'s token-art seeding — it sets both keys).
-    if (isToken && o.card_id) {
-      const byId = imageCache?.get(o.card_id);
-      if (byId) {
-        if (showBack && byId.backSmall) return byId.backSmall;
-        if (!showBack && byId.small) return byId.small;
-      }
-    }
-    const cached = imageCache?.get((o.name || '').toLowerCase());
-    if (cached) {
-      if (showBack && cached.backSmall) return cached.backSmall;
-      if (!showBack && cached.small) return cached.small;
-    }
-    if (isToken) {
-      const custom = tokenImages[(o.name || '').toLowerCase()];
-      if (custom) return custom;
-      // A face-down/transformed token (e.g. a token copy of a flipped DFC,
-      // RULE 707) has no real art for its back — fall back to the
-      // player's chosen sleeve backside instead of a blank tile.
-      if (showBack && assetsSleeveImageUrl) return assetsSleeveImageUrl;
-      // No specific art for this token by name (typically an ad hoc token
-      // an effect synthesized inline, e.g. "1/1 white Soldier", which has
-      // no catalogue entry to upload art against by exact name) — the
-      // player's "generic" token image (settings.js) covers all of these.
-      return tokenImages[GENERIC_TOKEN_KEY] || null;
-    }
-    if (!o.card_id) return null;
-    return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
-  }
-
-  // Unavailable options are informational only: never manufacture legal actions
-  // or action payloads from Oracle text. Keep costs and ability text visible.
-  function unavailableCardActionsHtml(o) {
-    const labels = [];
-    if (o.zone === 'hand' || o.zone === 'command' || o.adventure_castable || o.prepared_copy) {
-      labels.push(o.is_land ? t('bd.cast.playLand', { face: '' })
-        : `${t('bd.cast.castPlain', { mode: '', hint: '', face: '' })} ${o.mana_cost || '{0}'}`);
-    }
-    if (!o.face_down) {
-      for (const line of (o.oracle_text || '').split('\n')) {
-        // A printed activated ability has a cost before the colon. Exclude
-        // colons inside reminder text rather than displaying those as actions.
-        const text = line.replace(/\([^)]*\)/g, '').trim();
-        if (text.includes(':')) labels.push(text);
-      }
-      if (o.zone === 'battlefield' && o.is_land && !labels.length) {
-        const basicMana = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
-        for (const [subtype, symbol] of Object.entries(basicMana)) {
-          if ((o.type_line || '').split(/\s+/).includes(subtype)) labels.push(`{T}: {${symbol}}`);
-        }
-      }
-    }
-    if (!labels.length) labels.push(t('bd.menu.noActions'));
-    return `<div class="gf-card-actions">${labels.map(label => `<button type="button" class="gf-card-action" disabled title="${escapeAttr(t('bd.menu.unavailable'))}">${renderOracleText(label)}</button>`).join('')}</div>`;
-  }
-
-  function objCard(o, imageCache, cardActions, reorderable = false) {
-    const imageUrl = resolveImageUrl(o, imageCache);
-    const inner = imageUrl
-      ? `<img src="${imageUrl}" alt="${escapeHtml(o.name)}" loading="lazy" />`
-      : escapeHtml(o.name);
-    const classes = ['card'];
-    // RULE 302.6 only matters for a creature permanent on the battlefield.
-    // A creature with Haste must never carry the visual marker.
-    const hasHaste = (o.keywords || []).some((keyword) => keyword.toLowerCase() === 'haste');
-    const isSummoningSick = o.zone === 'battlefield' && o.is_creature && o.summoning_sick && !hasHaste;
-    if (imageUrl) classes.push('has-image');
-    if (o.tapped) classes.push('tapped');
-    // RULE 710: a flipped flip-card permanent is the same card turned upside down (its alternative half is
-    // printed rotated 180° on the one shared image).
-    if (o.flipped) classes.push('flipped');
-    if (isSummoningSick) classes.push('summoning-sick');
-    if (o.attacking || attackDraft.has(o.instance_id)) classes.push('attacking');
-    if (compactView) classes.push('compact-card');
-    // RULE 115/601.2c: this object is the chosen target of something
-    // currently on the stack — `updateTargetOverlays` (called once per
-    // `render()`) reduces `s.stack[*].targets` to this instance-id set.
-    if (targetedInstanceIds.has(o.instance_id)) classes.push('gf-targeted');
-    // Two permanents each targeting the other (Fight-shaped abilities, or
-    // two removal spells naming each other's source) get a distinct border
-    // instead of just the plain target overlay, so the pairing itself reads
-    // at a glance.
-    if (mutualTargetPairIds.has(o.instance_id)) classes.push('gf-mutual-target');
-    if (abilitySourceInstanceIds.has(o.instance_id)) classes.push('gf-ability-source');
-    // RULE 117.1a / 307.1: the server's legal actions include timing and
-    // priority checks; mana potential alone must never light up a card.
-    const playableNow = (cardActions || []).some(a =>
-      (a.type === 'cast_spell' || a.type === 'play_land') && !selectedKickerAction(a).locked);
-    if (playableNow) {
-      classes.push('castable-highlight');
-    }
-    const remainingToughness = o.toughness - (o.damage_marked || 0);
-    const pt = o.power != null && o.toughness != null ? ` (${o.power}/${remainingToughness})` : '';
-    const hasBasePt = o.base_power != null && o.base_toughness != null;
-    const ptChanged = o.power != null && o.toughness != null && hasBasePt
-      && (o.power !== o.base_power || remainingToughness !== o.base_toughness);
-    const compactPt = o.zone === 'battlefield' && o.is_creature
-      && o.power != null && o.toughness != null
-      ? `<span class="gf-compact-pt${ptChanged ? ' is-changed' : ''}" title="${escapeAttr(`${o.power}/${remainingToughness}`)}">${o.power}/${remainingToughness}</span>`
-      : '';
-    const attackActions = (cardActions || []).filter(a => a.type === 'attack');
-    const menuActions = cardActions || [];
-    const menuId = `gf-card-menu-${o.instance_id}-${++cardMenuSerial}`;
-    const buttons = cardActionButtons(attackActions);
-    const menu = `<div id="${menuId}" popover="manual" class="gf-card-menu" aria-label="${escapeAttr(o.name)}">${menuActions.map(a => `<div class="gf-menu-option">${cardActionButtons([a])}${a.type === 'cast_spell' ? `<span class="gf-menu-cost">${renderOracleText(a.effective_cost || a.cost_label || a.base_cost || o.mana_cost || '{0}')}</span>` : ''}</div>`).join('') || unavailableCardActionsHtml(o)}</div>`;
-    const attackBadge = attackDraft.has(o.instance_id)
-      ? `<span class="gf-attacking-badge">⚔️ ${escapeHtml(t('bd.attack.selected'))}${attackDraft.get(o.instance_id).defender_label ? ` → ${escapeHtml(attackDraft.get(o.instance_id).defender_label)}` : ''}</span>`
-      : o.attacking
-      ? `<span class="gf-attacking-badge">⚔️${o.combat_defender ? ` ${escapeHtml(o.combat_defender.label || '')}` : ''}</span>`
-      : '';
-    // RULE 302.6: only an actually restricted creature gets a badge. Inset in the
-    // top-right corner (not an overhanging pill like the loyalty/battle/
-    // attacking badges) so it never collides with them on a hasty attacker
-    // that's still nominally summoning-sick.
-    const summoningSickBadge = isSummoningSick
-      ? `<span class="gf-sick-badge" title="${escapeAttr(t('bd.badge.summoningSickTitle'))}">💤</span>`
-      : '';
-    // RULE 115/601.2c: a 🎯 centered on the card for anything currently
-    // targeted by a spell/ability on the stack (`gf-targeted` above already
-    // drives the border/outline; this is the actual glyph).
-    const targetOverlay = targetedInstanceIds.has(o.instance_id)
-      ? `<span class="gf-target-overlay" title="${escapeAttr(t(mutualTargetPairIds.has(o.instance_id) ? 'bd.badge.mutualTargetTitle' : 'bd.badge.targetedTitle'))}">🎯</span>`
-      : '';
-    // RULE 606: a planeswalker's loyalty gets its own badge (mirrors the
-    // ♦{loyalty} glyph on the Replay board editor) rather than being read
-    // off the generic counter badge, which would otherwise show it twice
-    // (`counters` also carries a "loyalty" key — GameObject.loyalty reads it).
-    const loyaltyBadge = o.is_planeswalker && o.loyalty != null
-      ? `<span class="gf-loyalty-badge">◆ ${o.loyalty}</span>`
-      : '';
-    // RULE 715: a Saga's chapter progress, mirroring the loyalty badge above
-    // (and, like it, pulled out of the generic counter badge below so "lore"
-    // doesn't show twice). `saga_final_chapter` is only set once the oracle
-    // parser recognized at least one chapter line; without it, just the raw
-    // lore count is shown (no "/N" to compare against).
-    const lore = (o.counters || {}).lore;
-    const sagaBadge = o.is_saga && lore != null
-      ? `<span class="gf-loyalty-badge gf-saga-badge" title="${escapeAttr(t('bd.badge.sagaTitle'))}">📜 ${lore}${o.saga_final_chapter ? `/${o.saga_final_chapter}` : ''}</span>`
-      : '';
-    // RULE 310.4c: a battle's current defense is its defense-counter count,
-    // badged like loyalty/lore above (and likewise pulled out of the generic
-    // counter badge so "defense" doesn't show twice). RULE 310.8: the
-    // protector is the player who defends it — shown by name, resolved
-    // against the view's own player list, since a raw id means nothing here.
-    const protectorName = o.protector_id ? playerName(o.protector_id) : null;
-    const battleBadge = o.is_battle && o.defense != null
-      ? `<span class="gf-loyalty-badge gf-battle-badge" title="${escapeAttr(t('bd.badge.battleTitle') + (protectorName ? t('bd.badge.battleProtectedBy', { name: protectorName }) : ''))}">🛡 ${o.defense}${protectorName ? ` · ${escapeHtml(protectorName)}` : ''}</span>`
-      : '';
-    const counterEntries = Object.entries(o.counters || {})
-      .filter(([k]) => !(o.is_planeswalker && k === 'loyalty') && !(o.is_saga && k === 'lore')
-        && !(o.is_battle && k === 'defense'));
-    const counterBadge = counterEntries.length
-      ? `<span class="gf-counter-badge">${counterEntries.map(([k, v]) => `${escapeHtml(k)}×${v}`).join(' · ')}</span>`
-      : '';
-    const keywordBadge = (o.keywords && o.keywords.length)
-      ? `<span class="gf-keyword-badge" title="${escapeAttr(o.keywords.join(', '))}">${o.keywords.map((k) => escapeHtml(keywordAbbrev(k))).join(' ')}</span>`
-      : '';
-    // RULE 716.3d: an Adventure creature exiled by its own spell half,
-    // castable from here — flags it distinctly from an inert exiled card.
-    const adventureBadge = o.adventure_castable
-      ? `<span class="gf-adventure-badge" title="${escapeAttr(t('bd.badge.adventureTitle'))}">${t('bd.badge.adventure')}</span>`
-      : '';
-    // RULE 723.3a: this permanent is prepared — its exiled prepare-spell
-    // copy is castable (badged on that copy's own tile via `prepared_copy`
-    // below, since that's a property of the copy, not of this permanent).
-    const preparedBadge = o.prepared
-      ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedTitle'))}">${t('bd.badge.prepared')}</span>`
-      : '';
-    // RULE 723.3c: this *is* that exiled prepare-spell copy.
-    const preparedCopyBadge = o.prepared_copy
-      ? `<span class="gf-prepared-badge" title="${escapeAttr(t('bd.badge.preparedCopyTitle'))}">${t('bd.badge.preparedCopy')}</span>`
-      : '';
-    // RULE 708.2: a face-down permanent shows *what put it there* (morph,
-    // disguise, manifest, cloak) and nothing about the card underneath —
-    // which is all the payload carries anyway. The kind matters to the
-    // player because it decides how it can be turned face up (RULE
-    // 702.37e/701.40b) and whether it has ward {2} (RULE 702.168a/701.58a).
-    const faceDownLabels = {
-      morph: t('bd.faceDown.morph'), disguise: t('bd.faceDown.disguise'), manifest: t('bd.faceDown.manifest'), cloak: t('bd.faceDown.cloak'),
-    };
-    const faceDownBadge = o.face_down
-      ? `<span class="gf-facedown-badge" title="${escapeAttr(t('bd.faceDown.title'))}">🎭 ${escapeHtml(faceDownLabels[o.face_down_kind] || t('bd.faceDown.default'))}</span>`
-      : '';
-    // RULE 709.5c: a Room shows each of its two doors, unlocked or locked (a locked half has no name or rules text
-    // of its own until it is unlocked).
-    const roomBadge = o.room_doors
-      ? `<span class="gf-room-badge" title="${escapeAttr(t('bd.badge.roomTitle'))}">${o.room_doors.map((d) => `<span class="gf-room-door${d.unlocked ? ' gf-room-door--open' : ''}" title="${escapeAttr(t(d.unlocked ? 'bd.badge.doorUnlocked' : 'bd.badge.doorLocked', { door: d.name }))}">${d.unlocked ? '🔓' : '🔒'}</span>`).join('')}</span>`
-      : '';
-    const effectsSummary = effectSummaryHtml(o);
-    // A double-faced permanent (transform/modal DFC) gets a "🔄 peek other
-    // face" button — purely a client-side preview (`flippedForView`), not
-    // an actual transform (RULE 712.6 stays a real game action, offered
-    // instead among `buttons` when the card's own ability allows it).
-    const flipButton = o.has_back_face
-      ? `<button type="button" class="gf-card-flip" data-flip-toggle="${o.instance_id}" title="Andere Seite ansehen" aria-label="Andere Seite ansehen">🔄</button>`
-      : '';
-    const draggable = reorderable || (cardActions && cardActions.some(isPlayableCardAction));
-    const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
-    return `
-      <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}"${menu ? ` data-card-menu="${menuId}"` : ''}>
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
-        ${buttons}${menu}
-      </div>`;
-  }
-
-  // Which exiled cards are castable from there right now, and why (RULE
-  // 601.3b analogue / 715.3d / 723.3c) — the three independent mechanisms
-  // `GameEngine._castable_from_exile`/`_has_temp_play_permission` check.
-  // Returns ``null`` for an ordinary, inert exiled card.
-  function exileCastableInfo(o, s) {
-    if (o.adventure_castable) {
-      return { reason: t('bd.exileCast.adventureReason'), duration: t('bd.exileCast.adventureDuration') };
-    }
-    if (o.prepared_copy) {
-      return { reason: t('bd.exileCast.preparedReason'), duration: t('bd.exileCast.preparedDuration') };
-    }
-    const grantedTurn = s.temp_play_permissions ? s.temp_play_permissions[o.instance_id] : null;
-    if (grantedTurn != null) {
-      const source = s.temp_play_permission_source ? s.temp_play_permission_source[o.instance_id] : null;
-      return {
-        reason: source ? t('bd.exileCast.impulseReason', { source }) : t('bd.exileCast.tempReason'),
-        duration: t('bd.exileCast.tempDuration', { turn: grantedTurn + 1 }),
-      };
-    }
-    return null;
-  }
-
-  // A "popup"-style zone next to the hand listing every exiled card that's
-  // actually castable/playable right now (impulsive draw, Adventure,
-  // Prepared) — the ordinary Exile zone still lists them too (this is a
-  // prominent, additive callout, mirroring `libraryTopHtml`'s treatment of
-  // a visible top-of-library card), each with why it's castable and how
-  // long the permission lasts, since that's easy to lose track of buried in
-  // a card's own oracle text once it's sitting in exile.
-  function exileCastableHtml(p, s, byInstance, pending) {
-    const entries = (p.exile || [])
-      .map((o) => ({ o, info: exileCastableInfo(o, s) }))
-      .filter(({ info }) => info !== null);
-    if (!entries.length) return '';
-    const imageCache = getState().imageCache;
-    const cards = entries
-      .map(({ o, info }) => `
-        <div class="gf-exile-castable-entry">
-          ${objCard(o, imageCache, pending ? [] : byInstance[o.instance_id] || [])}
-          <p class="gf-exile-castable-caption">${escapeHtml(info.reason)}<br />${escapeHtml(info.duration)}</p>
-        </div>`)
-      .join('');
-    return `
-      <div class="gf-zone gf-exile-castable">
-        <h4>${escapeHtml(t('bd.exileCast.headingExile', { count: entries.length }))}</h4>
-        <div class="card-grid gf-exile-castable-list">${cards}</div>
-      </div>`;
-  }
-
-  // The graveyard sibling of `exileCastableHtml`: every card in this
-  // player's graveyard that `legal_actions` currently offers a real
-  // play/cast/activate for (Flashback, Escape, Disturb, Aftermath, "you may
-  // cast … from your graveyard", …). The ordinary Friedhof zone lists these
-  // too, but only by name and with no way to act on them — this callout is
-  // where the actual buttons live, tile + art like the exile one.
-  function graveCastableHtml(p, s, byInstance, pending) {
-    if (pending) return '';
-    const entries = (p.graveyard || []).filter(
-      (o) => (byInstance[o.instance_id] || []).some(isPlayableCardAction),
-    );
-    if (!entries.length) return '';
-    const imageCache = getState().imageCache;
-    const cards = entries
-      .map((o) => `
-        <div class="gf-exile-castable-entry">
-          ${objCard(o, imageCache, byInstance[o.instance_id] || [])}
-        </div>`)
-      .join('');
-    return `
-      <div class="gf-zone gf-exile-castable gf-grave-castable">
-        <h4>${escapeHtml(t('bd.exileCast.headingGrave', { count: entries.length }))}</h4>
-        <div class="card-grid gf-exile-castable-list">${cards}</div>
-      </div>`;
-  }
-
-  // The hand and, *beside* it (not stacked above/below), the conditional
-  // "spielbar aus dem Exil / Friedhof" callouts — they only take a column
-  // of their own when at least one of them has something to show, otherwise
-  // the hand spans the full width as before.
-  function handAreaHtml(p, s, byInstance, pending, ownHand) {
-    const aside = `${exileCastableHtml(p, s, byInstance, pending)}${graveCastableHtml(p, s, byInstance, pending)}`;
-    const asideHtml = aside.trim()
-      ? `<div class="gf-castable-aside">${aside}</div>`
-      : '';
-    return `
-      <div class="gf-hand-area">
-        <div class="gf-zone gf-hand">
-          <h4>${t('bd.zone.hand')} (${p.hand_count != null ? p.hand_count : p.hand.length})${ownHand ? '' : opponentHandToggleHtml()}</h4>
-          ${handHtml(p, byInstance, pending, ownHand)}
-        </div>
-        ${asideHtml}
-      </div>`;
-  }
-
-  // The German label for a trace entry's `duration` (game/continuous.py):
-  // how long the effect lasts, shown as a chip in the per-card summary.
-  function durationLabel(d) {
-    if (d === 'end_of_turn') return t('bd.dur.endOfTurn');
-    if (d === 'permanent') return t('bd.dur.permanent');
-    return t('bd.dur.static'); // "static": lasts while its source stays in play
-  }
-
-  function durationTitle(d) {
-    if (d === 'end_of_turn') return t('bd.durTitle.endOfTurn');
-    if (d === 'permanent') return t('bd.durTitle.permanent');
-    return t('bd.durTitle.static');
-  }
-
-  // Per-card "info point" (RULE 613): a Σ-badge that opens a breakdown of
-  // every effect reshaping this permanent — Auren, Ausrüstung, Marken,
-  // Anthem-/Bis-Zugende-Buffs — each with its source and duration, plus the
-  // resulting characteristics (the "Summe"). Built from the object's
-  // `static_trace`, so it only appears once something actually changed it.
-  //
-  // Uses the native Popover API (`popover` + `popovertarget`) so the panel
-  // renders in the browser's top layer — never clipped by a card's/row's
-  // `overflow` nor painted under a later card — and light-dismisses. It's
-  // positioned at the badge by `wire()`'s `toggle` handler (the top layer
-  // otherwise centres it).
-  function effectSummaryHtml(o) {
-    const trace = [...(o.static_trace || [])];
-    if (o.is_creature && o.damage_marked) trace.push({ source: 'Schaden in diesem Zug', description: `−${o.damage_marked} Widerstandskraft (Anzeige)`, power: o.power, toughness: o.toughness - o.damage_marked, duration: 'end_of_turn' });
-    if (!trace.length || o.instance_id == null) return '';
-    const popId = `gf-eff-pop-${o.instance_id}`;
-    const ptResult = o.power != null && o.toughness != null ? `${o.power}/${o.toughness - (o.damage_marked || 0)}` : null;
-    const keywords = (o.keywords || []).join(', ');
-    const resultParts = [];
-    if (ptResult) resultParts.push(`<strong>${escapeHtml(ptResult)}</strong>`);
-    if (keywords) resultParts.push(escapeHtml(keywords));
-    const rows = trace
-      .map((t) => {
-        const pt = t.power != null && t.toughness != null
-          ? `<span class="gf-eff-pt">→ ${escapeHtml(`${t.power}/${t.toughness}`)}</span>`
-          : '';
-        return `<li>
-          <span class="gf-eff-src">${escapeHtml(t.source)}</span>
-          <span class="gf-eff-desc">${escapeHtml(t.description)}</span>${pt}
-          <span class="gf-eff-dur gf-eff-dur--${escapeAttr(t.duration || 'static')}" title="${escapeAttr(durationTitle(t.duration))}">${escapeHtml(durationLabel(t.duration))}</span>
-        </li>`;
-      })
-      .join('');
-    return `<span class="gf-effects">
-      <button type="button" class="gf-effects-badge" popovertarget="${escapeAttr(popId)}" title="${escapeAttr(t('bd.eff.badgeTitle'))}">Σ</button>
-      <div id="${escapeAttr(popId)}" popover class="gf-effects-pop">
-        <div class="gf-eff-result">${escapeHtml(t('bd.eff.result', { parts: resultParts.join(' · ') || '—' }))}</div>
-        <ul class="gf-eff-list">${rows}</ul>
-      </div>
-    </span>`;
-  }
-
-  function keywordAbbrev(label) {
-    const map = {
-      Flying: 'FLY',
-      Reach: 'RCH',
-      'First Strike': 'FS',
-      'Double Strike': 'DS',
-      Deathtouch: 'DT',
-      Trample: 'TR',
-      Vigilance: 'VIG',
-      Lifelink: 'LL',
-      Menace: 'MEN',
-      Defender: 'DEF',
-      Haste: 'HST',
-      Indestructible: 'IND',
-    };
-    if (map[label]) return map[label];
-    if (label.startsWith('Protection')) return 'PRO';
-    return label;
-  }
-
-  // A card with a second castable face — a modal DFC's back (RULE 712.10),
-  // a split card's other half (RULE 709.3), or an Adventure's spell half
-  // (RULE 716.2b) — offers a second, independent action for the same hand
-  // card; `faceHint` labels it with its own name so the two buttons are
-  // distinguishable. Fuse (RULE 709.4) casts the same combined name shown
-  // on the plain button, so it gets a short suffix instead of a redundant
-  // repeated name. The front face keeps today's plain label (no visible
-  // change for the common single-face case).
-  // RULE 702.174a: the "cast, promising a gift to <opponent>" offer — one entry per opponent,
-  // so the label names who receives it.
-  function giftHint(a) {
-    const gift = a.gift_opponent_id
-      ? escapeHtml(t('bd.cast.giftHint', { name: a.gift_opponent_name || a.gift_opponent_id }))
-      : '';
-    const splice = a.splice_ids?.length ? ` + Splice (${(a.splice_names || []).map(escapeHtml).join(', ')})` : '';
-    return gift + splice;
-  }
-
-  function faceHint(a) {
-    if (a.face === 'fuse') return t('bd.faceHint.fuse');
-    // RULE 702.103: the Bestow cast is the same card name as the plain
-    // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
-    // than a redundant repeated name, the same treatment as Fuse above.
-    if (a.face === 'bestow') {
-      return a.bestow_cost_label ? ` (Bestow — ${renderOracleText(a.bestow_cost_label)})` : ' (Bestow)';
-    }
-    // RULE 702.37a/702.168a: the morph/disguise offer casts the card FACE
-    // DOWN as a nameless 2/2 for its face-down cost ({3}) — a wholly
-    // different play from the ordinary front-face cast (a separate button
-    // with no `face`). Label it as such so the two aren't mistaken for a
-    // redundant pair of "cast" buttons (which is exactly what
-    // ` — <card name>` looked like).
-    if (a.face === 'face_down') {
-      const kind = a.face_down_kind ? t(`bd.faceDown.${a.face_down_kind}`) : t('bd.faceDown.default');
-      return t('bd.faceHint.faceDown', { kind, cost: a.cost_label || '{3}' });
-    }
-    // RULE 702.162a: More Than Meets the Eye casts the same card converted, back face up, for its own alternative
-    // cost — labelled with that cost and the back face's name so it is not mistaken for the plain cast.
-    if (a.more_than_meets_the_eye) {
-      return t('bd.faceHint.converted', { cost: escapeHtml(a.mtmte_cost_label || a.cost_label || ''), name: escapeHtml(a.back_name || '') });
-    }
-    return a.face ? ` — ${escapeHtml(a.name)}` : '';
-  }
-
-  // RULE 700.2: a modal spell offers one `cast_spell` action per mode (or
-  // per legal mode combination — `_modal_cast_actions`), each tagged with
-  // `mode`/`mode_description`. Without this, every offered variant renders
-  // as an identical "✨ Zaubern" button and `findTargetableAction` picks
-  // whichever happens to come first in `legal_actions` — the player never
-  // actually chooses a mode. `a.entwine` (RULE 702.42a) reuses the same
-  // "both modes" `mode: "both"` shape, just priced, so it gets its own
-  // label rather than falling back to the plain mode text.
-  // PAR-255/BUG-59: a modal activated ability offers one `activate_ability` per mode (same ability_index), so
-  // lookups must match the mode as well.
-  function sameActivationMode(a, mode) {
-    return (a.mode ?? null) === (mode ?? null);
-  }
-
-  function modeHint(a) {
-    if (!a.mode_description) return a.entwine ? t('bd.modeHint.entwine') : '';
-    const suffix = a.entwine ? t('bd.modeHint.entwine') : '';
-    return ` — ${escapeHtml(a.mode_description)}${suffix}`;
-  }
-
-  // RULE 606: color-code a loyalty ability's button by its [+N]/[-N]/[0]
-  // sign, so it reads at a glance distinctly from an ordinary activated
-  // ability — the wire action only carries the pre-rendered cost_label
-  // string (e.g. "[+2]"), not a raw signed int.
-  const LOYALTY_COST_RE = /^\[([+-]?\d+)\]$/;
-  function loyaltyModifierClass(costLabel) {
-    const m = LOYALTY_COST_RE.exec(costLabel || '');
-    if (!m) return '';
-    const n = parseInt(m[1], 10);
-    if (n > 0) return ' gf-card-action--loyalty-plus';
-    if (n < 0) return ' gf-card-action--loyalty-minus';
-    return ' gf-card-action--loyalty-zero';
-  }
-
-  // Kicker/Multikicker (RULE 702.33): a value input the same shape as an
-  // {X} spell's `has_x`/`max_x` field — 0/1 for a plain Kicker, 0..N for
-  // Multikicker (`a.max_kicker`); defaults to 0 (unkicked) rather than the
-  // max, unlike X, since paying it is an optional cost increase the player
-  // should opt into rather than pay by default.
-  function kickerFieldHtml(a) {
-    if (!a.has_kicker) return '';
-    const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
-    const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
-    const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
-    return field + kickerXFieldHtml(a);
-  }
-
-  // Kicker's own {X} (RULE 702.33b, PAR-7 — Emblazoned Golem's "Kicker {X}",
-  // a separately-announced value from both the spell's own X and how many
-  // times Kicker is paid); defaults to 0 like Kicker itself, for the same
-  // "an optional cost increase, not paid by default" reason.
-  function kickerXFieldHtml(a) {
-    if (!a.kicker_has_x) return '';
-    return `<input type="number" min="0" max="${a.kicker_max_x}" value="0" title="Kicker X" data-kicker-x-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
-  }
-
-  function cardActionButtons(cardActions) {
-    if (!cardActions || !cardActions.length) return '';
-    const buttons = [];
-    for (const a of cardActions) {
-      if (a.type === 'play_land') {
-        buttons.push(
-          actionButton(
-            { type: 'play_land', instance_id: a.instance_id, name: a.name, face: a.face },
-            t('bd.cast.playLand', { face: faceHint(a) })
-          )
-        );
-      } else if (a.type === 'cast_spell' && a.locked && (!a.kicker_variant || a.kicker_variant.locked)) {
-        const reason = a.lock_reason || t('bd.cast.noValidTarget');
-        buttons.push(
-          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
-        );
-      } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
-        buttons.push(castTargetHtml(a));
-      } else if (a.type === 'cast_spell' && a.discard_cost) {
-        // "As an additional cost to cast this spell, discard N cards" (RULE
-        // 601.2b) — open the picker so the player chooses which cards pay it
-        // (RULE 602.1), instead of the engine auto-discarding from the back
-        // of the hand.
-        const startInfo = JSON.stringify({
-          iid: a.instance_id, face: a.face, mode: a.mode,
-          warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained,
-          gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
-        });
-        buttons.push(
-          `<button type="button" class="gf-card-action" data-discard-choice-start='${escapeAttr(startInfo)}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), hint: giftHint(a), face: faceHint(a) }))}</button>`
-        );
-      } else if (a.type === 'cast_spell' && (a.has_x || a.has_kicker)) {
-        const xField = a.has_x
-          ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(a.instance_id, a.face, a.blitz, a.splice_ids)}" />`
-          : '';
-        const suffix = [
-          a.has_x ? 'X' : null,
-          a.splice_ids?.length ? `Splice (${(a.splice_names || []).join(', ')})` : null,
-          a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
-          a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
-          a.bargained ? 'Bargain' : null,
-          a.gift_opponent_id ? t('bd.cast.giftSuffix', { name: a.gift_opponent_name || a.gift_opponent_id }) : null,
-        ].filter(Boolean).join(', ');
-        buttons.push(`
-          <div class="gf-cast-x">
-            ${xField}${kickerFieldHtml(a)}
-            <button type="button" class="gf-card-action" data-cast-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free }))}'>${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzSuffix' : a.surge ? 'bd.cast.surgeSuffix' : a.evoke ? 'bd.cast.evokeSuffix' : 'bd.cast.castSuffix', { suffix, mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}</button>
-          </div>
-        `);
-      } else if (a.type === 'cast_spell') {
-        const hint = a.base_cost && a.effective_cost && a.base_cost !== a.effective_cost
-          ? ` 💰${escapeHtml(a.effective_cost)}`
-          : '';
-        buttons.push(
-          actionButton(
-            { type: 'cast_spell', instance_id: a.instance_id, name: a.name, face: a.face, mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional, bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free },
-            t(a.blitz != null ? 'bd.cast.blitzPlain' : a.surge ? 'bd.cast.surgePlain' : a.evoke ? 'bd.cast.evokePlain' : 'bd.cast.castPlain', {
-              mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a),
-              hint: `${hint}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`,
-              face: faceHint(a),
-            })
-          )
-        );
-      } else if (a.type === 'suspend') {
-        const label = `⏳ Suspend (${renderOracleText(a.cost_label || '')})`;
-        if (a.has_x) {
-          // Suspend announces its own X, independently of casting this card.
-          buttons.push(`
-            <div class="gf-cast-x">
-              <input type="number" min="${escapeAttr(a.min_x)}" max="${escapeAttr(a.max_x)}" value="${escapeAttr(a.max_x)}" aria-label="Suspend X" data-x-input="${escapeAttr(xKey(a.instance_id, 'suspend'))}" />
-              <button type="button" class="gf-card-action" data-suspend-x="${escapeAttr(a.instance_id)}">${label} (X)</button>
-            </div>
-          `);
-        } else {
-          buttons.push(actionButton({ type: 'suspend', instance_id: a.instance_id }, label));
-        }
-      } else if (a.type === 'activate_ability' && a.locked) {
-        const reason = a.lock_reason || t('bd.cast.noValidTarget');
-        buttons.push(
-          `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${modeHint(a)} ${escapeHtml(reason)}</button>`
-        );
-      } else if (a.type === 'activate_ability' && (a.requires_target || a.return_cost || (a.graveyard_exile_cost && !a.has_x))) {
-        // BUG-53: "Exile N cards from your graveyard" -- the pool picker runs after targets (finishCastIfReady).
-        buttons.push(castTargetHtml(a));
-      } else if (a.type === 'activate_ability' && a.has_x) {
-        buttons.push(`
-          <div class="gf-cast-x">
-            <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-            <button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-activate-x='${escapeAttr(JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode }))}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')} (X)${modeHint(a)}</button>
-          </div>
-        `);
-      } else if (a.type === 'activate_ability' && (a.tap_cost || a.exile_cost)) {
-        // Cost includes "tap N untapped <type>s you control" (RULE 602.1) —
-        // which ones is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
-        buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-tap-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
-        );
-      } else if (a.type === 'activate_ability' && a.counter_cost) {
-        // PAR-247: "Remove a counter from a permanent you control" -- the picker asks for the holder and kind.
-        const startInfo = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, mode: a.mode });
-        buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-counter-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
-        );
-      } else if (a.type === 'activate_ability' && a.discard_cost) {
-        // Cost includes "Discard a <type> card" (RULE 602.2b) — which cards pay it is the player's own choice.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
-        buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-discard-activate-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
-        );
-      } else if (a.type === 'activate_ability' && a.sacrifice_cost) {
-        // Cost includes "Sacrifice a <type>" (RULE 602.1) — which permanent
-        // pays it is the player's own choice, not an engine auto-pick.
-        const startInfo = JSON.stringify({ iid: a.instance_id, type: 'activate_ability', ability_index: a.ability_index, mode: a.mode });
-        buttons.push(
-          `<button type="button" class="gf-card-action${loyaltyModifierClass(a.cost_label)}" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}</button>`
-        );
-      } else if (a.type === 'activate_ability') {
-        buttons.push(
-          actionButton(
-            { type: 'activate_ability', instance_id: a.instance_id, ability_index: a.ability_index, mode: a.mode, name: a.name },
-            `⚡ ${renderOracleText(a.cost_label || 'Aktivieren')}${modeHint(a)}`,
-            loyaltyModifierClass(a.cost_label)
-          )
-        );
-      } else if (a.type === 'tap_for_mana') {
-        const optsList = a.options || [{ index: 0, label: '⟳' }];
-        // A mana ability whose cost is more than tapping itself (Selvala's
-        // {G}, Gnarlroot Trapper's life payment, Birchlore Rangers' "tap two
-        // other Elves") shows its full cost instead of a bare "Tappen".
-        const extraCost = a.cost_label && a.cost_label !== '{T}';
-        if (a.has_x) {
-          // ENG-51: "Sacrifice X Goats: Add X mana of any one color"
-          // (Springjack Pasture) — X is announced with the activation.
-          if (optsList.length > 1) {
-            buttons.push(manaChoiceControlHtml(
-              a, optsList, 'tap_for_mana',
-              `${renderOracleText(a.cost_label || '{T}')} → X`,
-              { hasX: true },
-            ));
-          } else {
-            const colorButtons = optsList.map((opt) => {
-              const info = JSON.stringify({ iid: a.instance_id, ability_index: a.ability_index, option_index: opt.index });
-              return `<button type="button" class="gf-card-action" data-tap-x='${escapeAttr(info)}'>⟳ ${renderOracleText(a.cost_label || '')} → X·${escapeHtml(opt.label || '⟳')}</button>`;
-            }).join('');
-            buttons.push(`
-              <div class="gf-cast-x">
-                <input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />
-                ${colorButtons}
-              </div>
-            `);
-          }
-          if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
-          continue;
-        }
-        if (optsList.length > 1) {
-          const text = extraCost
-            ? `${renderOracleText(a.cost_label)} →`
-            : '⟳ Tappen';
-          buttons.push(manaChoiceControlHtml(
-            a, optsList, 'tap_for_mana', text,
-            { sacrificeCost: Boolean(a.sacrifice_cost) },
-          ));
-        } else {
-          for (const opt of optsList) {
-            const glyph = opt.label || '⟳';
-            const text = extraCost
-              ? `${renderOracleText(a.cost_label)} → ${glyph}`
-              : '⟳ Tappen';
-            if (a.tap_cost) {
-              // Which Elves pay the "tap N" part is the player's own choice
-              // (RULE 602.1) — open the picker instead of sending right away.
-              const startInfo = JSON.stringify({
-                iid: a.instance_id, type: 'tap_for_mana',
-                ability_index: a.ability_index, option_index: opt.index,
-              });
-              buttons.push(
-                `<button type="button" class="gf-card-action" data-tap-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
-              );
-            } else if (a.sacrifice_cost) {
-              // A "Sacrifice a <type>: Add …" mana ability (Ashnod's Altar-
-              // shaped) — same cost choice as `tap_cost` above, just naming
-              // what to sacrifice instead of what to tap.
-              const startInfo = JSON.stringify({
-                iid: a.instance_id, type: 'tap_for_mana',
-                ability_index: a.ability_index, option_index: opt.index,
-              });
-              buttons.push(
-                `<button type="button" class="gf-card-action" data-sacrifice-choice-start='${escapeAttr(startInfo)}'>${text}</button>`
-              );
-            } else {
-              buttons.push(
-                actionButton(
-                  { type: 'tap_for_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
-                  text
-                )
-              );
-            }
-          }
-        }
-        // RULE 605.1a "any combination of colours" (Flamebraider/Gwenna/
-        // Smokebraider/Selvala) — an additional split-across-colours option
-        // alongside the single-colour choice above (still legal, just less
-        // flexible).
-        if (a.any_combination) buttons.push(colorSplitHtml(a, 'tap_for_mana'));
-      } else if (a.type === 'activate_hand_mana') {
-        // RULE 605.1a "Exile this card from your hand: Add …" (Elvish/Simian
-        // Spirit Guide) — the hand-zone counterpart of `tap_for_mana` above;
-        // the cost is exiling the card itself, so there's no tap/summoning-
-        // sickness framing to the button.
-        const optsList = a.options || [{ index: 0, label: '⟳' }];
-        if (optsList.length > 1) {
-          buttons.push(manaChoiceControlHtml(
-            a, optsList, 'activate_hand_mana',
-            `📤 ${renderOracleText(a.cost_label || 'Exilieren')} →`,
-          ));
-        } else {
-          for (const opt of optsList) {
-            const glyph = opt.label || '⟳';
-            const text = `📤 ${renderOracleText(a.cost_label || 'Exilieren')} → ${glyph}`;
-            buttons.push(
-              actionButton(
-                { type: 'activate_hand_mana', instance_id: a.instance_id, option_index: opt.index, ability_index: a.ability_index },
-                text
-              )
-            );
-          }
-        }
-        if (a.any_combination) buttons.push(colorSplitHtml(a, 'activate_hand_mana'));
-      } else if (a.type === 'set_skip_untap') {
-        // RULE 502.1 "you may choose not to untap ~ during your untap step"
-        // (Rubinia Soulsinger/Hivis of the Scale/The Pandorica-shaped) — a
-        // sticky preference toggle (`GameObject.skip_untap`), not a one-off
-        // action, so the button just flips it and reflects the current state.
-        const on = a.skip_untap;
-        buttons.push(
-          actionButton(
-            { type: 'set_skip_untap', instance_id: a.instance_id, value: !on },
-            on ? '🔓 Wieder normal enttappen' : '🔒 Nicht enttappen lassen',
-            on ? ' gf-card-action--skip-untap-on' : ''
-          )
-        );
-      } else if (a.type === 'turn_face_up') {
-        // RULE 116.2b: the special action of turning a face-down permanent
-        // face up — one button per payable route (its morph/disguise cost,
-        // or a manifested/cloaked creature card's own mana cost, RULE
-        // 702.37e/702.168d/701.40b/701.58b). No stack, so the card is simply
-        // revealed the moment this lands.
-        buttons.push(
-          actionButton(
-            { type: 'turn_face_up', instance_id: a.instance_id, option_index: a.option_index },
-            `🔎 Aufdecken (${renderOracleText(a.cost_label || '')})`
-          )
-        );
-      } else if (a.type === 'unlock_door') {
-        // RULE 709.5e/116.2m: a Room's special action — pay a locked half's mana cost to unlock it (main phase,
-        // empty stack). No stack, so the half's text is live the moment this lands.
-        buttons.push(
-          actionButton(
-            { type: 'unlock_door', instance_id: a.instance_id, door: a.door },
-            `🚪 ${renderOracleText(t('bd.action.unlockDoor', { door: a.door_name || a.door, cost: a.cost_label || '' }))}`
-          )
-        );
-      } else if (a.type === 'attack') {
-        buttons.push(attackControlHtml(a));
-      }
-    }
-    return buttons.length ? `<div class="gf-card-actions">${buttons.join('')}</div>` : '';
-  }
-
-  // RULE 605.1a "any combination of colours" split builder: one number input
-  // per real color (never colorless — RULE 605.1a's "any color" excludes it,
-  // `mana_abilities._ALL_COLORS`), constrained client-side to sum to exactly
-  // `combination_total` before the confirm button sends `color_split`
-  // (`kind` picks which action type the confirm dispatches — the shape is
-  // otherwise identical for a battlefield `tap_for_mana` ability and a
-  // hand-zone `activate_hand_mana` one). The colour set itself comes from
-  // `a.options` (one option per colour the ability actually prints) rather
-  // than a hardcoded WUBRG list — a *restricted* combination ability (Vivi
-  // Ornitier's own "any combination of {U} and/or {R}") only ever offers
-  // its own printed subset here, same as the single-colour dropdown above
-  // already do; a bare "any combination of colours" (Flamebraider/Selvala)
-  // still lists all five, since its own `options` already does too.
-  function colorSplitHtml(a, kind) {
-    const total = a.has_x ? 'x' : a.combination_total;
-    const max = a.has_x ? a.max_x : a.combination_total;
-    const label = a.has_x ? 'X' : a.combination_total;
-    const colors = (a.options || [])
-      .map((opt) => Object.keys(opt.mana || {})[0])
-      .filter(Boolean);
-    const inputs = colors
-      .map(
-        (c) =>
-          `<label class="gf-split-color" title="${c}">${MANA_SYMBOL_EMOJI[c]}<input type="number" min="0" max="${max}" value="0" data-split-color="${c}" /></label>`
-      )
-      .join('');
-    const actionInfo = JSON.stringify({ type: kind, instance_id: a.instance_id, ability_index: a.ability_index });
-    return `
-      <div class="gf-mana-split" data-split-total="${total}" data-split-action='${escapeAttr(actionInfo)}'>
-        <span class="gf-split-hint">Farbkombination (${label}):</span>
-        ${inputs}
-        <button type="button" class="gf-card-action" data-split-confirm>${t('bd.split.generate')}</button>
-      </div>`;
-  }
-
-  function manaChoiceControlHtml(a, options, type, buttonText, { hasX = false, sacrificeCost = false } = {}) {
-    const info = JSON.stringify({
-      type, iid: a.instance_id, ability_index: a.ability_index, has_x: hasX,
-    });
-    const choiceInfo = JSON.stringify({
-      type, iid: a.instance_id, ability_index: a.ability_index, option_from_select: true,
-    });
-    const buttonAction = sacrificeCost
-      ? `data-sacrifice-choice-start='${escapeAttr(choiceInfo)}'`
-      : `data-mana-choice-activate='${escapeAttr(info)}'`;
-    const optionHtml = options
-      .map((option) => `<option value="${option.index}">${escapeHtml(option.label || '⟳')}</option>`)
-      .join('');
-    const xInput = hasX
-      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${a.instance_id}" />`
-      : '';
-    return `
-      <div class="gf-mana-choice${hasX ? ' gf-mana-choice--x' : ''}">
-        ${xInput}
-        <select data-mana-option aria-label="${escapeAttr(t('bd.mana.chooseOutput'))}">${optionHtml}</select>
-        <button type="button" class="gf-card-action" ${buttonAction}>${buttonText}</button>
-      </div>`;
-  }
-
-  function castTargetHtml(a) {
-    const iid = a.instance_id;
-    const xField = a.has_x
-      ? `<input type="number" min="${a.min_x || 0}" max="${a.max_x}" value="${a.max_x}" data-x-input="${xKey(iid, a.face, a.blitz, a.splice_ids)}" />`
-      : '';
-    const startInfo = JSON.stringify({
-      iid, type: a.type, ability_index: a.ability_index, face: a.face,
-      mode: a.mode, entwine: a.entwine, alt_cost: !!a.alt_cost, warp: a.warp, evoke: a.evoke, surge: a.surge, blitz: a.blitz, pay_additional: a.pay_additional,
-      bargained: a.bargained, gift_opponent_id: a.gift_opponent_id, splice_ids: a.splice_ids, free: !!a.free,
-    });
-    const label = a.type === 'activate_ability'
-      ? `${renderOracleText(t('bd.cast.activateLabel', { cost: a.cost_label || t('bd.cast.activateDefault') }))}${modeHint(a)}`
-      : `${renderOracleText(t(a.blitz != null ? 'bd.cast.blitzLabel' : a.surge ? 'bd.cast.surgeLabel' : a.evoke ? 'bd.cast.evokeLabel' : 'bd.cast.castLabel', { mode: a.warp ? `${modeHint(a)} Warp (${a.warp_cost_label || a.cost_label})` : a.blitz != null ? `${modeHint(a)} (${a.blitz_cost_label || a.cost_label})` : modeHint(a), face: faceHint(a) }))}${a.pay_additional ? ` + ${a.additional_cost_label || 'Zusatzkosten'}` : ''}${a.bargained ? ' + Bargain' : ''}${giftHint(a)}`;
-    const lc = a.type === 'activate_ability' ? loyaltyModifierClass(a.cost_label) : '';
-    const lockedHint = a.locked ? `<span class="hint">Ohne Kicker: ${escapeHtml(a.lock_reason || t('bd.cast.noValidTarget'))}</span>` : '';
-    return `<div class="gf-cast-targets">${lockedHint}${xField}${kickerFieldHtml(a)}<button type="button" class="gf-card-action${lc}" data-cast-target-start='${escapeAttr(startInfo)}'>${label}</button></div>`;
-  }
-
-  function damageDivisionModalHtml() {
-    const ct = castTargeting;
-    const rows = ct.damageDivisions.map((division) => {
-      const index = division.requirement_index;
-      const requirement = ct.divisionRequirements?.[index];
-      const targets = ct.groups?.[index] || [];
-      const fields = targets.map((target, row) => {
-        const option = requirement?.options?.find((candidate) => target.player_id != null
-          ? candidate.player_id === target.player_id : candidate.instance_id === target.instance_id);
-        return `<label>${escapeHtml(option?.name || `Ziel ${row + 1}`)}
-          <input type="number" min="${escapeAttr(division.min_each)}" max="${escapeAttr(division.total)}" step="1" value="${escapeAttr(ct.damageDraft?.[index]?.[row] ?? division.min_each)}" data-damage-requirement="${escapeAttr(index)}" />
-        </label>`;
-      }).join('');
-      return `<fieldset><legend>${escapeHtml(requirement?.label || 'Schaden verteilen')} — insgesamt ${escapeHtml(division.total)}</legend>${fields}</fieldset>`;
-    }).join('');
-    return `<div class="gf-modal-overlay"><div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
-      <h4>Schaden verteilen</h4>${rows}<p data-damage-error role="alert"></p>
-      <div class="gf-modal-foot"><button type="button" data-damage-confirm>Bestätigen</button>
-        <button type="button" data-cast-target-cancel="${escapeAttr(ct.instanceId)}">✕ Abbrechen</button></div>
-    </div></div>`;
-  }
-
-  function castTargetModalHtml() {
-    if (!castTargeting) return '';
-    if (castTargeting.reqIndex >= castTargeting.requirements.length && castTargeting.damageDivisions?.length) return damageDivisionModalHtml();
-    const iid = castTargeting.instanceId;
-    const total = castTargeting.requirements.length;
-    const idx = castTargeting.reqIndex;
-    const req = castTargeting.requirements[idx] || {};
-    const options = castTargetOptions();
-    // A cost *choice* (RULE 602.1: tap N / sacrifice / discard for a cost),
-    // not a RULE 115 target — different heading and glyph from "Ziel wählen".
-    const isDiscardChoice = castTargeting.isDiscardChoice;
-    const isCostChoice = castTargeting.isTapChoice || castTargeting.isSacrificeChoice || isDiscardChoice || castTargeting.isGraveyardExileChoice || castTargeting.isSacrificeCountChoice || castTargeting.isReturnChoice || castTargeting.isBlightChoice || castTargeting.isRevealChoice || castTargeting.isCounterChoice;
-    const modalGlyph = castTargeting.isCounterChoice ? '🔢' : castTargeting.isRevealChoice ? '👁️' : castTargeting.isBlightChoice ? '🥀' : castTargeting.isReturnChoice ? '↩️' : (castTargeting.isGraveyardExileChoice || castTargeting.isExileChoice) ? '🌀' : isDiscardChoice ? '🗑️' : (castTargeting.isTapChoice ? '⟳' : ((castTargeting.isSacrificeChoice || castTargeting.isSacrificeCountChoice) ? '💀' : '🎯'));
-    const buttons = options.map((o) => {
-      const payload = JSON.stringify({
-        instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
-      });
-      const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
-      // VIS-13: who controls this candidate, so two same-named permanents
-      // on different boards can be told apart.
-      return `<button type="button"${hover} data-cast-target-pick='${escapeAttr(payload)}'>${modalGlyph} ${escapeHtml(o.name)}${targetControllerChipHtml(o)}</button>`;
-    });
-    if (req.optional) {
-      const skip = JSON.stringify({ instance_id: iid, target: null });
-      buttons.push(`<button type="button" class="gf-decline" data-cast-target-pick='${escapeAttr(skip)}'>${t(castTargeting.isSacrificeCountChoice ? 'bd.cast.finishCostChoice' : 'bd.cast.noTarget')}</button>`);
-    }
-    const heading = isCostChoice ? t('bd.cast.payCosts') : t('bd.cast.chooseTarget');
-    const progress = total > 1 ? t('bd.cast.progress', { i: idx + 1, total }) : (isCostChoice ? t('bd.cast.select') : t('bd.cast.chooseTarget'));
-    // VIS-14: only a real target round can be answered by clicking the
-    // board; a cost choice (tap/sacrifice/discard) keeps the popup-only flow.
-    const asideOffered = !isCostChoice;
-    const aside = asideOffered && castTargetAside;
-    const asideButton = asideOffered
-      ? `<button type="button" class="gf-modal-aside" data-cast-target-aside title="${escapeAttr(t('bd.cast.asideTitle'))}">${aside ? t('bd.choice.asideShow') : t('bd.choice.asidePush')}</button>`
-      : '';
-    return `
-      <div class="gf-modal-overlay${aside ? ' aside' : ''}">
-        <div class="gf-modal gf-target-modal" role="dialog" aria-modal="true">
-          <div class="gf-modal-head">
-            <span class="gf-modal-icon">${modalGlyph}</span>
-            <div>
-              <h4>${heading}: ${escapeHtml(req.label || '')}</h4>
-              <p class="gf-modal-who">${escapeHtml(progress)}</p>
-              ${aside ? `<p class="gf-modal-source">${escapeHtml(t('bd.cast.asideHint'))}</p>` : ''}
-            </div>
-            ${asideButton}
-          </div>
-          <div class="gf-choice-options">${buttons.join('')}</div>
-          <div class="gf-modal-foot">
-            <button type="button" class="gf-decline" data-cast-target-cancel="${iid}">✕ Abbrechen</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function targetOptionPayload(o) {
-    if (o.player_id != null) return { player_id: o.player_id };
-    // PAR-247: a counter-cost option is a (permanent, counter kind) pair -- the kind rides along with the pick.
-    return o.counter_kind != null ? { instance_id: o.instance_id, counter_kind: o.counter_kind } : { instance_id: o.instance_id };
-  }
-
-  function attackControlHtml(a) {
-    const defenders = a.legal_defenders || [];
-    const iid = a.instance_id;
-    if (attackDraft.has(iid)) {
-      return `<button type="button" class="gf-card-action" data-attack-remove="${iid}" ${busy ? 'disabled' : ''}>✕ ${t('bd.attack.deselect')}</button>`;
-    }
-    const attackAction = (defender, index) => ({
-      type: 'declare_attackers', instance_ids: [iid],
-      ...(defender ? { defender: defenderPayload(defender) } : {}),
-      attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
-      name: a.name,
-      defender_label: defender?.label,
-    });
-    if (defenders.length === 0) {
-      return actionButton(
-        attackAction(null, 0),
-        '⚔️ Angreifen'
-      );
-    }
-    if (defenders.length === 1) {
-      const d = defenders[0];
-      return actionButton(
-        attackAction(d, 0),
-        `⚔️ Angreifen → ${escapeHtml(d.label)}`
-      );
-    }
-    const open = attackMenuOpen.has(iid);
-    const menu = open
-      ? `<div class="gf-attack-defenders">${defenders
-          .map((d, index) =>
-            actionButton(
-              attackAction(d, index),
-              `→ ${escapeHtml(d.label)}`
-            )
-          )
-          .join('')}</div>`
-      : '';
-    return `<button type="button" class="gf-card-action" data-attack-toggle="${iid}">⚔️ Angreifen ${open ? '▴' : '▾'}</button>${menu}`;
-  }
-
-  // A defender spec from `legal_defenders_for` → the payload `declare_
-  // attackers` validates against. The two permanent kinds (planeswalker,
-  // RULE 508.1a; battle, RULE 310.5) are keyed by instance_id, a player by
-  // id — so branch on *which key the spec carries* rather than listing the
-  // permanent kinds, which is what silently mis-sent a battle as a player
-  // when the "battle" kind was added server-side.
-  function defenderPayload(d) {
-    return d.instance_id != null
-      ? { kind: d.kind, instance_id: d.instance_id }
-      : { kind: 'player', id: d.id };
-  }
-
-  function actionButton(action, label, extraClass = '') {
-    return `<button type="button" class="gf-card-action${extraClass}" data-action='${escapeAttr(JSON.stringify(action))}'>${label}</button>`;
-  }
 
   // The passive "goldfish" opponent: a compact strip with its life (the
   // thing you're racing down), plus hidden hand/graveyard/library counts.
@@ -4988,134 +1573,12 @@ export function createGameBoardView(opts = {}) {
       <div class="gf-opponent" data-player-id="${escapeAttr(opp.id)}">
         <span class="gf-opp-name">🐟 ${escapeHtml(opp.name)}</span>
         <span class="gf-opp-life" title="${escapeAttr(t('bd.opp.lifeTitle'))}">❤️ ${opp.life}</span>
-        ${commanderDamageHtml(opp.commander_damage)}
+        ${commanderDamageHtml(opp.commander_damage, view)}
         <span title="${escapeAttr(t('bd.opp.handTitle'))}">🖐️ ${opp.hand_count ?? opp.hand?.length ?? 0}</span>
         <span title="${escapeAttr(t('bd.opp.graveTitle'))}">⚰️ ${opp.graveyard?.length ?? 0}</span>
         <span title="${escapeAttr(t('bd.opp.libraryTitle'))}">📚 ${opp.library_count ?? 0}</span>
         <span class="gf-opp-tag">${t('bd.opp.passive')}</span>
       </div>`;
-  }
-
-  // Everything about a *player* that isn't life or floating mana: poison
-  // (RULE 704.5c), commander damage (RULE 903.10a), the counter bag
-  // (RULE 122 energy, experience, rad, …), the Ring (RULE 701.51) and the
-  // two designations (RULE 726/727). All of it is already in the payload
-  // (`Player.to_dict`/`GameState.to_dict`) and was simply never drawn.
-  function playerCountersHtml(p, s) {
-    const bits = [];
-    const poison = p.poison || 0;
-    if (poison > 0) {
-      // RULE 704.5c: ten poison counters and that player loses.
-      bits.push(
-        `<span class="gf-pcounter${poison >= 10 ? ' gf-pcounter--lethal' : ''}" title="Giftmarken (Regel 704.5c: 10 = verloren)">☠️ ${poison}/10</span>`,
-      );
-    }
-    for (const [kind, amount] of Object.entries(p.counters || {})) {
-      if (!amount) continue;
-      bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(counterLabel(kind))}">${counterIcon(kind)} ${amount}</span>`,
-      );
-    }
-    if (p.ring_level > 0) {
-      // RULE 701.52: the Ring tempts you — four cumulative levels.
-      bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(t('bd.ring.title', { level: p.ring_level }))}">💍 ${p.ring_level}/4</span>`,
-      );
-    }
-    if (s.monarch_id === p.id) {
-      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.monarch.title'))}">${t('bd.monarch.label')}</span>`);
-    }
-    if (s.initiative_id === p.id) {
-      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.initiative.title'))}">⚔️ Initiative</span>`);
-    }
-    if (p.has_city_blessing) {
-      // RULE 702.131c: no shared holder, unlike Monarch/Initiative above —
-      // every player who has ascended shows this, any number at once.
-      bits.push(`<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(t('bd.cityBlessing.title'))}">${t('bd.cityBlessing.label')}</span>`);
-    }
-    // RULE 309: the dungeon card in this player's command zone, with the
-    // room their venture marker is on and how far through they are — plus
-    // every dungeon they have already completed (309.7), which is a real
-    // card condition ("if you've completed a dungeon") and invisible
-    // otherwise, since a completed dungeon leaves the game.
-    if (p.dungeon) {
-      const rooms = p.dungeon.rooms || [];
-      const index = rooms.findIndex((r) => r.name === p.dungeon.current_room);
-      const room = index >= 0 ? rooms[index] : null;
-      const title = `${p.dungeon.name} (Regel 309) — Raum ${index + 1}/${rooms.length}${room ? `: ${room.effect_text}` : ''}`;
-      bits.push(
-        `<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(title)}">🗝️ ${escapeHtml(p.dungeon.current_room || p.dungeon.name)}</span>`,
-      );
-    }
-    if ((p.completed_dungeons || []).length) {
-      bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(t('bd.dungeon.completedTitle', { list: p.completed_dungeons.join(', ') }))}">🏁 ${p.completed_dungeons.length}</span>`,
-      );
-    }
-    // RULE 902.2: a Vanguard avatar sits in the command zone all game with
-    // its abilities functioning from there (902.4).
-    if (p.vanguard) {
-      bits.push(
-        `<span class="gf-pcounter gf-pcounter--designation" title="${escapeAttr(`Vanguard-Avatar (Regel 902): ${p.vanguard.name}`)}">🧝 ${escapeHtml(p.vanguard.name)}</span>`,
-      );
-    }
-    // RULE 904: the archenemy's scheme deck, and any ongoing scheme still
-    // face up (904.9).
-    if (s.archenemy_id === p.id || (p.scheme_deck_count || 0) > 0) {
-      bits.push(
-        `<span class="gf-pcounter gf-pcounter--designation" title="Erzfeind (Regel 904): Machenschaften im Stapel">😈 ${p.scheme_deck_count || 0}</span>`,
-      );
-    }
-    for (const scheme of p.ongoing_schemes || []) {
-      bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(`Andauernde Machenschaft (Regel 904.9): ${scheme.name}`)}">📜 ${escapeHtml(scheme.name)}</span>`,
-      );
-    }
-    const emblems = p.emblems || [];
-    if (emblems.length) {
-      const titles = emblems.map((e) => e.description || '').join(' · ');
-      bits.push(
-        `<span class="gf-pcounter" title="${escapeAttr(`Embleme (Regel 114): ${titles}`)}">🎖️ ${emblems.length}</span>`,
-      );
-    }
-    const cmd = commanderDamageHtml(p.commander_damage);
-    if (!bits.length && !cmd) return '';
-    return `<div class="gf-pcounters">${bits.join('')}${cmd}</div>`;
-  }
-
-  // The counter bag is open-ended (any `add_player_counter` name), so this
-  // is a nicety for the ones real cards produce, not a whitelist.
-  const PLAYER_COUNTER_ICONS = {
-    energy: '⚡', experience: '✨', rad: '☢️', ticket: '🎟️', acorn: '🌰',
-  };
-  const PLAYER_COUNTER_LABELS = {
-    energy: t('bd.counter.energy'),
-    experience: t('bd.counter.experience'),
-    rad: t('bd.counter.rad'),
-  };
-  function counterIcon(kind) {
-    return PLAYER_COUNTER_ICONS[kind] || '🔘';
-  }
-  function counterLabel(kind) {
-    return PLAYER_COUNTER_LABELS[kind] || t('bd.counter.generic', { kind });
-  }
-
-  function commanderDamageHtml(commanderDamage) {
-    const entries = Object.entries(commanderDamage || {});
-    if (!entries.length) return '';
-    return entries
-      .map(([sourceId, e]) => {
-        const state = view?.state;
-        const visible = [...(state?.battlefield || []), ...(state?.players || []).flatMap(p =>
-          [...(p.command || []), ...(p.graveyard || []), ...(p.exile || []), ...(p.hand || [])])];
-        const source = visible.find(o => String(o.instance_id) === sourceId);
-        const owner = state?.players?.find(p => p.id === source?.owner_id);
-        const name = e.name || source?.name || `#${sourceId}`;
-        const identity = owner ? `${name} · ${owner.name}` : `${name} · #${sourceId}`;
-        const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
-        return `<span class="gf-cmd-dmg${lethal}" data-commander-source="${escapeAttr(sourceId)}" data-hover-card="${escapeAttr(name)}" title="${escapeAttr(t('bd.cmdDmg.title', { name: identity }))}">👑 <span class="gf-cmd-source">${escapeHtml(identity)}</span> ${e.amount}/21</span>`;
-      })
-      .join('');
   }
 
   function gameOverHtml(s, me) {
@@ -5144,75 +1607,6 @@ export function createGameBoardView(opts = {}) {
     const restrictedParts = restrictedManaHtml(pool.restricted, MANA_SYMBOL_EMOJI, order);
     const empty = !parts.length && !restrictedParts.length;
     return `<div class="gf-manapool" title="${escapeAttr(t('bd.mana.poolTitle'))}">${empty ? `<span class="empty-state">${t('bd.mana.noMana')}</span>` : parts.join('') + restrictedParts.join('')}</div>`;
-  }
-
-  // "Mana-Potenzial": the maximum mana and coherent source-choice
-  // variations from this player's untapped/unexiled sources. ``potential``
-  // is `view.mana_potential[player_id]`
-  // (absent for a seat this view doesn't own — RULE 400.2, same as the
-  // hand array itself).
-  function manaPotentialHtml(potential) {
-    if (!potential) return '';
-    const order = ['W', 'U', 'B', 'R', 'G', 'C'];
-    const manaParts = (amounts) => order
-      .filter((c) => amounts?.[c] > 0)
-      .map((c) => `<span class="gf-mana">${MANA_SYMBOL_EMOJI[c]}${amounts[c]}</span>`)
-      .join('');
-    const variations = (potential.variations || [])
-      .map((variation) => `
-        <li class="gf-mana-potential-variation">
-          <strong>${variation.total}</strong>${manaParts(variation.mana || {})}
-        </li>`)
-      .join('');
-    const details = variations
-      ? `<div class="gf-mana-potential-heading">${escapeHtml(t('bd.mana.variations'))}</div><ul>${variations}</ul>`
-      : '';
-    return `
-      <details class="gf-mana-potential" title="${escapeAttr(t('bd.mana.potentialTitle'))}">
-        <summary><span class="gf-mana-potential-label">${escapeHtml(t('bd.mana.maximum'))}</span><strong>${Number(potential.maximum || 0)}</strong></summary>
-        <div class="gf-mana-potential-details">${details}</div>
-      </details>`;
-  }
-
-  // RULE 605.3a: mana tagged "spend only on X" (`ManaPool.to_dict`'s additive
-  // `restricted` key — a list of lots, never merged with the ordinary WUBRGC
-  // counts above) shown as its own badge per lot, so a player can tell
-  // restricted floating mana apart from ordinary mana instead of it just
-  // silently failing to pay an unrelated cost later.
-  function restrictedManaHtml(restricted, glyph, order) {
-    if (!restricted || !restricted.length) return [];
-    return restricted.map((lot) => {
-      const amounts = order
-        .filter((c) => c !== 'C' && lot.amounts[c] > 0)
-        .concat(lot.amounts.C > 0 ? ['C'] : [])
-        .map((c) => `${glyph[c]}${lot.amounts[c]}`)
-        .join('');
-      return `<span class="gf-mana gf-mana-restricted" title="${escapeAttr(t('bd.mana.restrictedTitle', { label: restrictionLabel(lot.restriction) }))}">🔒${amounts}</span>`;
-    });
-  }
-
-  // Human label for an opaque restriction dict (`game/mana_abilities.py`'s
-  // `_parse_restriction` whitelist — this module has no server-side label
-  // string to read, unlike `TargetSpec.label()` for targets, so the mapping
-  // lives here).
-  function restrictionLabel(restriction) {
-    const kind = restriction?.kind;
-    if (kind === 'contains_x') return t('bd.restrict.containsX');
-    if (kind === 'creature_spell') {
-      return restriction.allow_ability
-        ? t('bd.restrict.creatureSpellAbility')
-        : t('bd.restrict.creatureSpell');
-    }
-    if (kind === 'commander_spell') return t('bd.restrict.commanderSpell');
-    if (kind === 'legendary_spell') return t('bd.restrict.legendarySpell');
-    if (kind === 'instant_or_sorcery_spell') return t('bd.restrict.instantSorcery');
-    if (kind === 'type_spell') {
-      const types = (restriction.types || []).join('/');
-      return restriction.allow_ability
-        ? t('bd.restrict.typeSpellAbility', { types })
-        : t('bd.restrict.typeSpell', { types });
-    }
-    return 'zweckgebunden';
   }
 
   // The optional static-effects panel (RULE 613): (1) every active static
@@ -5283,80 +1677,6 @@ export function createGameBoardView(opts = {}) {
     </div>`;
   }
 
-  function staticEffectsPanelHtml(view, s) {
-    const actives = view.static_effects || [];
-    const traced = (s.battlefield || []).filter((o) => (o.static_trace || []).length);
-    const reductions = collectCostReductions(view.legal_actions || []);
-    if (!actives.length && !traced.length && !reductions.length) {
-      return `<div class="gf-statics"><h4>${t('bd.statics.panelHeading')}</h4>
-        <p class="empty-state">Zurzeit keine statischen Effekte im Spiel.</p></div>`;
-    }
-    const layerLabel = (l) => (l === 'cost' ? 'Kosten (601.2f)' : `Layer ${l}`);
-    // A continuous effect's two *bounds* (Regel 611 duration, Regel 613.6
-    // "solange"-Bedingung) are shown next to what it does — an effect that
-    // ends at end of combat, or that is currently switched off because its
-    // condition doesn't hold, is otherwise indistinguishable on the board
-    // from a permanent one. `gf-static-off` dims the second case rather than
-    // hiding it: the ability really is in play and will apply again.
-    const boundsHtml = (e) => {
-      const bits = [];
-      if (e.duration) bits.push(`<span class="gf-static-duration">⏳ ${escapeHtml(e.duration)}</span>`);
-      if (e.condition) bits.push(`<span class="gf-static-condition">❓ ${escapeHtml(e.condition)}</span>`);
-      if (e.condition && e.active === false) bits.push('<span class="gf-static-inactive">inaktiv</span>');
-      return bits.join(' ');
-    };
-    const activeList = actives.length
-      ? `<ul class="gf-static-list">${actives
-          .map((e) =>
-            `<li class="${e.active === false ? 'gf-static-off' : ''}">
-             <span class="gf-static-layer">${escapeHtml(layerLabel(e.layer))}</span>
-             <strong>${escapeHtml(e.source)}</strong> — ${escapeHtml(e.description || '')}
-             <span class="gf-static-scope">(${escapeHtml(e.affects)})</span>
-             ${boundsHtml(e)}</li>`
-          )
-          .join('')}</ul>`
-      : `<p class="empty-state">${t('bd.statics.none')}</p>`;
-
-    const traceBlocks = traced
-      .map((o) => {
-        const steps = (o.static_trace || [])
-          .map((t) => {
-            const pt = t.power != null && t.toughness != null ? ` → ${t.power}/${t.toughness}` : '';
-            // A numeric layer is a real RULE 613 layer ("L6"); a string one is
-            // a non-613 bucket (combat restrictions) that names itself.
-            const layer =
-              typeof t.layer === 'number' ? `L${t.layer}` : escapeHtml(String(t.layer));
-            return `<li><span class="gf-static-layer">${layer}</span>
-              ${escapeHtml(t.source)}: ${escapeHtml(t.description)}${escapeHtml(pt)}</li>`;
-          })
-          .join('');
-        const pt = o.power != null && o.toughness != null ? t('bd.static.nowPt', { pt: `${o.power}/${o.toughness}` }) : '';
-        return `<div class="gf-static-trace"><strong>${escapeHtml(o.name)}</strong>${escapeHtml(pt)}
-          <ol>${steps}</ol></div>`;
-      })
-      .join('');
-
-    const costBlock = reductions.length
-      ? `<div class="gf-static-costs"><h5>Kostenanpassungen</h5><ul class="gf-static-list">${reductions
-          .map((r) => `<li><strong>${escapeHtml(r.name)}</strong>: ${escapeHtml(r.base)} → ${escapeHtml(r.effective)}</li>`)
-          .join('')}</ul></div>`
-      : '';
-
-    return `
-      <div class="gf-statics">
-        <h4>${t('bd.statics.panelHeading')}</h4>
-        <div class="gf-static-active"><h5>${t('bd.statics.activeHeading')}</h5>${activeList}</div>
-        ${traceBlocks ? `<div class="gf-static-traces"><h5>${t('bd.statics.layerHeading')}</h5>${traceBlocks}</div>` : ''}
-        ${costBlock}
-      </div>`;
-  }
-
-  function collectCostReductions(actions) {
-    return actions
-      .filter((a) => a.type === 'cast_spell' && a.base_cost && a.effective_cost && a.base_cost !== a.effective_cost)
-      .map((a) => ({ name: a.name, base: a.base_cost, effective: a.effective_cost }));
-  }
-
   function statusHtml() {
     if (!status || statusKind === 'warning') return '';
     return `<p class="server-status ${statusKind}">${escapeHtml(status)}</p>`;
@@ -5377,8 +1697,7 @@ export function createGameBoardView(opts = {}) {
     audio.stop();
     audioView = null;
     audioSession = null;
-    stopAutoPass();
-    autoPassWindowKey = null;
+    priority.stop();
     sessionId = null;
     if (root) delete root.dataset.bugReportSession;
     view = null;
@@ -5387,14 +1706,4 @@ export function createGameBoardView(opts = {}) {
   }
 
   return { mount, start, refresh, setAssets, stop };
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }

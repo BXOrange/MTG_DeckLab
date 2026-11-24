@@ -19,7 +19,7 @@ def _nahiri_storm_of_stone() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "creatures_you_control", "keywords": ["first_strike"],
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["first_strike"],
                 "active_player_only": True,
             })],
         )

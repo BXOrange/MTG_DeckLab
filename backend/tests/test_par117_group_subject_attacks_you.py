@@ -48,7 +48,7 @@ from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.models.game.player import Player
 from mtg_analyzer.parser.oracle.gate import parse_oracle, UNMODELED
-from mtg_analyzer.parser.oracle.segmenter import _trigger_condition
+from mtg_analyzer.parser.oracle.segmenter.keyword_and_trigger_conditions import trigger_condition as _trigger_condition
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 
 

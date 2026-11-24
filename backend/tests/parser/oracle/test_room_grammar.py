@@ -64,8 +64,16 @@ def test_a_rooms_coverage_reads_both_halves():
     assert parse_oracle(db.get_card("Grand Entryway // Elegant Rotunda")).modeled
 
 
-def test_a_room_counts_as_authored_only_when_every_half_is_covered():
+def test_a_room_counts_as_authored_only_when_every_half_is_covered(monkeypatch):
+    from mtg_analyzer.game.card_registry import core
+
     db = CardDatabase(DB_PATH)
     assert is_authored_card(db.get_card("Experimental Lab // Staff Room"))  # both halves hand-authored
-    assert is_authored_card(db.get_card("Charred Foyer // Warped Space"))  # both halves hand-authored
+    foyer = db.get_card("Charred Foyer // Warped Space")
+    assert is_authored_card(foyer)  # both halves hand-authored too
+    # Every real Room now has both halves registered, so withdraw one registration: the front half alone
+    # (registered) cannot make the Room authored while the back half parses to nothing.
+    registered = core.is_registered
+    monkeypatch.setattr(core, "is_registered", lambda name: registered(name) and "Warped Space" not in name)
+    assert not is_authored_card(foyer)
     assert not is_authored_card(db.get_card("Forest"))

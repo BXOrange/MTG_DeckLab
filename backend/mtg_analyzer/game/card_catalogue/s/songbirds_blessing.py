@@ -27,7 +27,8 @@ def _songbirds_blessing() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("dig_until", {
                 "criteria": {"type": "Aura"}, "hit_destination": "hand",
-                "rest_destination": "library_bottom_random"})],
+                "rest_destination": "library_bottom_random",
+                "reveal": True})],  # RULE 701.20a: revealed cards stay in the library
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "attached_permanent"}},
         ),
     ]

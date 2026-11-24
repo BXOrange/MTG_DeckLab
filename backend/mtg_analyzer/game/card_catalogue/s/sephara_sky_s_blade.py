@@ -18,7 +18,7 @@ def _sephara_sky_s_blade() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "other_creatures_you_control", "object_filter": {"keyword": "flying"},
+            "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True, 'keyword': 'flying'}}, 
             "keywords": ["indestructible"],
         })]),
         AbilitySpec("spell_effect", [], alt_cost={"mana": "{W}", "tap_others": [_FLYERS_TO_TAP, "flying_creature"]}),

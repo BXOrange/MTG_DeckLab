@@ -33,7 +33,7 @@ def _dress_down() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("remove_all_abilities", {"affects": "all_creatures"})],
+            [EffectSpec("remove_all_abilities", {"affects": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
         ),
         AbilitySpec(
             "triggered",

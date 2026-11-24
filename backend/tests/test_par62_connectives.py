@@ -29,7 +29,8 @@ from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
 from mtg_analyzer.parser.oracle.catalogue.count_phrase import parse_count_phrase
-from mtg_analyzer.parser.oracle.segmenter import _FOR_EACH_GROUP_PHRASES, parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.overrides_and_amounts import _FOR_EACH_GROUP_PHRASES
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
 from tests import turn_history_events as history
@@ -125,13 +126,17 @@ class TestForEach:
             {"type": "gain_life", "params": {"amount": 1}}
         ]
 
-    def test_a_targeted_body_fails_closed(self) -> None:
+    def test_a_targeted_body_is_scaled_not_iterated(self) -> None:
         # `ForEachEffect` hands each selected object to the body *as its
         # targets*, which would override the announced RULE 115 target with
-        # the iteration item — a wrong reading, so it is refused.
-        assert parse_effect_body(
+        # the iteration item — so the group phrase is never a `for_each` here.
+        # PAR-284: it reads as one effect scaled by the count (`bind`, the
+        # target forwarded), which is what the card means.
+        specs = parse_effect_body(
             "deal 1 damage to target creature for each creature you control"
-        ) is None
+        )
+        assert specs is not None and [s.type for s in specs] == ["bind"]
+        assert specs[0].params["effects"][0]["params"]["target_kind"] == "creature"
 
     def test_a_count_operand_is_not_an_iteration(self) -> None:
         # "for each card in your hand" is an *amount*

@@ -276,7 +276,8 @@ def test_soulbond_quoted_grant_targets_the_pair():
     )
     assert specs is not None
     assert len(specs) == 1
-    assert specs[0].params["affects"] == "soulbond_pair"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "any", "filter": {"paired_with_reference": True}}
 
 
 def test_soulbond_pair_selector_yields_nothing_while_unpaired():
@@ -468,7 +469,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     eng.recompute_continuous_effects()
 
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert {o.instance_id for o in picked} == {small.instance_id}
@@ -479,7 +480,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     src.temp_power = 5
     eng.recompute_continuous_effects()
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert {o.instance_id for o in picked} == {small.instance_id, big.instance_id}
@@ -488,7 +489,7 @@ def test_power_lt_selector_tracks_the_sources_derived_power():
     small.temp_power = 4  # now 5 power, over the 4-power threshold
     eng.recompute_continuous_effects()
     picked = continuous.group_selector_objects(
-        eng.state, "p1", "creatures_opponents_control",
+        eng.state, "p1", {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
         {"power_lt_selector": "source_power"}, src=src,
     )
     assert picked == []
@@ -500,7 +501,8 @@ def test_group_goaded_static_parses_with_the_power_qualifier():
     )
     assert specs is not None
     assert specs[0].type == "goaded"
-    assert specs[0].params["affects"] == "creatures_opponents_control"
+    assert specs[0].params["affects"] == {
+        "zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}
     assert specs[0].params["power_lt_selector"] == "source_power"
 
 

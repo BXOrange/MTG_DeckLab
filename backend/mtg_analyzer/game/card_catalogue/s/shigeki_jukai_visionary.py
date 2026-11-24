@@ -20,6 +20,7 @@ def _shigeki_jukai_visionary() -> list[AbilitySpec]:
             [EffectSpec("inspect_top_choose", {
                 "count": 4, "action": "library_to_battlefield_tapped", "max_picks": 1, "optional": True,
                 "criteria": {"type": "land"}, "rest_destination": "graveyard",
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
             cost={"text": "{1}{g}, {t}, return ~ to its owner's hand"},
         ),

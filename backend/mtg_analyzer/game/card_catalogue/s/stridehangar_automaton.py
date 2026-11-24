@@ -14,7 +14,7 @@ def _stridehangar_automaton() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": "creatures_you_control", "subtype": "Thopter"})],
+            [EffectSpec("anthem", {"power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Thopter"}}})],
         ),
         AbilitySpec(
             "replacement",

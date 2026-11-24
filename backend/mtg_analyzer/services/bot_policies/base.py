@@ -292,6 +292,10 @@ class Bot:
             return self.pick_blight_creature(view, answers)
         if kind in ("vote", "vote_object") and answers:
             return self._vote_rng.choice(answers)
+        if kind == "cast_alt_cost_object" and answers:
+            # ENG-65 / RULE 601.2b: the permanent an alternative cost returns or sacrifices -- the one worth least.
+            return min((a for a in answers if a["type"] == "choose") or answers,
+                       key=lambda a: self._option_worth(view, a))
         # RULE 103.6: use offered opening-hand permissions, including
         # Gemstone Caverns and its mandatory follow-up hand-card exile.
         if kind in ("search", "commander_zone", "opening_hand_battlefield"):
@@ -410,7 +414,11 @@ class Bot:
 
     @staticmethod
     def announcement_offer(action: dict[str, Any]) -> dict[str, Any]:
-        """Use the server's target requirements for the chosen kicker branch."""
+        """Use the server's target requirements for the chosen announcement."""
+        if action.get("targets_by_x"):
+            x = action.get("x", action["max_x"])
+            if str(x) in action["targets_by_x"]:
+                action = {**action, "x": x, "targets": action["targets_by_x"][str(x)]}
         variant = action.get("kicker_variant")
         if action.get("kicked") and isinstance(variant, dict):
             selected = {**action, **variant, "kicked": action["kicked"]}

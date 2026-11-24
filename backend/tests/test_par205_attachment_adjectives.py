@@ -29,7 +29,8 @@ def test_leading_and_trailing_attachment_words_emit_the_same_specs(word, tail):
     leading = static_effect_specs(f"{word} creatures you control {tail}.")
     trailing = static_effect_specs(f"creatures you control that are {word} {tail}.")
     assert leading and [spec.to_dict() for spec in leading] == [spec.to_dict() for spec in trailing]
-    assert leading[0].params["object_filter"] == {word: True}
+    assert leading[0].params["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature", word: True}}
     assert "subtype" not in leading[0].params
 
 

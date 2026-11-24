@@ -125,7 +125,7 @@ def test_speed_young_avenger_needs_a_hasty_target_and_grants_the_restriction():
     trig = next(s for s in parsed.specs if s.ability_kind == "triggered")
     inner = trig.effects[0].params["then_trigger"][0]["params"]
     assert inner["creature_filter"] == {"keyword": "haste"}
-    assert inner["restriction"] == {"kind": "only_blocked_by", "filter": {"keyword": "haste"}}
+    assert inner["restriction"] == {"kind": "only_blocked_by", "filter": {"card_type": "creature", "keyword": "haste"}}
 
 
 def test_agility_bobblehead_target_count_reads_the_bobbleheads_you_control():

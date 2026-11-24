@@ -38,11 +38,8 @@ from mtg_analyzer.game.effects.core import GameContext
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.game_object import GameObject, Zone
-from mtg_analyzer.parser.oracle.segmenter import (
-    _CONDITION_PREFIXES,
-    _CONDITION_SUFFIXES,
-    parse_effect_body,
-)
+from mtg_analyzer.parser.oracle.segmenter import parse_effect_body
+from mtg_analyzer.parser.oracle.segmenter.conditions import CONDITION_PREFIXES as _CONDITION_PREFIXES, CONDITION_SUFFIXES as _CONDITION_SUFFIXES
 from mtg_analyzer.parser.oracle.spec import (
     _ALLOWED_CONDITION_KEYS,
     _STRUCTURED_CONDITION_FIELDS,
@@ -190,7 +187,10 @@ class TestVocabularyIsClosed:
         # an unnecessary legacy spelling just to satisfy this vocabulary audit.
         conditions = [condition for _, _, condition in _translated()]
         from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
-        conditions.append(static_condition("~'s emerge cost was paid"))
+        conditions.extend(static_condition(phrase) for phrase in (
+            "~'s emerge cost was paid",
+            "it hasn't dealt damage yet",
+        ))
         conditions.extend(effect.condition
                           for abilities in (_ultimate_magic_meteor(), _lifestream_s_blessing())
                           for ability in abilities for effect in ability.effects

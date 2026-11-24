@@ -24,7 +24,7 @@ def _magda_brazen_outlaw() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("anthem", {
-                "power": 1, "toughness": 0, "affects": "other_creatures_you_control", "subtype": "Dwarf",
+                "power": 1, "toughness": 0, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "subtype": "Dwarf"}},
             })],
         ),
         AbilitySpec(

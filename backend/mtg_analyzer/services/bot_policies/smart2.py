@@ -174,7 +174,9 @@ class SmartBot2(SmartBot):
 
     def _variants(self, ctx, action, actions):
         variants = [dict(action)]
-        if action.get('has_x'):
+        if action.get('allowed_x'):
+            variants = [{**action, 'x': x} for x in action['allowed_x']]
+        elif action.get('has_x'):
             low = int(action.get('min_x', 0) or 0)
             high = int(action.get('max_x', 0) or 0)
             _, held, _ = reserve(ctx, actions)
@@ -184,7 +186,13 @@ class SmartBot2(SmartBot):
             values |= {int(number(ctx.obj(o).get('toughness'))) for r in action.get('targets', [])
                        for o in r.get('options', [])[:MAX_TARGET_OPTIONS]}
             variants = [{**action, 'x': x} for x in sorted(values) if low <= x <= high]
-        if action.get('has_kicker') and not action.get('kicker_has_x') and not action.get('kicked'):
+        if action.get('kicker_options') and not action.get('kicker_has_x') and not action.get('kicked'):
+            # RULE 702.33b/d: two kicker costs offer their affordable combinations as index lists (the
+            # server checked each); announce one per combination, never a bare count.
+            variants += [self.announcement_offer({**v, 'kicked': list(combo)}) for v in variants
+                         for combo in action['kicker_options']
+                         if not (v.get('kicker_variant') or {}).get('locked')]
+        elif action.get('has_kicker') and not action.get('kicker_has_x') and not action.get('kicked'):
             # Offered max_kicker is authoritative. Single kicker has no max
             # in some offers; its affordability is not assumed in that case.
             maximum = int(action.get('max_kicker', 0) or 0)

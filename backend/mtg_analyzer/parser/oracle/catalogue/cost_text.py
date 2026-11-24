@@ -50,6 +50,10 @@ _PAY_ENERGY_WORD_RE = re.compile(
 #: supertype, "token"/"non<type>", a tapped state ("a **black** creature",
 #: "a **basic** land", "a **noncreature** artifact"). The engine reads every
 #: one through `continuous.matches_permanent_word`.
+#: RULE 105.1's colour words, for a "white and/or blue" pair.
+_COLOR_WORD = r"(?:white|blue|black|red|green)"
+#: "... you control **named ~**" (Templar Knight): RULE 201.2, the ability source's own name (`continuous.NAMED_PREFIX`).
+_NAMED_SOURCE_TAIL = r"(?:\s+named\s+(?P<named>~))?"
 _QUALIFIER = (
     r"(?:white|blue|black|red|green|colorless|multicolored|nontoken|token|nonland|"
     r"noncreature|nonartifact|nonenchantment|basic|snow|legendary|untapped|tapped)"
@@ -170,11 +174,16 @@ _REMOVE_ANY_COUNTERS_RE = re.compile(
 #: control with flying" — the same permanent-phrase encoding as a sacrifice.
 _TAP_OTHERS_RE = re.compile(
     # PAR-232 (Voyager Glidecar): "Tap three **other** untapped creatures you control" -- the source can't pay it.
-    r"tap\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+(?:(?P<qual>" + _QUALIFIER + r")\s+)?(?P<type>[a-z]+)"
+    # PAR-286: "Tapped four untapped Humans you control" (The Cookout Creator's printed verb); "white **and/or** blue
+    # creatures" (Sky Hussar) is one colour-pair qualifier; "attacking" (Templar Knight) is an untapped attacker (vigilance).
+    r"tap(?:ped)?\s+(?P<n>\d+|[a-z]+)\s+(?:(?P<other>other)\s+)?untapped\s+"
+    r"(?:(?P<qual>" + _QUALIFIER + r"|attacking)(?:\s+and/or\s+(?P<qual2>" + _COLOR_WORD + r"))?\s+)?(?P<type>[a-z]+)"
     # PAR-267 (Collation Trimatrix): "artifact creatures" -- a type word followed by a main-type tail (kept as
     # the same ``artifact_creature`` conjunction a sacrifice phrase encodes).
     r"(?:\s+(?P<tail>" + _TYPE_TAIL + r"s?))?"
-    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD,
+    r"(?:\s+(?:and/)?or\s+(?P<alt>[a-z]+))?\s+you control" + _WITH_KEYWORD + _NAMED_SOURCE_TAIL
+    # MEC-145 (Impelled Giant): "... you control other than ~" is the trailing spelling of "other" -- the source can't pay it.
+    + r"(?P<other_than>\s+other than ~)?",
     re.IGNORECASE,
 )
 #: PAR-247 (RULE 602.2b): "Untap two tapped blue creatures you control" (Crackleburr, Halo Fountain) -- the untap-others
@@ -314,6 +323,13 @@ _EXILE_HAND_CARD_RE = re.compile(
     r"exile\s+(?P<n>a|an|\d+|" + "|".join(NUMBER_WORDS) + r")\s+cards?\s+from\s+your\s+hand",
     re.IGNORECASE,
 )
+#: RULE 406 / 118.3: "Put a card an opponent owns from exile into that player's graveyard" (the devoid Eldrazi
+#: cost: Cryptic Cruiser, Oracle of Dust, Void Attendant) -- one exiled card owned by an opponent moves to its owner's
+#: graveyard as the cost is paid.
+_PUT_OPPONENT_EXILE_TO_GRAVEYARD_RE = re.compile(
+    r"put\s+an?\s+card\s+an\s+opponent\s+owns\s+from\s+exile\s+into\s+that\s+player'?s\s+graveyard",
+    re.IGNORECASE,
+)
 #: ENG-51: "Pay half your life, rounded up" (Lurking Evil, RULE 119.4).
 _PAY_HALF_LIFE_RE = re.compile(r"pay\s+half\s+your\s+life,?\s+rounded\s+up", re.IGNORECASE)
 #: ENG-51: "Put a -1/-1 counter on a creature you control" (Hatchet Bully) —
@@ -406,6 +422,22 @@ def _vetted_card_filter(phrase: Optional[str], extra_words: frozenset[str] = fro
 _DISCARD_NEGATED_WORDS: frozenset[str] = frozenset({"noncreature", "nonland", "historic"})
 
 
+#: MEC-173 / RULE 601.2b, 602.2b: "sacrifice an artifact with mana value X" / "a creature you control with mana value X
+#: other than ~" -- one permanent whose mana value is the ability's announced X (Scrap Welder, Sidisi); the activated
+#: sibling of the additional cost `discard_mana_value_x` is to a discard. The phrase is read by the shared sacrifice grammar.
+_SACRIFICE_MANA_VALUE_X_RE = re.compile(
+    r"sacrifice\s+an?\s+(?P<phrase>[a-z ]+?)\s+with mana value x(?P<other>\s+other than (?:~|this \w+))?(?=\s*(?:,|$))"
+)
+
+
+def _sacrifice_mana_value_x_word(match: re.Match[str]) -> Optional[str]:
+    clause = read_sacrifice_clause(f"sacrifice a {match.group('phrase')}")
+    if clause is None or len(clause.items) != 1 or clause.items[0].kind != "object" or clause.items[0].count != 1:
+        return None
+    word = clause.items[0].word
+    return f"other_{word}" if match.group("other") else word
+
+
 def _legacy_sacrifice_reads(cost_text: str, clause: SacrificeClause) -> bool:
     """Whether one of the single-word sacrifice recognizers reads exactly the words ``clause`` covers -- then the
     long-standing fields (`sacrifice`, `sacrifice_pair`, `sacrifice_count`) stay the reading."""
@@ -458,7 +490,12 @@ def scan_cost_text(cost_text: str) -> CostScan:
         take("ward_x_selector", _WARD_X_SELECTOR_RE)
     take("exile_creature", _EXILE_CREATURE_RE)
     clause = read_sacrifice_clause(cost_text)
-    if clause is not None and not _legacy_sacrifice_reads(cost_text, clause):
+    mv_x = _SACRIFICE_MANA_VALUE_X_RE.search(cost_text)
+    mv_x_word = _sacrifice_mana_value_x_word(mv_x) if mv_x is not None else None
+    if mv_x_word is not None:
+        scan.hits["sacrifice_mana_value_x"] = mv_x_word
+        consumed.append(mv_x.span())
+    elif clause is not None and not _legacy_sacrifice_reads(cost_text, clause):
         # PAR-232: a list / source-and-others / tailed object phrase the single-word recognizers below can't read whole.
         scan.hits["sacrifice_clause"] = clause
         consumed.append(clause.span())
@@ -477,6 +514,7 @@ def scan_cost_text(cost_text: str) -> CostScan:
     if not take("exile_graveyard_top", _EXILE_GRAVEYARD_TOP_RE, typed=True):
         take("exile_from_graveyard", _EXILE_GRAVEYARD_RE, typed=True)
     take("exile_hand_card", _EXILE_HAND_CARD_RE)
+    take("put_opponent_exile_to_graveyard", _PUT_OPPONENT_EXILE_TO_GRAVEYARD_RE)
     take("exert", _EXERT_SELF_RE)
     take("mill", _MILL_RE)
     take("tap_attached", _TAP_ATTACHED_RE)

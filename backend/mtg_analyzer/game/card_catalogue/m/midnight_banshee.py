@@ -19,8 +19,7 @@ def _midnight_banshee() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters", {
-                "count": 1, "kind": "-1/-1", "selector": "each_creature",
-                "creature_filter": {"without_color": "B"},
+                "count": 1, "kind": "-1/-1", "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "without_color": "B"}},
             })],
             trigger={"event": "STEP_BEGIN", "filter": {"step": "upkeep"}, "phase_relation": "you"},
         ),

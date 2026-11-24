@@ -43,7 +43,7 @@ Oracle text → behaviour: `parser/oracle/` (`normalize` → `segmenter` → `ca
 - **Priority** (RULE 117) is opt-in per session, on for multiplayer; only the priority holder may act, enforced in `_dispatch` ([MULTIPLAYER.md](docs/Reference/MULTIPLAYER.md)).
 - **Resumable choices**: partial target announcements and simultaneous entry batches belong to `GameState`; clone/undo must retain their chosen groups and exact zone visits ([mechanics notes](docs/Reference/ENGINE_MECHANICS_NOTES.md)).
 - The RULE 702 keyword catalogue in the parser is *recognition only*, not proof of engine behaviour. Permanent non-goals in `DEFERRED.md` use the shared `models/cards/support_policy.py` verdict **Unsupported** (`NEVER_SUPPORTED`), including cross-game interactions and Alchemy-only/digital mechanics. Merely parked work stays distinct.
-- **Code style**: comment rules-relevant code with `RULE <n>` (text via `docs/Reference/rules_wiki/`); match surrounding comment density; **no magic numbers** (named constant with a why-comment, e.g. `INFINITE_MANA_THRESHOLD`); frontend views are `render*(container)` functions, escape card/user text with `escapeHtml`/`escapeAttr`, prefs in cookies (`cookies.js`).
+- **Code style**: comment rules-relevant code with `RULE <n>` (text via `docs/Reference/rules_wiki/`); match surrounding comment density; **no magic numbers** (named constant with a why-comment, e.g. `INFINITE_MANA_THRESHOLD`); frontend views are `render*(container)` functions, escape card/user text with `escapeHtml`/`escapeAttr`, prefs in cookies (`cookies.js`). **File size**: once a code file grows past roughly 1000-2000 lines, split it along a cohesive seam (mixin, submodule, or `gameBoard/`-style package) instead of growing it further; do the split as its own change, keeping public imports stable.
 - **Commits** only when asked; branch first if on `main`; end with the attribution line from the session instructions.
 
 ## Docs and work tracking
@@ -76,7 +76,7 @@ Full task → file table: [CODE_MAP.md](docs/Reference/CODE_MAP.md). Subsystem n
 | Hand-authored card | `game/card_catalogue/`, `hand-author-card` skill |
 | Parser | `parser/oracle/`, `extend-parser` skill |
 | Paths, env vars | `mtg_analyzer/config.py` |
-| Goldfish / Solo / Multiplayer / Replay UI | `goldfishView.js`, `soloView.js`, `multiplayerView.js`, `replayView.js`, shared `gameBoardView.js` |
+| Goldfish / Solo / Multiplayer / Replay UI | `goldfishView.js`, `soloView.js`, `multiplayerView.js`, `replayView.js`, shared `gameBoardView.js` facade and `gameBoard/` modules |
 | Refresh Oracle pool / ban lists | `backend/scripts/update_card_pool.py`, `update_ban_lists.py` |
 
 ## Editing this file

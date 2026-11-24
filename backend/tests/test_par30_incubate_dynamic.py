@@ -329,7 +329,7 @@ def test_sunfall_incubates_for_the_number_of_creatures_it_exiled():
 
     from mtg_analyzer.game.effects.core import _apply_effects_partitioned
     effects = build_effects([
-        EffectSpec("exile", {"selector": "all_creatures"}),
+        EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
         EffectSpec("create_token", {
             "count": 1, "token_name": "Incubator",
             "extra_counters": {"kind": "+1/+1",
@@ -361,7 +361,7 @@ def test_objects_exiled_this_way_resets_between_resolutions():
         c.controller_id = "p1"
         st.add_to_battlefield(c)
         effects = build_effects([
-            EffectSpec("exile", {"selector": "all_creatures"}),
+            EffectSpec("exile", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
             EffectSpec("create_token", {
                 "count": 1, "token_name": "Incubator",
                 "extra_counters": {"kind": "+1/+1",

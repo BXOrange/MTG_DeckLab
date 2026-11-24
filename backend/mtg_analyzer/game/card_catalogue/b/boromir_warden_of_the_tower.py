@@ -42,7 +42,7 @@ def _boromir_warden_of_the_tower() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("pump", {
                 "power": 0, "toughness": 0, "keywords": ["indestructible"],
-                "selector": "creatures_you_control",
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
             }), EffectSpec("the_ring_tempts_you", {})],
             cost={"sacrifice": "self"},
         ),

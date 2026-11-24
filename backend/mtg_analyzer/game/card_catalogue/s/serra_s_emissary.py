@@ -20,7 +20,7 @@ def _serras_emissary() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_protection_static", {
-                "affects": "creatures_you_control", "protection_from_chosen_type": True, "protects_controller": True,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "protection_from_chosen_type": True, "protects_controller": True,
             })],
         ),
     ]

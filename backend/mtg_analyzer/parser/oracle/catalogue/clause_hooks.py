@@ -28,6 +28,7 @@ _parse_effect_body: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
 _segment_line: Optional[Callable[..., Any]] = None
 _trigger_condition_dict: Optional[Callable[[str], Optional[dict[str, Any]]]] = None
 _static_condition: Optional[Callable[[str], Optional[dict]]] = None
+_static_effect_specs: Optional[Callable[[str], Optional[list[EffectSpec]]]] = None
 _match_clause: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
 _match_clause_once: Optional[Callable[..., Optional[list[EffectSpec]]]] = None
 
@@ -49,6 +50,12 @@ def register_static_condition(static_condition: Callable[[str], Optional[dict]])
     """Called once by `static_handlers`."""
     global _static_condition
     _static_condition = static_condition
+
+
+def register_static_effect_specs(static_effect_specs: Callable[[str], Optional[list[EffectSpec]]]) -> None:
+    """Called once by `static_handlers`: its row modules re-enter the static table through `static_effect_specs` below."""
+    global _static_effect_specs
+    _static_effect_specs = static_effect_specs
 
 
 def register_clause_matcher(
@@ -104,3 +111,9 @@ def static_condition(text: str) -> Optional[dict]:
     """`static_handlers.static_condition`."""
     assert _static_condition is not None, _UNREGISTERED.format(name="static_condition")
     return _static_condition(text)
+
+
+def static_effect_specs(clause: str) -> Optional[list[EffectSpec]]:
+    """`static_handlers.static_effect_specs`."""
+    assert _static_effect_specs is not None, _UNREGISTERED.format(name="static_effect_specs")
+    return _static_effect_specs(clause)

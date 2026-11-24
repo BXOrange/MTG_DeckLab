@@ -241,7 +241,14 @@ class TestBacklogSizes:
     def test_continuation_backlog_does_not_grow(self) -> None:
         # Reviewed November singleton adapters: cost selection, Devour entry
         # sacrifices and trigger damage division all use existing choice frames.
-        reviewed = {"alternative_payment", "devour_entry", "divided_damage_then_retaliate"}
+        reviewed = {
+            "alternative_payment", "devour_entry", "divided_damage_then_retaliate",
+            # PAR-320: reviewed adapters over existing choose_objects, optional,
+            # pay_cost_then and choose_number_resolve frames. All pending state
+            # remains in those serialized frames; no new answer protocol.
+            "sacrifice_with_riders", "choice_of_damnations",
+            "infernal_denizen_offer", "suspended_sacrifice_offer",
+        }
         classified = set(isa.types_classified(isa.Classification.CONTINUATION))
         # ENG-35 retires these onto one continuation primitive. Bumped 74 -> 81:
         # not new work, but 7 pre-existing registered types (Avacyn's chosen-colour
@@ -300,7 +307,12 @@ class TestBacklogSizes:
         # selections and ordered disposal retain the exact same inspected set.
         # PAR-220 adds one linked-card selector over existing choose_objects
         # and entry-batch frames; no new answer protocol (120 -> 121).
-        assert n <= 121, f"continuation types grew to {n}"
+        # ENG-64 adds `choose_effect_on_resolution`: the RULE 608.2d "A or B" pick made as the ability resolves, one
+        # `effect_option` choice that applies the picked effect list with the firing event restored (121 -> 122).
+        # MEC-146 adds the variable-payment continuation shared by all four resources.
+        # PAR-292 M22 adds `separate_piles`, the pile split over objects in a public zone: the same split/take choice frames
+        # as the revealed-pile adapter (one reviewed continuation, 123 -> 124).
+        assert n <= 124, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.
@@ -329,5 +341,7 @@ class TestBacklogSizes:
         # returns the Aura attached to that exact creature in a later combat: 65 -> 66.
         # Singleton batch 2 (worker i): Ignite the Future's pool bridge (`exile_pool_from_created`) and Glimpse the
         # Impossible's next-end-step leftover cleanup (`glimpse_arm_cleanup`) are examined one-card specials.
-        # Arni Metalbrow and Human Torch add two further card-specific operations.
-        assert n <= 69, f"one-card specials grew to {n}"
+        # PAR-285 M17: `trained_event` (RULE 702.149a's "trains" event, a pure event emitter) and `time_counters`
+        # (suspended-card time counters, which route through the Suspend last-counter trigger): 67 -> 69.
+        # PAR-286 M10: `connived_event` (RULE 701.50f's "connives" event, a pure event emitter run as the discard's tail): 69 -> 70.
+        assert n <= 70, f"one-card specials grew to {n}"

@@ -12,9 +12,9 @@ def _worldgorger_dragon() -> list[AbilitySpec]:
     the battlefield under their owners' control.
 
     — MEC-43 round 4D. Both keywords are plain flag keywords. The ETB
-    half is `ExileEffect` with the new mandatory ``"other_permanents_you_
-    control"`` mass selector (`_MASS_DESTROY_SELECTORS`/
-    `_mass_selector_objects`'s newest member — unlike `ExileAnyNumber
+    half is `ExileEffect` with the mandatory "other permanents you control"
+    mass group (ENG-61: the structured ``group``; formerly the named
+    ``other_permanents_you_control`` mass selector) — unlike `ExileAnyNumber
     YouControlEffect`'s "any number" *choice*, this is unconditional, so
     it belongs with the plain board-wipe-shaped selectors instead) plus
     ``track_exiled_with=True`` (MEC-21's accumulating `GameObject.
@@ -30,7 +30,7 @@ def _worldgorger_dragon() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("exile", {
-                "selector": "other_permanents_you_control", "track_exiled_with": True,
+                "group": {"zone": "battlefield", "of": "you", "filter": {"not_reference": True}}, "track_exiled_with": True,
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

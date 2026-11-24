@@ -140,8 +140,15 @@ class GameObject:
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
         #: and left on the object afterward as a record of what was paid.
         self.kicker_count: int = 0
+        #: RULE 702.33b/702.33f (ENG-62): *which* kicker costs were paid, as indices into
+        #: the card's printed kicker costs, for a spell with two ("Kicker {1}{U} and/or {B}").
+        #: Empty for a single-cost Kicker/Multikicker, whose ``kicker_count`` says it all.
+        #: Additive beside ``kicker_count``, which stays the number of payments.
+        self.kicker_costs_paid: tuple[int, ...] = ()
         # RULE 601.2b/602.2b: no X has been announced on a fresh object.
         self.x_paid: int = 0
+        #: RULE 601.2f: the permanents announced for an "any number of" sacrifice cost during one cast (else ``None``).
+        self.announced_sacrifice_count: Optional[int] = None
         #: RULE 702.33b: the value announced for Kicker's own ``{X}`` (PAR-7,
         #: Emblazoned Golem-shaped — a Kicker cost that is itself variable,
         #: distinct from the *spell's* own announced X `_apply_entry_counters`
@@ -194,8 +201,9 @@ class GameObject:
         #: `RulesEngine._apply_entry_counters` — "…it enters with three additional +1/+1 counters on it"
         #: (Turntimber Symbiosis).
         self.entry_bonus_counters: dict[str, int] = {}
-        #: Conditional entry riders, evaluated after entry-copy choices.
-        self.entry_bonus_creature_counters: dict[str, int] = {}
+        self.cast_uncounterable: bool = False
+        # RULE 702.82b: exact visits into GameState.zone_visit_sources for this entry.
+        self.devoured_creature_visits: tuple[tuple[int, int], ...] = ()
         #: Adamant's per-colour sibling of ``colors_spent_to_cast``.  This
         #: preserves *how much* of each WUBRG colour paid the spell, not just
         #: whether that colour appeared at least once.
@@ -216,6 +224,7 @@ class GameObject:
         #: enters trigger. The pool's source buckets make this an actual
         #: payment fact, not a guess from which permanents were tapped.
         self.mana_spent_to_cast_treasure: int = 0
+        self.mana_spent_to_cast_by_source_subtype: dict[str, int] = {}
         #: Mana from creature-sourced mana abilities spent on this spell's cast (Inga and Esika).
         self.mana_spent_to_cast_creature: int = 0
         self.mana_spent_to_cast_artifact: int = 0
@@ -233,6 +242,7 @@ class GameObject:
         #: `False` at construction so a token/searched permanent defaults
         #: correctly with no extra call needed anywhere.
         self.was_cast: bool = False
+        self.cast_by_player_id: Optional[str] = None
         #: RULE 601.2: the game-long ordinal of this spell among its caster's casts (1 = "the first spell you've cast
         #: this game"), stamped at cast time; ``None`` for anything not cast.
         self.cast_game_ordinal: Optional[int] = None
@@ -271,6 +281,7 @@ class GameObject:
         #: leaves the battlefield or changes controller (swept by
         #: `RulesEngine.check_state_based_actions`).
         self.paired_with: Optional[int] = None
+        self.paired_controller_id: Optional[str] = None
         #: RULE 702.140b: whether this spell was cast for its Mutate cost —
         #: set at cast time by `GameEngine._cast_current_face` and consumed
         #: by `RulesEngine._resolve_permanent_spell`, which merges it onto
@@ -359,12 +370,11 @@ class GameObject:
         #: `_sba_check_unbestow` and the un-attach paths), at which point it
         #: is a creature again.
         self.bestowed: bool = False
-        #: RULE 702.140c Mutate: the abilities merged in from *under* this
-        #: permanent — the oracle text of every card mutated onto it, kept as
-        #: text so `effect_binder.bind_from_catalogue` can re-derive real
-        #: abilities from it exactly as it does for a printed face. Empty for
-        #: every permanent that was never a mutate host.
+        #: RULE 702.140e Mutate: Oracle text from beneath the top card,
+        #: retained for display when another card becomes the top face.
         self.merged_oracle_text: list[str] = []
+        # RULE 702.140c: successful mutate merges during this permanent visit.
+        self.times_mutated = 0
         #: RULE 601.2b: the mana value of the permanent sacrificed to pay this
         #: spell's *additional* cost ("as an additional cost to cast this
         #: spell, sacrifice a creature" — Eldritch Evolution/Neoform), or
@@ -373,6 +383,9 @@ class GameObject:
         #: magnitude is "the sacrificed creature's mana value" needs its own
         #: channel; read by `SearchLibraryEffect`'s ``mana_value_from``.
         self.sacrificed_cost_mana_value: Optional[int] = None
+        #: MEC-145 / RULE 608.2h: the objects a cost discarded / exiled / tapped / revealed / sacrificed, snapshotted as
+        #: the cost moved them (`game/cost_referents.py`): kind -> records (mana value, power, toughness, card types).
+        self.cost_referents: dict[str, list[dict]] = {}
         self.sacrificed_cost_card_types: list[str] = []
         #: The sacrificed permanent's instance id (`RulesEngine.note_sacrificed`): "return all **other** ... cards from your
         #: graveyard" after "you may sacrifice ..." leaves that very card out (The Promise of Kahless).
@@ -380,6 +393,10 @@ class GameObject:
         #: The card types of the card(s) discarded as this spell's additional cost ("If the discarded card wasn't a land card", Grab the
         #: Prize) — stamped by `GameEngine._pay_additional_cast_cost`, read by `effect_conditions`' ``discarded_cost_card_is``.
         self.discarded_cost_card_types: list[str] = []
+        #: PAR-283: every characteristic word (types, subtypes, legendary, token) of what a cost sacrificed / discarded, as it was
+        #: (RULE 608.2h) -- read by `effect_conditions`' ``sacrificed_cost_is`` / ``discarded_cost_is``.
+        self.sacrificed_cost_words: list[str] = []
+        self.discarded_cost_words: list[str] = []
         self.sacrificed_cost_was_suspected: bool = False
         #: The *power* sibling of the field above (MEC-43, Altar of
         #: Dementia: "Sacrifice a creature: target player mills cards equal
@@ -603,6 +620,9 @@ class GameObject:
         #: a phasing permanent), else ``None``. An indirectly phased-out
         #: permanent never phases in on its own; it phases in with its host.
         self.phased_out_with: Optional[int] = None
+        self.phase_in_source_visit: Optional[tuple[int, int]] = None
+        self.tap_as_phases_in = False
+        self.has_dealt_damage = False
         #: Damage marked this turn (RULE 120); cleared during cleanup.
         self.damage_marked: int = 0
         #: Counters on the permanent, keyed by kind (RULE 122): e.g.
@@ -670,6 +690,7 @@ class GameObject:
         #: has been used this turn — gates its ``once_per_turn`` restriction.
         #: Reset each untap step, same as `activated_loyalty_this_turn`.
         self.graveyard_casts_this_turn: int = 0
+        self.cross_zone_play_used_turn: Optional[int] = None
         #: PAR-105: uses this turn of this permanent's own "once each turn, you may cast … from the top of
         #: your library" grant (`top_library.record_top_library_use`). Reset each untap step.
         self.top_library_uses_this_turn: int = 0
@@ -894,15 +915,17 @@ class GameObject:
         #: `_offer_enter_as_copy`, before this object is added to the
         #: battlefield.
         self.enter_choice_effects: list[Any] = []
-        #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
-        #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
-        #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
+        # RULE 702.82a: offer Devour once for the current entry.
+        self.devour_entry_prepared: bool = False
         # RULE 702.136: per-entry preparation and a pending lasting haste grant.
         self.riot_entry_prepared: bool = False
         self.riot_entry_haste: bool = False
         #: RULE 702.104b: whether an opponent paid this permanent's Tribute as it entered ("if tribute wasn't
         #: paid"). Stamped by the tribute choice; reset with the new object (RULE 400.7).
         self.tribute_paid: bool = False
+        #: RULE 614.12: a before-entry instruction replaced this object's entry (Mox Diamond's "if you
+        #: don't, put it into its owner's graveyard") while it was being prepared inside a battlefield
+        #: batch; the batch consumes the flag and drops the entrant instead of admitting it.
         self.entry_abandoned: bool = False
         #: The `enter_choice_effects` as bound. Entry consumes that queue one instruction at a time, so a
         #: new object (RULE 400.7: blink, reanimation) gets it back from here in `reset_as_new_object`.
@@ -1043,6 +1066,8 @@ class GameObject:
         self._derived_power: Optional[int] = None
         self._derived_toughness: Optional[int] = None
         self._granted_keywords: set[str] = set()
+        self._granted_spell_keywords: set[str] = set()
+        self._owned_card_added_types: set[str] = set()
         #: RULE 113.2c: how many separate grants stand behind each entry of `_granted_keywords` (a set can't say). A
         #: triggered keyword fires once per instance (RULE 702.116b Myriad, 702.83b Exalted, ...); see
         #: `combat.keyword_instances`. Re-derived by every `continuous.recompute`.
@@ -1205,6 +1230,7 @@ class GameObject:
         #: (`ForceAttackUnattackedOpponentEffect`), a requirement like goad's but naming the defender.
         #: Set at the beginning of combat, dropped as that combat ends (RULE 511.3).
         self.must_attack_player_id: Optional[str] = None
+        self.encore_defender_id: Optional[str] = None
         #: The players this creature attacked in its controller's most recent combat (empty if it did not
         #: attack in it) — what "an opponent that ~ didn't attack during your last combat" reads. Recorded
         #: as each of that player's combats ends (`CombatMixin._record_last_combat`).
@@ -1284,6 +1310,7 @@ class GameObject:
         #: permanent's original subtypes (a Blood-Moon'd Underground Sea is
         #: no longer an Island or a Swamp).
         self._derived_subtypes: Optional[set[str]] = None
+        self._derived_printing: dict[str, str] = {}
         #: Colours set/added by a layer-5 static ability (RULE 613.4b). ``None``
         #: means no colour-changing effect applies, so `colors` falls back to
         #: the printed card's colours.
@@ -1378,7 +1405,11 @@ class GameObject:
         #: an anti-abuse rider on a mass threaten). Checked by
         #: `RulesEngine.sacrifice` / `GameEngine._sacrifice_candidate`;
         #: cleared at cleanup (RULE 514.2) alongside `temp_keywords`.
-        self.cant_be_sacrificed_this_turn: bool = False
+        self.cant_be_sacrificed_this_turn = False
+        #: Layer-engine output (reset each `continuous.recompute`): a standing "you can't sacrifice <permanents>"
+        #: static (Quark, Humble Proprietor) currently covers this permanent. Read through
+        #: `cant_be_sacrificed_this_turn`, so every existing sacrifice gate honours it.
+        self._sacrifice_prohibited_static: bool = False
         #: "~ can't be blocked by creatures with power 2 or less **this
         #: turn**" (Cavern Stomper/Tower of Coireall) — the resolve-time
         #: sibling of `_combat_restrictions`, in the same
@@ -1403,6 +1434,11 @@ class GameObject:
         #: target, checked by `targeting._targetable_by`. Cleared at
         #: cleanup (RULE 514.2) alongside `temp_protections`.
         self.temp_cant_be_target_of_spell_colors: set[str] = set()
+        #: "Target creature can't be the target of spells or abilities your opponents control this turn" (Vines of
+        #: Vastwood, PAR-324) -- RULE 115.4's targeting restriction, deliberately *not* the hexproof keyword (RULE
+        #: 702.11b): the creature has no hexproof, so "loses hexproof" / "as though it didn't have hexproof" effects
+        #: neither remove nor read it. Checked by `targeting._targetable_by`; cleared at cleanup (RULE 514.2).
+        self.temp_cant_be_target_of_opponents = False
         #: "~ gains all activated abilities of target creature until end of
         #: turn." (MEC-23, Quicksilver Elemental) — a resolve-time snapshot
         #: of the target's `activated_abilities` at the moment of
@@ -1447,13 +1483,26 @@ class GameObject:
         # them, so expiring an older copy cannot undo a newer one.
         self._duration_copy_layers: list[dict[str, Any]] = []
 
+    @property
+    def cant_be_sacrificed_this_turn(self) -> bool:
+        """RULE 701.17: whether this permanent cannot be sacrificed right now: the one-shot rider ("this turn")
+        or a standing static prohibition derived by the layer engine."""
+        return self._cant_be_sacrificed_rider or self._sacrifice_prohibited_static
+
+    @cant_be_sacrificed_this_turn.setter
+    def cant_be_sacrificed_this_turn(self, value: bool) -> None:
+        self._cant_be_sacrificed_rider = bool(value)
+
     def reset_derived(self) -> None:
         """Clear layer-engine output before a fresh `continuous.recompute`."""
+        self._sacrifice_prohibited_static = False
         self._base_power = None
         self._base_toughness = None
         self._derived_power = None
         self._derived_toughness = None
         self._granted_keywords = set()
+        self._granted_spell_keywords = set()
+        self._owned_card_added_types = set()
         self._granted_keyword_instances = {}
         self._granted_parametric_keywords = {}
         self.granted_ward_cost = None
@@ -1477,6 +1526,7 @@ class GameObject:
         self._added_subtypes = set()
         self._removed_types = set()
         self._derived_subtypes = None
+        self._derived_printing = {}
         self._derived_colors = None
         self._derived_name = None
         self._derived_oracle_text = None
@@ -1552,6 +1602,7 @@ class GameObject:
         if self.enter_choice_template is not None:
             self.enter_choice_effects = list(self.enter_choice_template)
         self.entry_abandoned = False
+        self.devour_entry_prepared = False
         self.riot_entry_prepared = False
         self.riot_entry_haste = False
         self.tribute_paid = False
@@ -1575,6 +1626,7 @@ class GameObject:
         clear_designations(self)
         self.ability_resolutions = {}
         self.kicker_count = 0
+        self.kicker_costs_paid = ()
         # RULE 400.7 / 702.138a: a new object was never cast for Escape (Woe Strider-style riders read this flag).
         self.cast_via_escape = False
         self.x_paid = 0
@@ -1587,24 +1639,34 @@ class GameObject:
         self.mana_by_color_spent_to_cast = {}
         self.mana_spent_to_cast_snow = 0
         self.mana_spent_to_cast_treasure = 0
+        self.mana_spent_to_cast_by_source_subtype = {}
         self.mana_spent_to_cast_creature = 0
         self.mana_spent_to_cast_artifact = 0
         self.retained_copy_triggers = {}
         self.mana_spent_to_activate_treasure = 0
         self.was_cast = False
+        self.cast_by_player_id = None
+        self.cast_uncounterable = False
+        self.entry_bonus_counters = {}
+        self.devoured_creature_visits = ()
         self.cast_game_ordinal = None
         self.cast_outside_sorcery_speed = False
         self.cast_during_your_main_phase = False
         self.sacrificed_cost_mana_value = None
+        self.cost_referents = {}
         self.sacrificed_cost_card_types = []
         self.sacrificed_cost_instance_id = None
         self.sacrificed_cost_count = 0
         self.discarded_cost_card_types = []
+        self.sacrificed_cost_words = []
+        self.discarded_cost_words = []
         self.sacrificed_cost_was_suspected = False
         self.sacrificed_cost_power = None
         self.station_tapped_power = None
         self.paired_with = None
+        self.paired_controller_id = None
         self.merged_oracle_text = []
+        self.times_mutated = 0  # RULE 400.7
         self.cast_via_mutate = False
         self.mutate_under = False
         self.bargained = False
@@ -1640,12 +1702,18 @@ class GameObject:
         self.entry_controller_id = None
         self.phased_out = False
         self.phased_out_with = None
+        self.phase_in_source_visit = None
+        self.tap_as_phases_in = False
+        self.has_dealt_damage = False
         self.damage_marked = 0
         self.counters = {}
         self.attacking = False
         self.combat_defender = None
         self.activated_loyalty_this_turn = False
+        self.attacked_this_turn = False  # RULE 400.7: a new zone visit has not attacked.
+        self.times_attacked_this_turn = 0
         self.graveyard_casts_this_turn = 0
+        self.cross_zone_play_used_turn = None
         self.top_library_uses_this_turn = 0
         self.mana_abilities_activated_this_turn = set()
         # RULE 400.7 / 702.177a: a new object's Exhaust abilities are fresh.
@@ -1724,6 +1792,7 @@ class GameObject:
         self.goaded_by = set()
         self.goaded_permanently = set()
         self.must_attack_player_id = None
+        self.encore_defender_id = None
         self.last_combat_attacked_ids = set()
         #: RULE 601.2b/400.7: a new object hasn't made its "as it enters,
         #: choose a creature type/color" pick yet either.
@@ -1756,6 +1825,7 @@ class GameObject:
         self.temp_combat_restrictions = []
         self.temp_protections = set()
         self.temp_cant_be_target_of_spell_colors = set()
+        self.temp_cant_be_target_of_opponents = False
         self.temp_granted_activated_abilities = []
         self.copy_target_id = None
         self._copy_base = None
@@ -1813,6 +1883,10 @@ class GameObject:
             self._derived_colors = None
             self._derived_name = None
             self.zone_incarnation += 1
+            self.times_mutated = 0  # RULE 400.7: a new visit starts unmutated.
+            # RULE 400.7 / 702.82b: keep the record through entry only.
+            if value != Zone.BATTLEFIELD:
+                self.devoured_creature_visits = ()
             self.granted_suspend = False
             if not (self._zone == Zone.STACK and value == Zone.BATTLEFIELD):
                 self.granted_suspend_haste = False
@@ -1855,11 +1929,20 @@ class GameObject:
 
         if self._derived_name is not None:
             return (self._derived_name,)
+        # RULE 708.2: face-down permanents have no name unless an
+        # overlaid name-changing effect already supplied _derived_name.
+        if self.face_down:
+            return ()
         if self._room_characteristics_apply():
             return tuple(rooms.unlocked_door_names(self))
         if rooms.has_doors(self.card):
             doors = (rooms.LEFT,) if self.zone == Zone.STACK else rooms.DOORS
             return tuple(rooms.door_name(self.card, door) for door in doors)
+        if ' // ' in self.card.name:
+            names = tuple(part.strip() for part in self.card.name.split(' // '))
+            # RULE 709.4/712.6a/716.4: split cards have both names; other
+            # multi-face cards outside the battlefield expose the front name.
+            return names if self.card.is_split else names[:1]
         return (self.card.name,)
 
     @property
@@ -1929,13 +2012,18 @@ class GameObject:
         """A read-only query projection; never replace the object's copiable card."""
         from copy import copy
 
-        outside = self.outside_battlefield_characteristics()
+        outside = dict(self.outside_battlefield_characteristics())
+        added_types = set(outside.get("add_types", [])) | self._owned_card_added_types
+        if added_types:
+            outside["add_types"] = sorted(added_types)
         if not outside:
             return self.card
         card = copy(self.card)
         added = set(outside.get("add_types", []))
-        if "creature" in added:
-            card.is_creature = True
+        for kind in added:
+            flag = f"is_{kind}"
+            if hasattr(card, flag):
+                setattr(card, flag, True)
         main, _, subtypes = card.type_line.partition("—")
         extra_types = [kind.title() for kind in sorted(added) if kind not in main.lower().split()]
         extra_subtypes = [str(kind).title() for kind in outside.get("add_subtypes", [])
@@ -1946,6 +2034,14 @@ class GameObject:
         card.power = outside.get("power", card.power)
         card.toughness = outside.get("toughness", card.toughness)
         return card
+
+    @property
+    def is_instant(self) -> bool:
+        return self._has_derived_type("instant", bool(self.card.is_instant))
+
+    @property
+    def is_sorcery(self) -> bool:
+        return self._has_derived_type("sorcery", bool(self.card.is_sorcery))
 
     @property
     def is_land(self) -> bool:
@@ -1959,18 +2055,21 @@ class GameObject:
         return "land" in self._added_types
 
     @property
+    def printing_metadata(self) -> dict[str, str]:
+        """Visible printing facts, including an Un-card overlay's replacements."""
+        return {"set_code": self.card.set_code or "", **self._derived_printing}
+
+    @property
     def is_legendary(self) -> bool:
         """RULE 205.4: printed legendary, or made so by a layer-4 static.
 
-        The only source of the latter today is RULE 701.51's Ring emblem
-        ("Your Ring-bearer is legendary…"), stamped by `game/continuous.py`'s
-        layer pass — which is why it reads a derived flag rather than the
-        card alone. It matters to exactly one rule the engine models, the
-        RULE 704.5j legend-rule SBA.
+        Layer-4 effects can grant legendary or remove its printed supertype.
+        The derived flag and removal set keep those operations separate from
+        the printed card for the RULE 704.5j legend-rule SBA.
         """
         # The flag is set from the type line at import, but hand-built cards carry only the line.
         printed = self.card.is_legendary or "legendary" in self.card.type_line.partition("—")[0].lower().split()
-        return printed or self._granted_legendary
+        return (printed and "legendary" not in self._removed_types) or self._granted_legendary
 
     def _has_derived_type(self, type_word: str, printed: bool) -> bool:
         """RULE 613.1d: the shared "currently has card type X" check for non-creature types.
@@ -1979,6 +2078,8 @@ class GameObject:
         overwrites), or a layer-4 / self-outside-battlefield effect adds it (a creature made an artifact).
         Only the battlefield runs the layer system; elsewhere `_added_types`/`_removed_types` are empty so
         this degrades to the card's own characteristics (RULE 400.7 resets them on a zone change)."""
+        if type_word in self._owned_card_added_types:
+            return True
         if type_word in self.outside_battlefield_characteristics().get("add_types", []):
             return True
         if printed:
@@ -2042,7 +2143,7 @@ class GameObject:
         """
         main = self.card.type_line.partition("—")[0]
         words = {w for w in re.split(r"\s+", main.strip().lower()) if w}
-        words |= self._added_types
+        words |= self._added_types | self._owned_card_added_types
         words.update(self.outside_battlefield_characteristics().get("add_types", []))
         words -= self._removed_types
         words.add("permanent")
@@ -2122,6 +2223,11 @@ class GameObject:
             self.counters.pop(kind, None)
 
     @property
+    def base_power(self) -> Optional[int]:
+        """RULE 208.4b: layer 7a/7b power, before modifiers and counters."""
+        return self._base_power if self._base_power is not None else self.card.power
+
+    @property
     def power(self) -> Optional[int]:
         """Effective power (RULE 613 layer 7), or None for non-creatures.
 
@@ -2160,7 +2266,7 @@ class GameObject:
     @property
     def granted_keywords(self) -> set[str]:
         """Keyword slugs granted by layer-6 static abilities (RULE 613.7f)."""
-        return set(self._granted_keywords)
+        return set(self._granted_keywords) | self._granted_spell_keywords
 
     def parametric_keyword_value(self, name: str) -> Optional[int]:
         """ENG-31: the effective number for a parametric keyword — a
@@ -2487,6 +2593,7 @@ class GameObject:
             # RULE 702.33b/27a/34a: alt-cost casting state, for the board to
             # show a kicked/bought-back/flashed-back spell's own badge.
             "kicker_count": self.kicker_count,
+            "kicker_costs_paid": list(self.kicker_costs_paid),
             "kicker_x_paid": self.kicker_x_paid,
             "buyback_paid": self.buyback_paid,
             "cast_via_flashback": self.cast_via_flashback,

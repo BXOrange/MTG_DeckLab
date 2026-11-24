@@ -25,7 +25,7 @@ def _suppression_field() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("cost_reduction", {
-                "scope": "activation", "affects": "all_permanents",
+                "scope": "activation", "affects": {"zone": "battlefield", "of": "any"},
                 "generic": 2, "increase": True, "except_mana_abilities": True,
             })],
         ),

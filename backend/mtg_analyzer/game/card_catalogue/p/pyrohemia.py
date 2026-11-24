@@ -24,7 +24,10 @@ def _pyrohemia() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("damage", {"amount": 1, "selector": "each_creature_and_player"})],
+            [EffectSpec("damage", {
+                "amount": 1, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
+                "group_and_players": "each_player",
+            })],
             cost={"text": "{r}"},
         ),
     ]

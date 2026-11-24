@@ -138,6 +138,51 @@ def _shares_land_type(
     return any(candidate_types & _land_types_of(f.card) for f in found)
 
 
+#: RULE 201.2 / 208.1 / 202.3 / 205.2: the characteristics a cross-pick "with different X" / "that don't share a X with
+#: each other" constraint compares, as the keys a search's ``distinct_keys`` names.
+DISTINCT_KEY_NAME = "name"
+DISTINCT_KEY_POWER = "power"
+DISTINCT_KEY_TOUGHNESS = "toughness"
+DISTINCT_KEY_MANA_VALUE = "mana_value"
+DISTINCT_KEY_CARD_TYPE = "card_type"
+#: RULE 205.2a: the card types (not supertypes or subtypes) a "share a card type" test compares: the permanent types
+#: (RULE 110.4) plus the two nonpermanent spell types and kindred.
+_SHAREABLE_CARD_TYPES: frozenset[str] = card_query.PERMANENT_CARD_TYPES | {"instant", "sorcery", "kindred"}
+
+
+def _distinct_key_values(card: Card, key: str) -> frozenset:
+    """The values of one characteristic ``card`` has, for a distinctness test. A card with no such value (a noncreature
+    card's power, RULE 208.3) has an empty set, so it never "shares" that characteristic with another card."""
+    if key == DISTINCT_KEY_NAME:
+        return frozenset({card.name})
+    if key == DISTINCT_KEY_POWER:
+        value = card.off_battlefield_power
+    elif key == DISTINCT_KEY_TOUGHNESS:
+        value = card.off_battlefield_toughness
+    elif key == DISTINCT_KEY_MANA_VALUE:
+        value = card.converted_mana_cost
+    elif key == DISTINCT_KEY_CARD_TYPE:
+        return card_query.card_type_words(card) & _SHAREABLE_CARD_TYPES
+    else:
+        raise ValueError(f"unknown distinctness key: {key}")
+    return frozenset() if value is None else frozenset({value})
+
+
+def _distinct_from_found(
+    candidate: GameObject, found: list[GameObject], distinct_names: bool, distinct_keys: Optional[list[str]],
+) -> bool:
+    """"...cards with different names / powers" and "...cards that don't share a mana value, power, toughness, or card
+    type with each other" (RULE 701.19): whether ``candidate`` differs, on every constrained characteristic, from each
+    card already found this search. Vacuously true when no constraint is active."""
+    keys = list(distinct_keys or [])
+    if distinct_names and DISTINCT_KEY_NAME not in keys:
+        keys.append(DISTINCT_KEY_NAME)
+    return all(
+        not (_distinct_key_values(candidate.card, key) & _distinct_key_values(other.card, key))
+        for key in keys for other in found
+    )
+
+
 def _creature_type_options(state: GameState, controller_id: Optional[str]) -> list[str]:
     """The creature-type choices to offer for a RULE 601.2b "as ~ enters,
     choose a creature type" pick.
@@ -181,26 +226,45 @@ class SearchMixin:
                                  free: bool = True, exile_after_cast: bool = False,
                                  lock_casting: bool = False, mana_wildcard: Optional[str] = None,
                                  owner_life_loss: bool = False, owner_life_losses: Optional[list[dict]] = None,
-                                 cast_rider: Optional[str] = None, mandatory: bool = False) -> None:
-        """RULE 608.2g: offer a cast/play from the specified zone during this resolution."""
+                                 cast_rider: Optional[str] = None, mandatory: bool = False,
+                                 allowed_spell_types: Optional[list[str]] = None,
+                                 bottom_player_id: Optional[str] = None,
+                                 bottom_visits: Optional[dict[str, int]] = None,
+                                 noncreature_only: bool = False,
+                                 copy_for_player_id: Optional[str] = None,
+                                 draw_if_no_cast_player_id: Optional[str] = None,
+                                 max_casts: Optional[int] = None) -> None:
+        """RULE 608.2g: offer a cast/play from the specified zone during this resolution. ``repeat`` offers the pool
+        again after each cast; ``max_casts`` caps how many ("cast up to two sorcery spells from among them")."""
         if self.state.pending_choice or self.state.resolution_play_choice:
             raise ValueError("another resolution choice is already pending")
         zones = [zone] if isinstance(zone, str) else zone
         cards = [obj for obj in cards if obj.zone.value in zones]
         if not cards:
+            if bottom_remaining:
+                self._bottom_remaining(self.state.player_by_id(bottom_player_id or player.id),
+                                       bottom_remaining, zone=zone, visits=bottom_visits)
             if owner_life_loss:
                 for loss in owner_life_losses or []:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
+            if draw_if_no_cast_player_id:
+                self.draw(self.state.player_by_id(draw_if_no_cast_player_id), 1)
             return
         choice = {
             "kind": "play_during_resolution", "player_id": player.id, "mandatory": bool(mandatory),
             "zone": zone, "free": free, "exile_after_cast": exile_after_cast, "lock_casting": lock_casting,
-            "repeat": repeat, "only_spells": only_spells, "max_mana_value": max_mana_value,
+            "repeat": repeat, "max_casts": max_casts, "only_spells": only_spells, "max_mana_value": max_mana_value,
+            "allowed_spell_types": list(allowed_spell_types or []),
+            "noncreature_only": bool(noncreature_only),
+            "copy_for_player_id": copy_for_player_id,
+            "draw_if_no_cast_player_id": draw_if_no_cast_player_id,
             "mana_wildcard": mana_wildcard, "cast_rider": cast_rider,
             "owner_life_loss": bool(owner_life_loss), "owner_life_losses": list(owner_life_losses or []),
             "prior_wildcard": {obj.instance_id: self.state.mana_wildcard_permission.get(obj.instance_id)
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
+            "bottom_player_id": bottom_player_id,
+            "bottom_visits": dict(bottom_visits) if bottom_visits is not None else None,
             "instance_ids": [obj.instance_id for obj in cards],
             "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
             "options": [{"id": "decline", "label": "Decline"}],
@@ -216,9 +280,19 @@ class SearchMixin:
         self.state.free_cast_ignore_timing_instance_ids.update(choice["instance_ids"])
         if mana_wildcard in {"color", "type"}:
             self.state.mana_wildcard_permission.update({iid: mana_wildcard for iid in choice["instance_ids"]})
+        provider = getattr(self, "resolution_play_actions_provider", None)
+        if free and provider is not None and not any(
+            action["type"] in {"cast_spell", "play_land"} for action in provider(player, choice=choice)
+        ):
+            # RULE 608.2g: an uncastable free card (including a land in a cast-only
+            # instruction) does not need a choice whose only answer is decline.
+            self._finish_resolution_play_permission()
+            self.state.resolution_play_waiting = False
+            return
         self.open_choice(choice)
 
-    def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False) -> None:
+    def _finish_resolution_play_permission(self, played_id: Optional[int] = None, *, cancelled: bool = False,
+                                           keep_bottom: bool = False) -> None:
         choice = self.state.resolution_play_choice
         if choice is None:
             return
@@ -257,9 +331,20 @@ class SearchMixin:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
             choice["owner_life_losses"] = []
         self.state.resolution_play_choice = None
-        if not cancelled and choice.get("bottom_remaining"):
-            self._bottom_remaining(self.state.player_by_id(choice["player_id"]), choice["bottom_remaining"],
-                                   zone=choice.get("zone", "exile"))
+        # ``keep_bottom``: a repeated offer carries the bottom-of-library step to its last round (RULE 608.2c: "then put
+        # the rest on the bottom" follows the whole casting sequence, not its first cast).
+        if not cancelled and not keep_bottom and choice.get("bottom_remaining"):
+            self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
+                                   choice["bottom_remaining"], zone=choice.get("zone", "exile"),
+                                   visits=choice.get("bottom_visits"))
+        if not cancelled:
+            if played_id is not None and choice.get("copy_for_player_id"):
+                # RULE 707.10: copy the spell actually cast, after all
+                # additional costs and choices, before either spell resolves.
+                self.copy_spell(self.state.find_object(played_id), choice["copy_for_player_id"],
+                                choose_new_targets=True)
+            elif played_id is None and choice.get("draw_if_no_cast_player_id"):
+                self.draw(self.state.player_by_id(choice["draw_if_no_cast_player_id"]), 1)
 
     @continuations.choice("play_during_resolution", answer=continuations.ANSWER_STR, rule="608.2g")
     def _resume_play_during_resolution(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -1183,6 +1268,10 @@ class SearchMixin:
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
         required_ids: Optional[list[int]] = None,
+        criteria_each: Optional[list[Any]] = None,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1211,6 +1300,9 @@ class SearchMixin:
         that card onto the battlefield **with an additional +1/+1 counter on
         it**". Ignored for any non-battlefield destination, since a card in
         hand/library has nothing to carry counters.
+
+        A ``by_type`` counter map instead supplies additional entry counters
+        for each matching card type or subtype before entry replacements run.
 
         ``destination_if`` (``[{"criteria": …, "destination": …}, …]``) is a
         *conditional* destination override, checked per found card, first
@@ -1261,6 +1353,28 @@ class SearchMixin:
         checked against each candidate in isolation and can't express "in
         relation to what was already picked."
 
+        ``distinct_keys`` generalises ``distinct_names`` to the other cross-pick constraints ("with different powers",
+        "that don't share a mana value, power, toughness, or card type with each other"): a list of
+        ``DISTINCT_KEY_*`` names, each of which every pick must differ on from every earlier pick.
+
+        ``exact_count`` ("you may search for **exactly two** cards", Burning-Rune Demon): ``optional`` only lets the
+        player decline the whole search; once a card is found the rest of ``count`` is mandatory while eligible cards
+        remain (RULE 701.19b still lets the search end short when the library holds no more eligible card).
+
+        ``opponent_split`` (``{"chosen_count", "chosen_destination", "rest_destination"[, "chooser_id"]}``; Elemental Teachings, Realms
+        Uncharted, Threats Undetected, The Karst, Ecological Appreciation) turns the finished search into the
+        Intuition-style split: the finds stay in their zones and are revealed (RULE 701.20), then an opponent (RULE
+        608.2d: the searcher names which when there are several) chooses ``chosen_count`` of them, the chosen go to
+        ``chosen_destination`` and the rest to ``rest_destination``, and the library is shuffled once. The chooser's
+        pick is the existing `intuition_choose` choice (`_resume_intuition_choose`).
+
+        ``criteria_each`` (Conflux's "search your library for a white card, a blue card, ..., and a green
+        card"; Krosan Verge, Gem of Becoming, Axgard Armory's "and/or") is one search made of independent
+        slots, each its own criteria: the player is asked slot by slot for at most one card matching that
+        slot (RULE 701.19b: a search for cards with a stated quality may find fewer, so every slot may be
+        declined), a card found for one slot can't fill another, a slot nothing matches is skipped, and
+        the library is shuffled once when the last slot is answered. ``criteria``/``count`` are ignored.
+
         Records the eligible cards (across ``zones``) as a `state.
         pending_choice` — the engine's resolve loop stops on it and the
         session surfaces it, and `_resume_search` finishes the search
@@ -1288,6 +1402,23 @@ class SearchMixin:
             self.state.fire_event(
                 GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
             )
+        if criteria_each:
+            first = self._next_slot_search_choice(
+                player, list(criteria_each), [], destination=destination, zones=zones, destinations=destinations,
+                extra_counters=extra_counters, destination_if=destination_if,
+                attach_to_creature_you_control=attach_to_creature_you_control,
+                remember_source_id=remember_source_id, chooser=chooser,
+                untap_if_lands_at_least=untap_if_lands_at_least, then_specs_if_none=then_specs_if_none,
+                then_specs=then_specs, then_source_id=getattr(source, "instance_id", None),
+                track_exiled_with=track_exiled_with, reveal=reveal,
+            )
+            if first is None:
+                # RULE 701.19b: a search that finds nothing still happened.
+                self.shuffle_library(player)
+                self._apply_effect_specs(list(then_specs_if_none or []), source)
+            else:
+                self.open_choice(first)
+            return
         eligible = [
             obj
             for obj in self._search_zone_objects(player, zones, chooser)
@@ -1317,6 +1448,9 @@ class SearchMixin:
             chooser=chooser,
             share_land_type=share_land_type,
             distinct_names=distinct_names,
+            distinct_keys=distinct_keys,
+            opponent_split=opponent_split,
+            exact_count=exact_count,
             untap_if_lands_at_least=untap_if_lands_at_least,
             then_specs_if_none=then_specs_if_none,
             then_specs=then_specs,
@@ -1423,6 +1557,42 @@ class SearchMixin:
             choice["chosen_destination"], choice["rest_destination"],
         ))
 
+    def _open_search_split(self, choice: dict[str, Any], owner: Player, found: list[int]) -> None:
+        """Reveal a finished search's finds and hand the split to an opponent (`_request_search`'s ``opponent_split``).
+
+        The cards stay where they were found until the opponent has chosen (`_resume_intuition_choose` then moves
+        them through `_finish_search`, which shuffles once). RULE 608.2d: with several opponents the searcher names
+        the one who chooses (`offer_opponent_decision`); with none the searcher splits their own finds."""
+        from ..effects.choices_actions import offer_opponent_decision  # function-scoped: effects import this mixin
+        split = choice["opponent_split"]
+        searcher = self.state.player_by_id(choice["player_id"])
+        for iid in found:
+            hit = self._object_by_instance_id(iid) if choice.get("reveal") else None
+            if hit is not None:
+                self.state.fire_event(GameEvent(
+                    EventType.REVEAL, player_id=owner.id, object=hit.name, instance_id=hit.instance_id,
+                    card_id=hit.card.id, from_zone=hit.zone.value,
+                ))
+        decision = self._intuition_choose_choice(
+            searcher, searcher, found, [], int(split["chosen_count"]),
+            split["chosen_destination"], split["rest_destination"],
+        )
+        decision["search_finish"] = {
+            "library_owner_id": owner.id, "searcher_id": searcher.id, "zones": choice.get("zones") or ["library"],
+            "criteria": choice["criteria"], "then_specs": choice.get("then_specs"),
+            "then_source_id": choice.get("then_source_id"),
+        }
+        if split.get("chooser_id"):
+            self.open_choice({**decision, "player_id": split["chooser_id"]})  # a targeted opponent (RULE 115)
+        elif not offer_opponent_decision(self, searcher, decision):
+            self.open_choice(decision)
+
+    #: The German label of a split pile's destination in the chooser's prompt.
+    _SPLIT_PILE_LABELS = {
+        "hand": "die Hand", "graveyard": "den Friedhof", "battlefield": "das Spiel",
+        "battlefield_tapped": "das Spiel (getappt)", "library_shuffled": "die Bibliothek", "exile": "das Exil",
+    }
+
     def _intuition_choose_choice(
         self, searcher: Player, chooser: Player, found: list[int], picked: list[int],
         chosen_count: int, chosen_destination: str, rest_destination: str,
@@ -1441,8 +1611,8 @@ class SearchMixin:
             "chosen_count": chosen_count,
             "chosen_destination": chosen_destination,
             "rest_destination": rest_destination,
-            "prompt": f"Intuition: welche Karte(n) kommen in {searcher.name}s "
-                      f"{'Hand' if chosen_destination == 'hand' else 'Friedhof'}?",
+            "prompt": f"Wähle {chosen_count} Karte(n) für {searcher.name}s "
+                      f"{self._SPLIT_PILE_LABELS.get(chosen_destination, chosen_destination)}",
             "options": options,
         }
 
@@ -1464,10 +1634,30 @@ class SearchMixin:
         searcher = self.state.player_by_id(choice["searcher_id"])
         chooser = self.state.player_by_id(choice["player_id"])
         if len(picked) < choice["chosen_count"] and len(picked) < len(found):
-            self.open_choice(self._intuition_choose_choice(
+            reopened = self._intuition_choose_choice(
                 searcher, chooser, found, picked, choice["chosen_count"],
                 choice["chosen_destination"], choice["rest_destination"],
-            ))
+            )
+            if choice.get("search_finish"):
+                reopened["search_finish"] = choice["search_finish"]
+            self.open_choice(reopened)
+            return
+        finish = choice.get("search_finish")
+        if finish:
+            # A search's opponent split (`_open_search_split`): the cards are still in their searched zones, so the
+            # ordinary finish moves each to its pile's destination and shuffles once (RULE 701.19e).
+            piles = [
+                choice["chosen_destination"] if iid in picked else choice["rest_destination"] for iid in found
+            ]
+            self._finish_search(
+                self.state.player_by_id(finish["library_owner_id"]), found, choice["rest_destination"],
+                zones=finish["zones"], destinations=piles, criteria=finish["criteria"],
+                chooser_id=finish["searcher_id"],
+            )
+            if finish.get("then_specs"):
+                self._apply_effect_specs(
+                    list(finish["then_specs"]), self._object_by_instance_id(finish.get("then_source_id")),
+                )
             return
         for iid in found:
             obj = self._object_by_instance_id(iid)
@@ -1543,8 +1733,12 @@ class SearchMixin:
         spent_mana_value = choice.get("spent_mana_value", 0)
         share_land_type = choice.get("share_land_type", False)
         distinct_names = choice.get("distinct_names", False)
+        distinct_keys = choice.get("distinct_keys")
 
         declined = instance_id is None
+        if declined and found and choice.get("exact_count"):
+            self.open_choice(choice)  # the refused answer leaves the choice pending (as `_resume_search_destination`)
+            raise ValueError("an exact-count search can only be declined before a card is found")
         if not declined:
             eligible_ids = {e["instance_id"] for e in choice["eligible"]}
             if instance_id not in eligible_ids:
@@ -1557,6 +1751,24 @@ class SearchMixin:
                 )
                 spent_mana_value += picked.mana_value
 
+        if choice.get("slot_search"):
+            # Slot search (`criteria_each`): answering a slot, by a pick or a decline, moves on to the next slot
+            # that has a card to offer; the shuffle (in `_finish_search`) comes once after the last one.
+            slots_after = list(choice.get("slots_after") or [])
+            next_choice = self._next_slot_search_choice(
+                player, slots_after, found, destination=choice["destination"], zones=zones,
+                destinations=choice.get("destinations"), extra_counters=choice.get("extra_counters"),
+                destination_if=choice.get("destination_if"),
+                attach_to_creature_you_control=choice.get("attach_to_creature_you_control", False),
+                remember_source_id=choice.get("remember_source_id"), chooser=self.state.player_by_id(chooser_id),
+                untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
+                then_specs_if_none=choice.get("then_specs_if_none"), then_specs=choice.get("then_specs"),
+                then_source_id=choice.get("then_source_id"), track_exiled_with=choice.get("track_exiled_with", False),
+                track_source_incarnation=choice.get("track_source_incarnation"), reveal=choice.get("reveal", False),
+            )
+            if next_choice is not None:
+                self.open_choice(next_choice)
+                return
         remaining = choice["count"] - len(found)
         remaining_budget = (
             None if total_mana_value_budget is None else total_mana_value_budget - spent_mana_value
@@ -1571,9 +1783,9 @@ class SearchMixin:
             and card_query.matches(obj.card, choice["criteria"])
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
-            and (not distinct_names or all(obj.name != found.name for found in found_objs))
+            and _distinct_from_found(obj, found_objs, distinct_names, distinct_keys)
         ]
-        if not declined and remaining > 0 and still_eligible:
+        if not declined and remaining > 0 and still_eligible and not choice.get("slot_search"):
             self.open_choice(self._search_choice(
                 player, choice["criteria"], choice["destination"],
                 choice["count"], choice["optional"], found=found,
@@ -1588,6 +1800,9 @@ class SearchMixin:
                 chooser=self.state.player_by_id(chooser_id),
                 share_land_type=share_land_type,
                 distinct_names=distinct_names,
+                distinct_keys=distinct_keys,
+                opponent_split=choice.get("opponent_split"),
+                exact_count=choice.get("exact_count", False),
                 untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
                 then_specs_if_none=choice.get("then_specs_if_none"),
                 then_specs=choice.get("then_specs"),
@@ -1598,6 +1813,10 @@ class SearchMixin:
             ))
             return
 
+        if choice.get("opponent_split") and found:
+            # RULE 701.20 / 608.2d: the finds are revealed, then an opponent splits them before anything moves.
+            self._open_search_split(choice, player, found)
+            return
         if choice["destination"] == "battlefield_tapped_or_hand" and found:
             # RULE 608.2d: reveal the find, then choose its destination before moving it/shuffling.
             obj = self.state.find_object(found[0])
@@ -1627,6 +1846,7 @@ class SearchMixin:
             track_source_incarnation=choice.get("track_source_incarnation"),
             untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
             reveal=choice.get("reveal", False),
+            attach_host_id=self._entry_attach_host_id(choice),
         )
         # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
         # the search finished and nothing was picked.
@@ -1660,6 +1880,30 @@ class SearchMixin:
         search_choice = {**choice["search_choice"], "destination": answer}
         self._resume_search(search_choice, choice["instance_id"])
 
+    def _next_slot_search_choice(
+        self, player: Player, slots: list[Any], found: list[int], *, chooser: Optional[Player] = None,
+        destination: str, zones: Optional[list[str]], **search_kwargs: Any,
+    ) -> Optional[dict[str, Any]]:
+        """The pending choice for the first of ``slots`` (criteria) that still has a card to offer, with the slots
+        after it riding along; None when no slot has one. A slot nothing matches is skipped (nothing to find for it,
+        RULE 701.19b), and cards already found for an earlier slot are not offered again."""
+        zones = list(zones) if zones else ["library"]
+        for index, slot in enumerate(slots):
+            if any(
+                obj.instance_id not in found and card_query.matches(obj.card, slot)
+                for obj in self._search_zone_objects(player, zones, chooser)
+            ):
+                choice = self._search_choice(
+                    player, slot, destination, len(slots), True, found, zones=zones, chooser=chooser,
+                    **search_kwargs,
+                )
+                choice["slot_search"] = True
+                choice["slots_after"] = list(slots[index + 1:])
+                # The "(noch n)" counter of a multi-card search means nothing for slots that may be declined.
+                choice["prompt"] = choice["prompt"].split(" (noch")[0]
+                return choice
+        return None
+
     def _search_choice(
         self,
         player: Player,
@@ -1687,6 +1931,9 @@ class SearchMixin:
         track_exiled_with: bool = False,
         track_source_incarnation: Optional[int] = None,
         reveal: bool = False,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `pending_choice` for a search in progress."""
         if track_source_incarnation is None:
@@ -1708,7 +1955,7 @@ class SearchMixin:
             if obj.instance_id not in found and card_query.matches(obj.card, criteria)
             and (remaining_budget is None or obj.mana_value <= remaining_budget)
             and _shares_land_type(obj, found_objs, share_land_type)
-            and (not distinct_names or all(obj.name != found.name for found in found_objs))
+            and _distinct_from_found(obj, found_objs, distinct_names, distinct_keys)
         ]
         # Each eligible card is one option; declining an optional search is a
         # further option. `options` is the general form the UI renders (as a
@@ -1717,7 +1964,7 @@ class SearchMixin:
             {"id": str(e["instance_id"]), "label": e["name"], "instance_id": e["instance_id"]}
             for e in eligible
         ]
-        if optional:
+        if optional and not (exact_count and found):
             options.append({"id": "decline", "label": "Nichts wählen"})
         description = card_query.describe(criteria)
         zone_label = " oder ".join(
@@ -1751,6 +1998,9 @@ class SearchMixin:
             "spent_mana_value": spent_mana_value,
             "share_land_type": share_land_type,
             "distinct_names": distinct_names,
+            "distinct_keys": list(distinct_keys) if distinct_keys else None,
+            "opponent_split": dict(opponent_split) if opponent_split else None,
+            "exact_count": bool(exact_count),
             "criteria": card_query.normalize(criteria),
             "description": description,
             "prompt": prompt,
@@ -1796,6 +2046,7 @@ class SearchMixin:
         track_source_incarnation: Optional[int] = None,
         untap_if_lands_at_least: Optional[int] = None,
         reveal: bool = False,
+        attach_host_id: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -1875,6 +2126,11 @@ class SearchMixin:
                 # re-add rather than a real "return" move.
                 player.add_to_zone(obj, obj.zone)
                 continue
+            if dest in ("battlefield", "battlefield_tapped") and self._aura_cannot_enter_attached(obj, attach_host_id):
+                # RULE 303.4g: an Aura that would be put onto the battlefield attached to ~ but can't legally enchant
+                # it stays in its current zone (already pulled out of the list above, so this is a plain re-add).
+                player.add_to_zone(obj, obj.zone)
+                continue
             if dest in ("battlefield", "battlefield_tapped") and continuous.uncast_creature_entry_exiled(
                 self.state, obj.card
             ):
@@ -1891,6 +2147,12 @@ class SearchMixin:
                 # battlefield under your control" (Bribery): the searcher, not the library's owner, controls the
                 # entrant; ownership stays with the library's owner (RULE 108.3).
                 obj.controller_id = chooser_id
+            if extra_counters and dest in ("battlefield", "battlefield_tapped"):
+                # RULE 614.1c: Scott's counters are present at entry, not a later placement.
+                for card_type, counters in extra_counters.get("by_type", {}).items():
+                    if card_type in obj.type_words or obj.has_subtype(card_type):
+                        for kind, amount in counters.items():
+                            obj.entry_bonus_counters[kind] = obj.entry_bonus_counters.get(kind, 0) + max(0, int(amount))
             self._put_searched_card(player, obj, dest, chooser_id=chooser_id)
             if (
                 untap_if_lands_at_least is not None
@@ -1917,7 +2179,7 @@ class SearchMixin:
                 # player than the card's own owner.
                 self.state.exile_cast_condition[obj.instance_id] = (redirect_controller_id, {})
                 self.state.mana_wildcard_permission[obj.instance_id] = "color"
-            if extra_counters and dest in ("battlefield", "battlefield_tapped"):
+            if extra_counters and "by_type" not in extra_counters and dest in ("battlefield", "battlefield_tapped"):
                 # Neoform: "…onto the battlefield **with an additional +1/+1
                 # counter on it**" — RULE 614.1c-adjacent, but applied here
                 # rather than as an entry replacement because the counters
@@ -1980,6 +2242,26 @@ class SearchMixin:
             for obj in rest:
                 player.remove_from_zone(obj, obj.zone)
                 self._put_searched_card(player, obj, "exile")
+    @staticmethod
+    def _entry_attach_host_id(choice: dict[str, Any]) -> Optional[int]:
+        """The source's id when the search's follow-up attaches the found card to it ("...onto the battlefield
+        attached to ~", Boonweaver Giant), else None."""
+        for spec in choice.get("then_specs") or []:
+            params = spec.get("params") or {}
+            if spec.get("type") == "attach" and params.get("target_kind") == "source" and params.get("mover") == "created":
+                return choice.get("then_source_id")
+        return None
+
+    def _aura_cannot_enter_attached(self, obj: GameObject, host_id: Optional[int]) -> bool:
+        """RULE 303.4f/303.4g: an Aura put onto the battlefield attached to a given object must be able to enchant
+        it (attaching is not targeting, so hexproof is irrelevant; the Aura's own "enchant" restriction is)."""
+        if host_id is None or self._attachment_kind(obj) != "enchant":
+            return False
+        host = self.state.find_object(host_id)
+        if host is None or host not in self.state.permanents():
+            return True  # nothing to attach to
+        return not self._attachment_legal(obj, host)
+
     def _remove_search_hit(
         self, player: Player, instance_id: int, zones: list[str]
     ) -> Optional[GameObject]:
@@ -1997,6 +2279,7 @@ class SearchMixin:
         chooser_id: Optional[str] = None,
         entry_specs: Optional[list[dict]] = None,
         attacking_player_id: Optional[str] = None,
+        put_by_player_id: Optional[str] = None,
     ) -> None:
         from_zone = obj.zone.value
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking", "battlefield_attacking_triggering"):
@@ -2039,6 +2322,7 @@ class SearchMixin:
                     EventType.ENTERS_BATTLEFIELD,
                     from_zone=from_zone,
                     controller_id=player.id,
+                    put_by_player_id=put_by_player_id or chooser_id or player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
@@ -2067,6 +2351,10 @@ class SearchMixin:
             player.library.insert(0, obj)  # bottom (index 0 — see Player.library)
         elif destination == "library_top":
             player.add_to_zone(obj, Zone.LIBRARY)  # top of deck is the list end
+        elif destination == "library_shuffled":
+            # "Shuffle the chosen cards into your library" (RULE 701.19e): the card joins the library and the search's
+            # own shuffle (`_finish_search`, which does not treat this as a fixed-position destination) randomises it.
+            player.add_to_zone(obj, Zone.LIBRARY)
         elif destination == "library_third":
             # Long-Term Plans: "put that card third from the top" (RULE 401.7).
             self._insert_library_nth_from_top(player, obj, 3)
@@ -2148,23 +2436,15 @@ class SearchMixin:
         Gods-shaped, RULE 701-adjacent — not RULE 701.19's "search", which
         looks through the *whole* library and always shuffles afterwards).
 
-        Peels exactly ``count`` cards off the top into exile (a temporary
-        holding area, the same shape `_exile_top_until` uses for cascade/
-        discover) and opens a choice among only the ones matching
-        ``criteria``. With nothing eligible, every peeled card goes straight
-        to ``miss_destination`` — no choice needed.
+        Looks at exactly ``count`` cards off the top (they stay in the library
+        while the choice is pending: RULE 701.20a / 406.1, looking at or
+        revealing a card never moves it, so nothing is exiled and no
+        ``EXILE`` event fires; each real move below is RULE 400.7's new
+        object) and opens a choice among only the ones matching
+        ``criteria``. With nothing eligible, every looked-at card goes
+        straight to ``miss_destination`` — no choice needed.
         """
-        peeled: list[GameObject] = []
-        for _ in range(max(0, count)):
-            if not player.library:
-                break
-            obj = player.library.pop()
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
-            peeled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
+        peeled: list[GameObject] = list(reversed(player.library[-count:])) if count > 0 else []
         eligible = [obj for obj in peeled if card_query.matches(obj.card, criteria)]
         if not eligible:
             if miss_destination == "library_bottom_random":
@@ -2173,10 +2453,10 @@ class SearchMixin:
                 # among just these cards, not each one independently
                 # bottomed in reveal order; `_bottom_remaining` already
                 # does exactly this for `dig_until`'s own rest destination.
-                self._bottom_remaining(player, [o.instance_id for o in peeled])
+                self._bottom_remaining(player, [o.instance_id for o in peeled], zone="library")
             else:
                 for obj in peeled:
-                    player.remove_from_zone(obj, Zone.EXILE)
+                    player.remove_from_zone(obj, Zone.LIBRARY)
                     self._put_searched_card(player, obj, miss_destination)
             # "If you don't put a card onto the battlefield this way, <body>."
             # (The Joiner of Cats) — nothing eligible counts as "didn't".
@@ -2222,30 +2502,31 @@ class SearchMixin:
                 raise ValueError(f"{instance_id} is not a valid impulsive-look target")
             chosen_id = instance_id
 
-        peeled_ids = set(choice["peeled"])
-        exiled = [o for o in list(player.exile) if o.instance_id in peeled_ids]
+        # The looked-at cards are still in the library (`_request_impulsive_look`), in the order they were seen.
+        by_id = {o.instance_id: o for o in player.library}
+        looked = [by_id[iid] for iid in choice["peeled"] if iid in by_id]
         if choice["miss_destination"] == "library_bottom_random":
-            miss_ids = [o.instance_id for o in exiled if o.instance_id != chosen_id]
+            miss_ids = [o.instance_id for o in looked if o.instance_id != chosen_id]
             if chosen_id is not None:
-                hit = next(o for o in exiled if o.instance_id == chosen_id)
-                player.remove_from_zone(hit, Zone.EXILE)
+                hit = next(o for o in looked if o.instance_id == chosen_id)
+                player.remove_from_zone(hit, Zone.LIBRARY)
                 self._put_searched_card(player, hit, choice["hit_destination"])
                 self._apply_impulsive_look_hit_grants(hit, choice.get("hit_grant_keywords"))
-            self._bottom_remaining(player, miss_ids)
+            self._bottom_remaining(player, miss_ids, zone="library")
             if chosen_id is not None:
                 self._apply_impulsive_look_hit_effects(hit, pending_else)
             self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
             return
-        for obj in exiled:
+        for obj in looked:
             is_hit = obj.instance_id == chosen_id
             destination = choice["hit_destination"] if is_hit else choice["miss_destination"]
-            player.remove_from_zone(obj, Zone.EXILE)
+            player.remove_from_zone(obj, Zone.LIBRARY)
             self._put_searched_card(player, obj, destination)
             if is_hit:
                 self._apply_impulsive_look_hit_grants(obj, choice.get("hit_grant_keywords"))
         if chosen_id is not None:
             self._apply_impulsive_look_hit_effects(
-                next(obj for obj in exiled if obj.instance_id == chosen_id), pending_else
+                next(obj for obj in looked if obj.instance_id == chosen_id), pending_else
             )
         self._apply_impulsive_look_miss_branch(chosen_id, pending_else)
 
@@ -2467,19 +2748,23 @@ class SearchMixin:
         self.state.public_card_knowledge.sync(self.state)
         player.shuffle_library()
         self.state.fire_event(GameEvent(EventType.SHUFFLE, player_id=player.id))
-    def shuffle_hand_and_graveyard_into_library(self, player: Player) -> None:
+    def shuffle_hand_and_graveyard_into_library(self, player: Player, include_graveyard: bool = True) -> int:
         """"Shuffle your hand and graveyard into your library." (RULE 701.20,
         Timetwister/Time Reversal/Echo of Eons's "wheel" template — all three
         print the identical line). Every hand/graveyard card leaves its zone,
         goes to the library, then the whole thing is shuffled and announced
-        the ordinary way (`shuffle_library`)."""
-        for obj in list(player.hand):
+        the ordinary way (`shuffle_library`). ``include_graveyard=False`` is the hand-only "shuffle the cards from your
+        hand into your library" (Whirlpool Rider); the result is the number of hand cards shuffled in, which its
+        ", then draw that many cards" reads (RULE 608.2c)."""
+        hand_cards = list(player.hand)
+        for obj in hand_cards:
             player.remove_from_zone(obj, Zone.HAND)
             player.add_to_zone(obj, Zone.LIBRARY)
-        for obj in list(player.graveyard):
+        for obj in list(player.graveyard) if include_graveyard else ():
             player.remove_from_zone(obj, Zone.GRAVEYARD)
             player.add_to_zone(obj, Zone.LIBRARY)
         self.shuffle_library(player)
+        return len(hand_cards)
     def _request_cascade(self, player: Player, max_mana_value: int) -> None:
         """Cascade (RULE 702.85): exile from the top until a nonland spell
         cheaper than the cascade spell, which its controller *may* cast for
@@ -2611,12 +2896,35 @@ class SearchMixin:
                 matched = obj
                 break
         return matched, exiled
+
+    def _reveal_top_until(
+        self, player: Player, criteria: Any, exclude_lands: bool = False
+    ) -> tuple[Optional[GameObject], list[GameObject]]:
+        """Reveal cards from the top of the library until one matches ``criteria`` (RULE 701.20a), top first.
+
+        The revealed cards stay in the library (RULE 406.1: only an instruction to exile moves a card to exile), each
+        one announced with a ``REVEAL`` event, so nothing here fires ``EXILE`` and a hit cast "from among them" is cast
+        from the library (RULE 601.2a). Returns the match (``None`` when the library ran out) and every revealed card,
+        the match last.
+        """
+        revealed: list[GameObject] = []
+        matched: Optional[GameObject] = None
+        for obj in reversed(list(player.library)):
+            revealed.append(obj)
+            self.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=obj.name, instance_id=obj.instance_id, from_zone="library",
+            ))
+            if not (exclude_lands and obj.card.is_land) and card_query.matches(obj.card, criteria):
+                matched = obj
+                break
+        return matched, revealed
     def _request_name_card(
         self,
         player: Player,
         effect_specs: list[dict],
         source: Optional[GameObject],
         prompt: str = "Kartennamen wählen",
+        card_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         """Open a "choose a card name" choice (RULE 701.x's naming action) —
         Demonic Consultation's opener.
@@ -2646,6 +2954,7 @@ class SearchMixin:
             "player_id": player.id,
             "effect_specs": [dict(d) for d in effect_specs],
             "source": source,
+            "card_filter": card_filter,
         }
         self.open_choice({
             "kind": "name_card",
@@ -2653,7 +2962,12 @@ class SearchMixin:
             "prompt": prompt,
             # Suggestions only — `_resume_name_card` takes any string.
             "free_text": True,
-            "options": [{"id": name, "label": name} for name in sorted(known)],
+            "name_card_resume": {
+                "effect_specs": effect_specs, "source_id": getattr(source, "instance_id", None),
+                "card_filter": card_filter,
+            },
+            "options": [{"id": name, "label": name} for name in sorted(known)
+                        if not card_filter or self._validated_card_name(player.id, name, card_filter)],
         })
     @continuations.choice("name_card", answer=continuations.ANSWER_STR, rule="701.20")
     def _resume_name_card(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -2665,10 +2979,17 @@ class SearchMixin:
         naming a card that isn't there, not an error.
         """
         pending = self._pending_name_card
-        self._pending_name_card = None
         if pending is None:
-            return
+            resume = choice.get("name_card_resume")
+            if resume is None:
+                return
+            pending = {**resume, "player_id": choice["player_id"],
+                       "source": self.state.find_object(resume["source_id"])}
         name = "" if answer is None or answer == "decline" else str(answer)
+        if pending.get("card_filter") and not self._validated_card_name(pending["player_id"], name, pending["card_filter"]):
+            self.open_choice(choice)
+            raise ValueError("Choose a nonland card name")
+        self._pending_name_card = None
         specs = [
             {**d, "params": self._substitute_named_card(dict(d.get("params") or {}), name)}
             for d in pending["effect_specs"]
@@ -3029,6 +3350,10 @@ class SearchMixin:
             self._put_searched_card(player, found, "battlefield")
         else:
             self.put_into_graveyard(found)
+    #: `dig_until` hit destinations that are themselves an exile (or need the hit in exile): a revealing dig exiles
+    #: just the hit before placing it (RULE 406.1).
+    _REVEAL_DIG_EXILED_HITS = frozenset({"exile", "play_window", "cast_free_window"})
+
     def dig_until(
         self,
         player: Player,
@@ -3039,6 +3364,7 @@ class SearchMixin:
         caster: Optional[Player] = None,
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
+        reveal: bool = False,
     ) -> Optional[GameObject]:
         """Reveal cards from the top of ``player``'s library until one
         matches ``criteria``; put it at ``hit_destination`` and everything
@@ -3062,18 +3388,54 @@ class SearchMixin:
         controller casting a card off an opponent's library. ``None`` keeps
         the digger as the caster (every other caller).
 
+        ``reveal`` is the printed verb: "reveal cards ... until you reveal" (RULE 701.20a) leaves every revealed card in
+        the library until it is placed, so no ``EXILE`` event fires, the exile zone is untouched and a hit cast "from
+        among them" is cast from the library; the default "exile cards ... until you exile" (RULE 406.1) moves each one
+        to exile as it is dug. With ``reveal``, an instruction that itself exiles ("Exile that card", "put all other
+        cards revealed this way into exile") exiles only the cards it names.
+
         Returns the matching object, or ``None`` if the library ran out —
         which for Demonic Consultation means the library is now empty, the
         exact state Thassa's Oracle then wins on.
         """
         for _ in range(min(pre_exile, len(player.library))):
             self.exile(player.library[-1])
-        matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
+        if reveal:
+            matched, revealed = self._reveal_top_until(player, criteria)
+            origin = Zone.LIBRARY
+            if matched is not None and hit_destination in self._REVEAL_DIG_EXILED_HITS:
+                # RULE 406.1: "Exile that card" (Creative Technique) is a real exile of the hit alone, and a play / cast
+                # window over it works from exile.
+                self.exile(matched)
+        else:
+            matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
+            origin = Zone.EXILE
+        origin_name = origin.value
+        if (hit_destination == "cast_during_resolution" and rest_destination == "library_bottom_random"
+                and uncast_hit == "library_bottom"):
+            # "...You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this
+            # way on the bottom of that library in a random order." (Dazzling Sphinx, Chaos Wand): RULE 608.2g the cast
+            # happens during this resolution; RULE 401.4 / 701.24 the hit, when it was not cast, joins the rest at the
+            # bottom of the DIGGER's library (RULE 108.3: the library owner keeps ownership, only the caster's window
+            # differs). The shared resolution play bottoms what is still in exile once the choice is answered, and only
+            # those exact exile visits (a cast hit has left exile and is skipped).
+            pool = [o for o in revealed if o.zone == origin]
+            self._request_resolution_play(
+                caster or player, [matched] if matched is not None else [], only_spells=True, cast_rider=hit_rider,
+                zone=origin_name, bottom_remaining=[o.instance_id for o in pool], bottom_player_id=player.id,
+                bottom_visits={str(o.instance_id): o.zone_incarnation for o in pool},
+            )
+            return matched
         if matched is not None and hit_destination != "exile":
             self._place_dig_hit(player, matched, hit_destination, caster=caster, hit_rider=hit_rider, uncast_hit=uncast_hit)
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
-            self._bottom_remaining(player, rest_ids)
+            self._bottom_remaining(player, rest_ids, zone=origin_name)
+        elif rest_destination == "library_bottom_order":
+            # RULE 401.4: "…the rest on the bottom of your library in any order" is the player's own decision (the
+            # sibling of `inspect_top_choose`'s PAR-292 M11 ordering). The exiled revealed cards re-enter the library
+            # and the shared bottom-ordering choice moves them under it (a single card has one order: no prompt).
+            self._order_remaining_to_bottom(player, rest_ids, origin=origin)
         elif rest_destination == "library_shuffled":
             # "…shuffles all other cards revealed this way into their
             # library." (Polymorph/Transmogrify-shaped) — genuinely
@@ -3082,8 +3444,12 @@ class SearchMixin:
             # ``library_bottom_random`` branch) and then reshuffling the
             # whole library is observably identical to a real player (an
             # unknown order either way).
-            self._bottom_remaining(player, rest_ids)
+            self._bottom_remaining(player, rest_ids, zone=origin_name)
             self.shuffle_library(player)
+        elif rest_destination == "hand":
+            # "Reveal cards from the top of your library until you reveal a nonland card, then put all cards revealed
+            # this way into your hand." (Treasure Hunt): the hit and every other revealed card, none of it drawn.
+            self._hand_remaining(player, rest_ids, origin=origin)
         elif rest_destination == "graveyard":
             # "…and all other cards revealed this way into your graveyard."
             # (Hermit Druid, MEC-43) — a plain library→graveyard move for
@@ -3091,14 +3457,33 @@ class SearchMixin:
             # zone move rather than `_move_to_graveyard`'s full battlefield-
             # leave machinery (which is for a permanent *dying*, not a
             # library card being discarded past by a dig).
-            self._graveyard_remaining(player, rest_ids)
+            self._graveyard_remaining(player, rest_ids, origin=origin)
+        elif rest_destination == "exile" and reveal:
+            # RULE 406.1: "…and exile all other cards revealed this way" (Demonic Consultation) exiles exactly these.
+            for obj in [o for o in revealed if o is not matched]:
+                self.exile(obj)
         return matched
-    def _graveyard_remaining(self, player: Player, exiled_ids: list[int]) -> None:
-        """Put every still-exiled card from this effect into the graveyard,
+    def _staged(self, player: Player, ids: list[int], origin: Zone) -> list[GameObject]:
+        """The cards of ``ids`` still sitting in ``origin`` (the library for a revealing dig, exile for an exiling one),
+        in the order ``ids`` names them; a card already cast or taken has left and is skipped."""
+        pool = {o.instance_id: o for o in (player.library if origin == Zone.LIBRARY else player.exile)}
+        return [pool[iid] for iid in ids if iid in pool]
+
+    def _hand_remaining(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Put every still-staged card from this effect into its owner's hand, in reveal order (RULE 401.3: library
+        cards belong to the digger) — the hand sibling of `_graveyard_remaining`."""
+        for obj in self._staged(player, exiled_ids, origin):
+            player.remove_from_zone(obj, origin)
+            obj.zone = Zone.HAND
+            player.add_to_zone(obj, Zone.HAND)
+
+    def _graveyard_remaining(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Put every still-staged card from this effect into the graveyard,
         in reveal order — the graveyard sibling of `_bottom_remaining`."""
-        remaining = [o for o in list(player.exile) if o.instance_id in set(exiled_ids)]
-        for obj in remaining:
-            self._move_to_graveyard(obj)  # RULE 614.1: from exile; a replacement may keep it there
+        for obj in self._staged(player, exiled_ids, origin):
+            if origin == Zone.LIBRARY:
+                player.remove_from_zone(obj, Zone.LIBRARY)  # `_move_to_graveyard` only unlists exile and the battlefield
+            self._move_to_graveyard(obj)  # RULE 614.1: a replacement may keep it elsewhere
     def _place_dig_hit(
         self, player: Player, obj: GameObject, destination: str,
         caster: Optional[Player] = None, hit_rider: Optional[str] = None, uncast_hit: str = "library_bottom",
@@ -3108,9 +3493,23 @@ class SearchMixin:
         ``caster`` (MEC-52) is who casts a ``cast_free``/``cast_free_window``
         hit when that is a *different* player than ``player`` (the digger) —
         Ensnared by the Mara's "**you** may cast that card" off an
-        opponent's library. ``None`` keeps the digger as the caster."""
+        opponent's library. ``None`` keeps the digger as the caster. For a
+        ``battlefield``/``battlefield_tapped`` hit it is the player who
+        controls the entrant ("put that card onto the battlefield under your
+        control", RULE 110.2a)."""
+        # A revealing dig leaves the hit in the library until here; an exiling dig has it in exile (RULE 406.1).
+        origin = obj.zone if obj.zone in (Zone.LIBRARY, Zone.EXILE) else Zone.EXILE
+        if destination == "graveyard":
+            # "... reveals cards from the top of their library until they reveal a land card, then puts those cards
+            # into their graveyard" (Destroy the Evidence): the hit goes with the rest. RULE 701.20a: all of them were
+            # revealed, then RULE 400.3 puts each into its owner's graveyard (the digger's own library cards).
+            if origin == Zone.LIBRARY:
+                player.remove_from_zone(obj, Zone.LIBRARY)
+            self._move_to_graveyard(obj)
+            return
         if destination == "cast_during_resolution":
-            self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider)
+            self._request_resolution_play(caster or player, [obj], only_spells=True, cast_rider=hit_rider,
+                                          zone=origin.value)  # RULE 601.2a: cast from where it is
             return
         if destination == "play_window":
             # RULE 601.3 / 305.1: "You may play that card this turn" -- the hit stays in exile under the same-turn
@@ -3142,7 +3541,7 @@ class SearchMixin:
                     )
                 )
             return
-        player.remove_from_zone(obj, Zone.EXILE)
+        player.remove_from_zone(obj, origin)
         if destination == "battlefield_attacking":
             # RULE 508.4: "put that card onto the battlefield tapped and attacking" (Raph & Mikey) — the shared
             # search-placement path taps it, fires the entry and puts it into combat.
@@ -3150,14 +3549,19 @@ class SearchMixin:
             return
         if destination in ("battlefield", "battlefield_tapped"):
             obj.zone = Zone.BATTLEFIELD
+            # RULE 110.2a / 108.3: "Put that card onto the battlefield under your control" (Telemin Performance, Curse
+            # of Unbinding): a dug opponent's card enters under the ability controller's control, while the digger's
+            # library keeps it owned by the digger (so it later returns to the digger's zones).
+            controller = caster or player
+            obj.controller_id = controller.id
             self.state.add_to_battlefield(obj)
             if destination == "battlefield_tapped":
                 obj.tapped = True  # "put that card onto the battlefield tapped" (Clifftop Lookout)
             # RULE 603.6a: an entry is an event — without it "whenever a creature enters"
             # never fired for a card a dig put onto the battlefield.
             self.state.fire_event(GameEvent(
-                EventType.ENTERS_BATTLEFIELD, controller_id=player.id, object=obj.name,
-                from_zone=Zone.EXILE.value,
+                EventType.ENTERS_BATTLEFIELD, controller_id=controller.id, object=obj.name,
+                from_zone=origin.value,
                 instance_id=obj.instance_id, object_types=sorted(obj.type_words),
             ))
             return
@@ -3171,7 +3575,19 @@ class SearchMixin:
         return next((o for o in player.exile if o.instance_id == instance_id), None)
     def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
         self._bottom_remaining(player, [o.instance_id for o in exiled])
-    def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile") -> None:
+    def _order_remaining_to_bottom(self, player: Player, exiled_ids: list[int], *, origin: Zone = Zone.EXILE) -> None:
+        """Let the player order every still-staged card of this effect on the bottom of their library (RULE 401.4,
+        701.20); an exiled card returns to the library first. Cards already cast or taken are skipped."""
+        remaining = self._staged(player, exiled_ids, origin)
+        for obj in remaining:
+            if origin == Zone.EXILE:
+                player.remove_from_zone(obj, Zone.EXILE)
+                obj.zone = Zone.LIBRARY
+                player.library.append(obj)
+        self._order_library_bottom(player, [o.instance_id for o in remaining])
+
+    def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
+                          visits: Optional[dict[str, int]] = None) -> None:
         """Put every still-exiled card from this effect on the bottom of the
         library in a random order (RULE 702.85e). Cards already cast/taken to
         hand are no longer in exile and are skipped."""
@@ -3179,8 +3595,12 @@ class SearchMixin:
 
         origin = Zone.LIBRARY if zone == "library" else Zone.EXILE
         pool = player.library if origin == Zone.LIBRARY else player.exile
-        remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)]
+        remaining = [o for o in list(pool) if o.instance_id in set(exiled_ids)
+                     and (visits is None or visits.get(str(o.instance_id)) == o.zone_incarnation)]
         random.shuffle(remaining)
+        if origin == Zone.LIBRARY:
+            # RULE 701.20d: a randomized bottom pile loses the revealed positions.
+            self.state.public_card_knowledge.forget_library_order(player.id, [o.instance_id for o in remaining])
         for obj in remaining:
             player.remove_from_zone(obj, origin)
             obj.zone = Zone.LIBRARY
@@ -3351,6 +3771,9 @@ class SearchMixin:
         """Handle remaining unpicked cards from a bounded top-N inspect
         (MEC-72). Move them to ``destination`` (including exile) without
         involving any cards outside that inspected group."""
+        # RULE 701.20a: a revealed card already picked into hand stays publicly known; record that move before the rest
+        # re-enters the library, whose reordering would otherwise drop the record (`PublicCardKnowledge.sync`).
+        self.state.public_card_knowledge.sync(self.state)
         objs: list[GameObject] = []
         for iid in rest_ids:
             found = self._object_by_instance_id(iid)
@@ -3367,6 +3790,10 @@ class SearchMixin:
                 # RULE 401.3 / 400.3: a card goes to its *owner's* library (Gift of Perfection returns each
                 # opponent's revealed cards to that opponent's library, not the chooser's).
                 self.state.player_by_id(o.owner_id).library.insert(0, o)
+        elif destination == "library_bottom_order":
+            # RULE 401.4: "on the bottom of your library in any order" is the player's own ordering decision. The
+            # cards are still inside the library (a pick left them there); the ordering choice moves them under it.
+            self._order_library_bottom(player, [o.instance_id for o in objs])
         elif destination in ("graveyard", "graveyard_with_treasures"):
             for o in objs:
                 self._remove_from_current_zone(player, o)

@@ -22,7 +22,7 @@ def _steel_hellkite() -> list[AbilitySpec]:
             "activated",
             [
                 EffectSpec("destroy", {
-                    "selector": "all_nonland_permanents",
+                    "group": {"zone": "battlefield", "of": "any", "filter": {"without_card_type": "land"}},
                     "filter": {"min_mana_value": "x", "max_mana_value": "x",
                                "controller_dealt_combat_damage_by_source": True},
                 }),

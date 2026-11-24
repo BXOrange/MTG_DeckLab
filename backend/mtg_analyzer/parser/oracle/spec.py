@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from ...models.cards.creature_types import CREATURE_SUBTYPES
+
 #: The kinds of ability an `AbilitySpec` can describe (docs/09 IR).
 #: Mirrors the effect hierarchy in game/effects/core.py plus "keyword".
 #: MEC-118, RULE 115.1 / 601.2c: the ``target_chooser`` param value for "target `<X>` of an opponent's choice".
@@ -204,7 +206,7 @@ IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     # PAR-208: "remove a counter from it. If you do, ..." -- the counter totals are part of the fingerprint.
     "remove_counters",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
-    "put_from_hand_onto_battlefield", "put_from_defending_hand",
+    "put_from_hand_onto_battlefield", "put_from_defending_hand", "group_put_from_hand",
     # PAR-228: "each player may shuffle their hand and graveyard into their library. Each player who does draws" --
     # performed by attempting (`composition.ALWAYS_DONE_ANTECEDENTS`), so an empty hand and graveyard still counts.
     "shuffle_hand_and_graveyard_into_library",
@@ -244,8 +246,15 @@ _STRUCTURED_CONDITION_FIELDS: dict[str, type] = {
     "spell_type": str,  # ``another_spell_cast_this_turn`` (RULE 601: "another instant or sorcery spell")
     "value": int,  # ``any_die_result`` threshold (RULE 706.3: "10 or higher")
     "note": str, "answer": str,  # ``guess_note_is`` (RULE 608.2d): which note an ``ask_player`` clause stored, and its answer
+    "spell_types": list,  # PAR-283 ``opponent_cast_matching_spell_this_turn``: card-type words of the spell cast
+    "words": list,  # PAR-283 ``sacrificed_cost_is`` / ``discarded_cost_is``: the characteristic words a cost object had
+    "cost": str,  # ENG-62 ``kicked``: which printed kicker cost ("{1}{U}"), RULE 702.33f
     "pool": str, "negate": bool,  # PAR-132 ``this_way_pool``: which "this way" pool, and "noncreature card"
 }
+
+#: PAR-284 milestone 22: the effect params that may carry a count read as the spell / ability is announced (RULE 601.2c):
+#: a dict target count (`TargetSpec.count_selector`), or a divided damage's total (`DealDamageEffect.announced_amount`).
+ANNOUNCED_COUNT_PARAMS: tuple[str, ...] = ("count_selector", "target_count_selector", "announced_amount")
 
 #: The literal placeholders for a spell's announced {X} (RULE 107.3) that may sit in
 #: a numeric amount field until the engine substitutes the paid value.
@@ -272,9 +281,43 @@ CHOSEN_LAND_TYPE_SENTINEL = "$chosen_land_type"
 #: asserts they stay equal to `continuous`'s own).
 SELECTOR_ZONES: frozenset[str] = frozenset({"battlefield", "graveyard", "hand", "exile", "library"})
 SELECTOR_SCOPES: frozenset[str] = frozenset({"you", "opponents", "any", "chosen", "defending"})
-SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name"})
+SELECTOR_DISTINCT: frozenset[str] = frozenset({"power", "toughness", "mana_value", "name", "card_type", "creature_type", "permanent_type", "color", "door_name", "color_pair", "keyword"})
+#: PAR-284 milestone 18 / RULE 702: the keyword abilities a ``distinct: "keyword"`` selector may count ("the number of
+#: abilities from among flying, first strike, ... found among creatures you control", Odric, Blood-Cursed); its
+#: ``keywords`` list is clamped to this vocabulary, which is the evergreen set of RULE 702 slugs (`combat.has` spelling).
+SELECTOR_COUNTABLE_KEYWORDS: frozenset[str] = frozenset({
+    "flying", "first strike", "double strike", "deathtouch", "haste", "hexproof", "indestructible", "lifelink",
+    "menace", "reach", "trample", "vigilance", "defender", "flash", "fear", "intimidate", "shadow", "skulk",
+    "horsemanship", "protection", "ward", "infect", "wither",
+})
+#: PAR-284 milestone 18 / RULE 601.2i: ``with_spells_cast_this_turn`` adds the colors / card types of the spells the
+#: controller has cast this turn (the `SPELL_CAST` events' snapshots) to a distinct color / card-type count ("the number
+#: of colors among permanents you control and spells you've cast this turn", First Family).
+SELECTOR_SPELL_UNION_DISTINCT: frozenset[str] = frozenset({"color", "card_type"})
 SELECTOR_AGGREGATES: frozenset[str] = frozenset({"max", "sum"})
-SELECTOR_VALUES: frozenset[str] = frozenset({"mana_value", "power", "toughness", "counters", "mana_symbols", "unlocked_doors"})
+#: PAR-318 / RULE 205.3m: ``share`` counts the largest group of selected objects with one characteristic in common.
+SELECTOR_SHARES: frozenset[str] = frozenset({"creature_type"})
+#: ``power_or_toughness`` (PAR-284 milestone 20): the larger of an object's power and toughness, for "the greatest power and/or
+#: toughness among ..." (Freelance Muscle).
+SELECTOR_VALUES: frozenset[str] = frozenset({
+    "mana_value", "power", "toughness", "power_or_toughness", "counters", "mana_symbols", "unlocked_doors"})
+
+#: PAR-284 milestone 17: a player-count selector ``{"players": <scope>, "where": {"kind": <kind>, ...}}`` counts the
+#: players in the scope that satisfy one predicate (`game/player_counts` evaluates it; mirrored here because this package
+#: cannot import `game/`). Scope -> RULE 102.2 opponents / every living player.
+SELECTOR_PLAYER_SCOPES: frozenset[str] = frozenset({"opponents", "players"})
+#: Predicate kind -> the extra keys it requires (all else is refused): ``min`` is a threshold clamped like any count,
+#: ``counter`` a player-counter name (RULE 122.1), ``combat`` a flag, ``compare`` more / fewer than the controller with a
+#: structured battlefield ``selector``.
+SELECTOR_PLAYER_PREDICATES: dict[str, frozenset[str]] = {
+    "dealt_damage_this_turn": frozenset({"combat"}),
+    "hand_size": frozenset({"min"}),
+    "counters": frozenset({"counter", "min"}),
+    "drew_this_turn": frozenset({"min"}),
+    "lands_entered_this_turn": frozenset({"min"}),
+    "controls_compared": frozenset({"compare", "selector"}),
+}
+SELECTOR_PLAYER_COMPARISONS: frozenset[str] = frozenset({"more", "fewer"})
 
 #: Non-``kind`` keys an `effect_amounts` measurement spec may carry (the
 #: operands of an ENG-37 B5 `amount_compare`), and the type each must have.
@@ -306,8 +349,24 @@ _AMOUNT_SPEC_FIELDS: dict[str, type] = {
     "of": str, "reference": str, "characteristic": str, "counter": str, "selector": (str, dict),
     "event_key": str,  # exact trigger subject field, resolved by the trigger binder
     "tally": str, "scope": str, "resource": str, "field": str, "aggregate": str, "card_type": str,
-    "amount": int, "multiply": int, "divide": int, "plus": int, "minus": int,
+    "amount": int, "multiply": int, "divide": int, "plus": int,
+    # PAR-284 milestone 21 / RULE 107.1b: ``minus`` is a literal or a second measured amount ("the number of cards in
+    # your hand minus the number of cards in that player's hand", Bulwark); the engine floors the difference at
+    # ``minimum`` and validates the subtrahend recursively like ``left`` / ``right``.
+    "minus": (int, dict),
     "minimum": int, "maximum": int, "round_up": bool,
+    # PAR-284 milestone 18 / RULE 601.2i: an `event_count` that skips the first matching event ("for each spell you've
+    # cast this turn other than the first"), floored at 0, before any multiplier.
+    "exclude_first": bool,
+    # PAR-284 milestone 23 / RULE 109.5: a `count_selector` with ``of: target`` summed over EVERY chosen target player
+    # ("the total number of creatures those players control", Officious Interrogation), not just the first.
+    "each_target": bool,
+    # PAR-284 milestone 19: a `trigger_event` amount's expected firing event ("DAMAGE" / "LIFE_GAINED" / "LIFE_LOST"),
+    # checked against the ability's own trigger by `gate._event_amount_antecedent_ok`.
+    "event": str,
+    # PAR-284 milestone 18 / RULE 122.1: an `event_count` that adds each matching event's ``amount`` ("for each +1/+1
+    # counter you've put on creatures under your control this turn") instead of counting the events.
+    "sum_amount": bool,
     "negate": bool,  # PAR-132 `discarded_this_way`: count the cards that do NOT have ``card_type``
     # PAR-175 M4b `this_way_count` / `this_way_sum`: which "<verb>ed this way" pool, narrowed by creature subtype / colour.
     "pool": str, "subtype": str, "color": str,
@@ -361,6 +420,9 @@ ALLOWED_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
 #: gates a cast-*timing* permission; this one instead gates a cast-*cost*
 #: permission, so it's its own field/whitelist (`AbilitySpec.
 #: free_cast_condition`) rather than reusing that one.
+#: Steps a printed "cast this spell only during <step>" may name (`game/phases.py` step names).
+CAST_TIMING_STEPS: frozenset[str] = frozenset({"upkeep", "declare_attackers", "declare_blockers", "end"})
+
 ALLOWED_FREE_CAST_CONDITION_KEYS: frozenset[str] = frozenset(
     {
         "control_commander",
@@ -479,6 +541,42 @@ MANA_SOURCE_KINDS: frozenset[str] = frozenset({"treasure", "basic_land", "creatu
 _OR_MANA_COST_KEYS: frozenset[str] = frozenset(
     {"sacrifice", "discard", "pay_life", "exile_from_graveyard", "reveal_from_hand", "tap_others"}
 )
+#: PAR-285: the closed vocabulary of a qualified "sacrifice a <permanent>" cost word (RULE 701.17, 601.2b): main types
+#: (RULE 300.1), narrowing adjectives (colours RULE 105.1, supertypes RULE 205.4a, token / tapped state) and the
+#: "with power N or greater" tail (RULE 208.1). `catalogue.sacrifice_clause` reads these same sets when it parses the
+#: phrase; the engine's `continuous.matches_permanent_word` reads the resulting word.
+PERMANENT_COST_TYPE_WORDS: frozenset[str] = frozenset({
+    "artifact", "creature", "enchantment", "land", "planeswalker", "battle", "permanent",
+})
+PERMANENT_COST_ADJECTIVES: frozenset[str] = frozenset({
+    "white", "blue", "black", "red", "green", "colorless", "multicolored", "nontoken", "nonland", "noncreature",
+    "nonartifact", "nonenchantment", "basic", "snow", "legendary", "untapped", "tapped",
+})
+POWER_AT_LEAST_PREFIX = "power>="
+#: RULE 700.9's "modified creature": a state word the engine's own `modified_creature` sacrifice type reads (it needs the
+#: game state a plain permanent word cannot see), so it is a whole word, never a token of a longer one.
+MODIFIED_CREATURE_WORD = "modified_creature"
+_POWER_TOKEN_RE = re.compile(re.escape(POWER_AT_LEAST_PREFIX) + r"\d+")
+
+
+def additional_cost_sacrifice_word_ok(word: Any, allow_subtype: bool = False) -> bool:
+    """A listed type word, or (PAR-285) a qualified permanent word built only from the vocabulary above
+    ("legendary_creature", "creature_power>=4", "nonland_permanent"); anything else fails the spec closed."""
+    if not isinstance(word, str):
+        return False
+    if word in _ADDITIONAL_COST_SACRIFICE_TYPES or word == MODIFIED_CREATURE_WORD:
+        return True
+    if allow_subtype and word in CREATURE_SUBTYPES:
+        return True  # MEC-173: "sacrifice any number of Spirits" -- one creature subtype (RULE 205.3)
+    tokens = word.split("_")
+    return bool(tokens) and all(
+        token in PERMANENT_COST_TYPE_WORDS or token in PERMANENT_COST_ADJECTIVES
+        or (token.startswith("non") and token[len("non"):] in PERMANENT_COST_TYPE_WORDS)
+        or _POWER_TOKEN_RE.fullmatch(token) is not None
+        for token in tokens
+    ) and any(token in PERMANENT_COST_TYPE_WORDS for token in tokens)
+
+
 #: PAR-225: the main-type words an additional "return a `<type>` you control to its owner's hand" cost may name.
 _ADDITIONAL_COST_RETURN_TYPES: frozenset[str] = frozenset({"creature", "land", "permanent", "artifact", "enchantment"})
 _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
@@ -487,7 +585,7 @@ _ADDITIONAL_COST_SACRIFICE_TYPES: frozenset[str] = frozenset(
         # "sacrifice a creature or planeswalker / enchantment or pay {N}" (Silence the Echo, Betrayer's Bargain).
         "creature_or_planeswalker", "creature_or_enchantment", "creature_or_land",
         # "sacrifice a permanent" (Souls of the Lost).
-        "permanent",
+        "permanent", "nonland_permanent",
         # "…sacrifice a green creature." (Natural Order, MEC-43) — the
         # same ``"<color>_creature"`` sentinel `_matches_sacrifice_type`
         # (`game/engine/activation_mixin.py`) already recognizes.
@@ -880,7 +978,7 @@ class AbilitySpec:
             allowed_conditions = {
                 "kicked", "additional_cost_paid", "teamwork_paid", "controls_subtype_as_cast",
                 "controls_commander_as_cast", "card_types_in_graveyard_at_least",
-                "life_total_exactly", "descended_this_turn", "hand_empty",
+                "life_total_exactly", "descended_this_turn", "hand_empty", "controls_card_types_as_cast",
             }
             if (
                 not isinstance(override, dict)
@@ -951,11 +1049,26 @@ class AbilitySpec:
         if not isinstance(cost, dict) or len(cost) != 1:
             raise SpecValidationError("'additional_cost' must be a single-key dict")
         key, value = next(iter(cost.items()))
-        if key == "sacrifice":
-            if value not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+        if key == "discard" and isinstance(value, dict):
+            if set(value) != {"count", "random"} or value["random"] is not True:
+                raise SpecValidationError("invalid random discard cost")
+            value = value["count"]
+            if value != "x" and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise SpecValidationError("invalid random discard count")
+            return
+        if key == "tap_others":
+            if (not isinstance(value, (list, tuple)) or len(value) != 2
+                    or isinstance(value[0], bool) or not isinstance(value[0], int) or value[0] < 1
+                    or not isinstance(value[1], str) or not value[1]):
+                raise SpecValidationError("'additional_cost' tap_others must be [positive int, non-empty str]")
+        elif key == "sacrifice":
+            if not additional_cost_sacrifice_word_ok(value):
                 raise SpecValidationError(
                     f"unsupported additional_cost sacrifice type {value!r}"
                 )
+        elif key == "reveal_from_hand":
+            if value not in ("creature", "colorless creature"):
+                raise SpecValidationError("unsupported reveal-from-hand quality")
         elif key == "return_pick":
             # PAR-225: "return a <type> you control to its owner's hand" -- one controlled permanent of a main type.
             counted = isinstance(value, (list, tuple)) and len(value) == 2
@@ -965,13 +1078,20 @@ class AbilitySpec:
                     raise SpecValidationError("counted return_pick must be ['x', 'swamp']")
             elif value not in _ADDITIONAL_COST_RETURN_TYPES:
                 raise SpecValidationError(f"unsupported additional_cost return_pick type {value!r}")
+        elif key == "sacrifice_fraction":
+            if (not isinstance(value, dict) or set(value) != {"divisor", "round_up", "what"}
+                    or value["divisor"] != 2 or not isinstance(value["round_up"], bool) or value["what"] != "land"):
+                raise SpecValidationError("invalid fractional sacrifice cost")
         elif key == "sacrifice_count":
             if (not isinstance(value, (list, tuple)) or len(value) != 2
                     or isinstance(value[0], bool) or not isinstance(value[0], int)
-                    or value[0] < -2 or value[1] not in _ADDITIONAL_COST_SACRIFICE_TYPES):
+                    or value[0] < -2 or not additional_cost_sacrifice_word_ok(value[1], allow_subtype=value[0] == -2)):
                 raise SpecValidationError("sacrifice_count must contain a count and supported permanent type")
-            if value[0] == -2 and not self.additional_cost_optional:
-                raise SpecValidationError("any-number sacrifice costs must be optional")
+        elif key == "sacrifice_mana_value_x":
+            # MEC-169 (Nahiri's Sacrifice): "sacrifice <permanent> with mana value X" -- X is announced with the cast and
+            # the sacrificed permanent must have exactly that mana value (RULE 601.2b / 107.3).
+            if not additional_cost_sacrifice_word_ok(value):
+                raise SpecValidationError(f"unsupported additional_cost sacrifice_mana_value_x type {value!r}")
         elif key == "or_mana":
             # "<cost> or pay {N}" — one single-key additional cost plus the mana alternative (RULE 601.2b).
             if not isinstance(value, dict) or set(value) != {"cost", "mana"}:
@@ -981,7 +1101,7 @@ class AbilitySpec:
             inner = value["cost"]
             if not isinstance(inner, dict) or len(inner) != 1 or next(iter(inner)) not in _OR_MANA_COST_KEYS:
                 raise SpecValidationError("'additional_cost' or_mana cost must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
-            if "sacrifice" in inner and inner["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+            if "sacrifice" in inner and not additional_cost_sacrifice_word_ok(inner["sacrifice"]):
                 raise SpecValidationError("unsupported or_mana sacrifice type")
         elif key == "alternatives":
             # RULE 601.2b: a mandatory three-way nonmana cost announcement.
@@ -1006,12 +1126,12 @@ class AbilitySpec:
             for branch in value:
                 if not isinstance(branch, dict) or len(branch) != 1 or next(iter(branch)) not in _OR_MANA_COST_KEYS:
                     raise SpecValidationError("'additional_cost' either branch must be one of " + ", ".join(sorted(_OR_MANA_COST_KEYS)))
-                if "sacrifice" in branch and branch["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+                if "sacrifice" in branch and not additional_cost_sacrifice_word_ok(branch["sacrifice"]):
                     raise SpecValidationError("unsupported either sacrifice type")
         elif key == "sacrifice_or_mana":
             if not isinstance(value, dict) or set(value) != {"sacrifice", "mana"}:
                 raise SpecValidationError("'additional_cost' sacrifice_or_mana must name sacrifice and mana")
-            if value["sacrifice"] not in _ADDITIONAL_COST_SACRIFICE_TYPES:
+            if not additional_cost_sacrifice_word_ok(value["sacrifice"]):
                 raise SpecValidationError("unsupported sacrifice_or_mana sacrifice type")
             if not isinstance(value["mana"], str) or not value["mana"].startswith("{"):
                 raise SpecValidationError("'additional_cost' sacrifice_or_mana mana must be a mana cost")
@@ -1142,6 +1262,12 @@ class AbilitySpec:
                 raise SpecValidationError("unknown cast_timing_restriction")
         if restriction.get("your_turn") and restriction.get("opponents_turn"):
             raise SpecValidationError("contradictory cast_timing_restriction")
+        # PAR-290: "Cast this spell only during your turn / an opponent's turn / your end step / an opponent's upkeep /
+        # the declare attackers step." -- a bare whose-turn bound, or one named step (`game/phases.py`).
+        if base == {} and (restriction.get("your_turn") or restriction.get("opponents_turn")):
+            return
+        if set(base) == {"step"} and base["step"] in CAST_TIMING_STEPS:
+            return
         if base not in (
             {"phase": "combat"}, {"step": "declare_blockers"},
             {"phase": "combat", "before_blockers": True},
@@ -1199,6 +1325,10 @@ class AbilitySpec:
 
     def _validate_cast_condition(self) -> None:
         """Structural check for a mandatory spell-casting condition."""
+        if isinstance(self.cast_condition, dict) and "kind" in self.cast_condition:
+            # PAR-290: "Cast this spell only if you control two or more Vampires." -- a shared-vocabulary condition.
+            AbilitySpec._validate_structured_condition(self.cast_condition)
+            return
         original = self.free_cast_condition
         try:
             self.free_cast_condition = self.cast_condition
@@ -1275,6 +1405,11 @@ class AbilitySpec:
         ):
             raise SpecValidationError("'alt_cost' must carry at least one real payment component")
         condition = cost.get("condition")
+        if isinstance(condition, dict) and "kind" in condition:
+            # PAR-283: a shared-vocabulary condition (`game/static_conditions.py`), checked structurally here and by
+            # ``kind`` at cast time; an unknown kind fails closed there. The closed single-key forms stay below.
+            AbilitySpec._validate_structured_condition(condition)
+            condition = None
         if condition is not None:
             if not isinstance(condition, dict) or len(condition) != 1:
                 raise SpecValidationError("'alt_cost' condition must be a single-key dict")
@@ -1415,6 +1550,8 @@ class AbilitySpec:
                 )
             if key == "selector" and isinstance(value, dict):
                 AbilitySpec._validate_selector(value)
+            if key == "cost" and not re.fullmatch(r"(?:\{[^}]+\})+", value):
+                raise SpecValidationError(f"'cost' in an effect condition must be mana symbols, got {value!r}")
 
     @staticmethod
     def _type_label(expected: Any) -> str:
@@ -1455,13 +1592,44 @@ class AbilitySpec:
             trigger[key] = check(trigger[key], _depth + 1)
 
     @staticmethod
+    def _validate_player_selector(selector: dict[str, Any], _depth: int) -> None:
+        """Shape-check a ``{"players", "where"}`` player-count selector and clamp its threshold (PAR-284)."""
+        where = selector.get("where")
+        if set(selector) != {"players", "where"} or selector["players"] not in SELECTOR_PLAYER_SCOPES \
+                or not isinstance(where, dict) or where.get("kind") not in SELECTOR_PLAYER_PREDICATES:
+            raise SpecValidationError("bad player-count selector")
+        # ``margin`` ("at least 2 more lands than you") is the one optional key; the rest are exactly the row's.
+        if set(where) - {"margin"} != {"kind"} | SELECTOR_PLAYER_PREDICATES[where["kind"]] or (
+                "margin" in where and where["kind"] != "controls_compared"):
+            raise SpecValidationError("bad player-count predicate")
+        if "margin" in where:
+            if isinstance(where["margin"], bool) or not isinstance(where["margin"], int):
+                raise SpecValidationError("player-count margin must be an int")
+            where["margin"] = max(1, min(where["margin"], MAX_EFFECT_MAGNITUDE))
+        if "min" in where:
+            if isinstance(where["min"], bool) or not isinstance(where["min"], int):
+                raise SpecValidationError("player-count threshold must be an int")
+            where["min"] = max(0, min(where["min"], MAX_EFFECT_MAGNITUDE))
+        if "combat" in where and not isinstance(where["combat"], bool):
+            raise SpecValidationError("player-count combat flag must be a bool")
+        if "counter" in where and (not isinstance(where["counter"], str) or not where["counter"]):
+            raise SpecValidationError("player-count counter must be a non-empty string")
+        if "compare" in where:
+            if where["compare"] not in SELECTOR_PLAYER_COMPARISONS or not isinstance(where["selector"], dict):
+                raise SpecValidationError("bad player-count comparison")
+            AbilitySpec._validate_selector(where["selector"], _depth + 1)
+
+    @staticmethod
     def _validate_selector(selector: dict[str, Any], _depth: int = 0) -> None:
         """Shape-check a structured count selector (PAR-120) and clamp its numbers."""
         if _depth > AbilitySpec.MAX_SPEC_DEPTH:
             raise SpecValidationError("count selector nested too deeply")
         if "terms" in selector:
-            if set(selector) - {"terms", "times", "plus"}:
+            if set(selector) - {"terms", "times", "plus", "combine"}:
                 raise SpecValidationError("unknown count expression field")
+            if selector.get("combine", "max") != "max":
+                # PAR-284 milestone 23: the only other way to combine terms than adding them is the larger one.
+                raise SpecValidationError("count expression 'combine' must be 'max'")
             terms = selector["terms"]
             if not isinstance(terms, list) or not terms:
                 raise SpecValidationError("count expression needs terms")
@@ -1476,6 +1644,9 @@ class AbilitySpec:
                     if isinstance(value, bool) or not isinstance(value, int):
                         raise SpecValidationError(f"count expression {key!r} must be an int")
                     selector[key] = max(-MAX_EFFECT_MAGNITUDE, min(value, MAX_EFFECT_MAGNITUDE))
+            return
+        if "players" in selector:
+            AbilitySpec._validate_player_selector(selector, _depth)
             return
         if "counters_on" in selector:
             if selector["counters_on"] != "source" or set(selector) - {"counters_on", "kind"}:
@@ -1494,8 +1665,15 @@ class AbilitySpec:
                 ok = isinstance(value, str) and value in SELECTOR_SCOPES
             elif key == "distinct":
                 ok = isinstance(value, str) and value in SELECTOR_DISTINCT
+            elif key == "keywords":
+                ok = (isinstance(value, list) and 0 < len(value) <= len(SELECTOR_COUNTABLE_KEYWORDS)
+                      and all(isinstance(v, str) and v in SELECTOR_COUNTABLE_KEYWORDS for v in value))
+            elif key == "with_spells_cast_this_turn":
+                ok = value is True and selector.get("distinct") in SELECTOR_SPELL_UNION_DISTINCT
             elif key == "aggregate":
                 ok = isinstance(value, str) and value in SELECTOR_AGGREGATES
+            elif key == "share":
+                ok = isinstance(value, str) and value in SELECTOR_SHARES
             elif key == "value":
                 ok = isinstance(value, str) and value in SELECTOR_VALUES
             elif key == "counter_kind":
@@ -1510,6 +1688,8 @@ class AbilitySpec:
                 raise SpecValidationError(f"unknown count selector field {key!r}")
             if not ok:
                 raise SpecValidationError(f"bad {key!r} in a count selector: {value!r}")
+        if (selector.get("distinct") == "keyword") != ("keywords" in selector):
+            raise SpecValidationError("a keyword distinct selector needs exactly its keywords list")
         if "aggregate" in selector and "value" not in selector:
             raise SpecValidationError("aggregate count selector needs a value")
         if (selector.get("value") == "mana_symbols") != ("color" in selector):
@@ -1571,7 +1751,7 @@ class AbilitySpec:
                     raise SpecValidationError("'condition' in an amount spec must be a dict")
                 AbilitySpec._validate_condition(value)
                 continue
-            if key in ("then", "otherwise", "left", "right"):
+            if key in ("then", "otherwise", "left", "right") or (key == "minus" and isinstance(value, dict)):
                 if isinstance(value, dict):
                     AbilitySpec._validate_amount_spec(value, _depth + 1)
                 elif isinstance(value, bool) or not isinstance(value, int):
@@ -1588,6 +1768,8 @@ class AbilitySpec:
                 continue
             if expected is bool and not isinstance(value, bool):
                 raise SpecValidationError(f"{key!r} in an amount spec must be a bool")
+            if key == "minus" and not isinstance(value, dict):
+                expected = int  # a literal subtrahend keeps the plain int clamp below
             if expected is int and isinstance(value, str) and value in X_SENTINELS:
                 continue  # the announced {X} (RULE 107.3): substituted at cast
             if expected is int and isinstance(value, str) and re.fullmatch(r"\$[a-z][a-z0-9_]{0,15}", value):
@@ -1635,6 +1817,20 @@ class AbilitySpec:
             if not isinstance(trigger, dict):
                 raise SpecValidationError("'create_turn_trigger' needs a 'trigger' dict")
             AbilitySpec._validate_trigger_shape(trigger)
+        for key in ANNOUNCED_COUNT_PARAMS:
+            # PAR-284 milestone 22 (RULE 601.2c): a count read as the spell / ability is announced -- a structured count
+            # selector, or the firing event's payload field. Same shape checks as a bound amount's selector.
+            value = params.get(key)
+            if value is None or isinstance(value, str):
+                continue
+            if not isinstance(value, dict):
+                raise SpecValidationError(f"{key!r} must be a name or a count selector")
+            if value.get("kind") == "trigger_event":
+                AbilitySpec._validate_amount_spec(value)
+                if set(value) != {"kind", "field", "event"}:
+                    raise SpecValidationError(f"bad event count in {key!r}")
+            else:
+                AbilitySpec._validate_selector(value)
         if _effect_type == "bind" and isinstance(params.get("amount"), dict):
             # The measurement a ``bind`` substitutes into its body — the same shape
             # an `amount_compare` operand has, so the same check (kind vocabulary

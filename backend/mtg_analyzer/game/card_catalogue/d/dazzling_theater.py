@@ -24,7 +24,7 @@ def _prop_room() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('untap_each_untap_step', {"affects": 'creatures_you_control'})],
+            [EffectSpec('untap_each_untap_step', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}})],
             raw_text='',
         ),
     ]

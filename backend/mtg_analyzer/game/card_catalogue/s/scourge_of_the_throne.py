@@ -22,7 +22,7 @@ def _scourge_of_the_throne() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("tap", {"selector": "attacking_creatures", "untap": True}),
+            [EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True}}, "untap": True}),
              EffectSpec("extra_combat_phase", {})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"},
                      "attacked_player_has_most_life": True, "limit": True},

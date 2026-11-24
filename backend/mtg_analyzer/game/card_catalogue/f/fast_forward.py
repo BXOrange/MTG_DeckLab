@@ -9,7 +9,7 @@ def _fast_forward() -> list[AbilitySpec]:
     return [
         AbilitySpec("static", [EffectSpec("cost_reduction", {"affects": "self", "generic": 1,
             "per": "opponents_attacked_this_turn"})]),
-        AbilitySpec("spell_effect", [EffectSpec("goad", {"selector": "creatures_opponents_control"})]),
+        AbilitySpec("spell_effect", [EffectSpec("goad", {"selector": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}})]),
     ]
 
 

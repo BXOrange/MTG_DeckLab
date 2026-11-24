@@ -75,6 +75,9 @@ def test_group_ok_enchanted_by_your_aura_filter():
     class _State:
         battlefield = [bear, aura]
 
+        def find_object(self, instance_id):
+            return None  # no live source: the predicate keeps the bound controller
+
     class _Ctx:
         state = _State()
 

@@ -37,6 +37,27 @@ LAYOUT_KINDS: dict[str, str] = {
     "vanguard": "vanguard",  # RULE 902
 }
 
+#: The exact, case-sensitive card types that make a card a real member of each
+#: kind: RULE 310 (Vanguard), RULE 312 (Phenomenon), RULE 309/901 (Plane) and
+#: RULE 314/904 (Scheme; "Ongoing" is a supertype on the same card type).
+#: Silver-border joke cards share the Scryfall layouts but their type lines
+#: ("Phenome-nom", "pLAnE") are not these types, so they are not rules cards.
+CARD_TYPES_BY_KIND: dict[str, frozenset[str]] = {
+    "plane": frozenset({"Plane", "Phenomenon"}),
+    "scheme": frozenset({"Scheme"}),
+    "vanguard": frozenset({"Vanguard"}),
+}
+
+#: Separates card types from subtypes on a type line (RULE 205.1).
+TYPE_LINE_SUBTYPE_SEPARATOR = " — "
+
+
+def has_rules_card_type(kind: str, type_line: str) -> bool:
+    """True when the printed type line carries one of the kind's real card
+    types (exact words before the subtype dash)."""
+    words = set(type_line.split(TYPE_LINE_SUBTYPE_SEPARATOR)[0].split())
+    return bool(words & CARD_TYPES_BY_KIND[kind])
+
 
 class VariantCardDatabase:
     """In-memory lookup over the repo's plane/scheme/avatar definitions."""
@@ -58,6 +79,9 @@ class VariantCardDatabase:
                     f"{entry.get('name')!r} in {self._path.name} has unknown layout "
                     f"{entry.get('layout')!r}"
                 )
+            if not has_rules_card_type(kind, entry.get("type_line") or ""):
+                # Joke cards are deferred: not dealt and not looked up.
+                continue
             self._by_kind[kind].append(entry)
             self._by_name[(entry.get("name") or "").casefold()] = entry
 

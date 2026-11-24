@@ -62,9 +62,9 @@ def _enter(eng, card, controller="p1"):
 def test_static_parses_the_others_form():
     [spec] = static_effect_specs("each other warrior creature you control enters with an additional +1/+1 counter on it.")
     assert spec.type == "extra_etb_counter"
-    assert spec.params == {"kind": "+1/+1", "count": 1, "filter": {"subtype": "Warrior"}, "other": True}
+    assert spec.params == {"kind": "+1/+1", "count": 1, "filter": {"subtype": "warrior", "card_type": "creature"}, "other": True}
     [spec] = static_effect_specs("each dragon you control enters with an additional +1/+1 counter on it.")
-    assert spec.params["other"] is False and spec.params["filter"] == {"subtype": "Dragon"}
+    assert spec.params["other"] is False and spec.params["filter"] == {"subtype": "dragon"}
     assert static_effect_specs("each other creature you control enters with a +1/+1 counter on it.") is None
 
 

@@ -15,11 +15,11 @@ def _archetype_of_imagination() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "creatures_you_control", "keywords": ["flying"]})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["flying"]})],
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("remove_keyword", {"affects": "creatures_opponents_control", "keywords": ["flying"]})],
+            [EffectSpec("remove_keyword", {"affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}, "keywords": ["flying"]})],
         ),
     ]
 

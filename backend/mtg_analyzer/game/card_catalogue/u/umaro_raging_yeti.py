@@ -32,7 +32,7 @@ def _specs() -> list[AbilitySpec]:
                                 'power': 3,
                                 'toughness': 0,
                                 'keywords': ['trample'],
-                                'selector': 'other_creatures_you_control',
+                                'selector': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'not_reference': True}},
                             },
                         ),
                     ],

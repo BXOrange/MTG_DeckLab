@@ -1,7 +1,7 @@
 """Return, graveyard, library-recovery, and linked-zone effects."""
 from __future__ import annotations
 
-from .core import GameEffect
+from .core import GameEffect, entry_counter_amounts
 from .. import continuations
 from ._runtime import install, register
 from ...models.cards.card_query import PERMANENT_CARD_TYPES, is_permanent_card
@@ -361,8 +361,8 @@ class ReturnToHandEffect(GameEffect):
         # Wave's "return all nonland permanents with mana value X or less to
         # their owners' hands.") — `DestroyEffect.selector`'s own untargeted
         # board-sweep shape, shared via `_mass_selector_objects`/
-        # `_MASS_DESTROY_SELECTORS`.
-        self.selector = selector if selector in _MASS_DESTROY_SELECTORS else None
+        # `_MASS_RELATIVE_SELECTORS`.
+        self.selector = selector if isinstance(selector, str) and selector in _MASS_RELATIVE_SELECTORS else None
         self.filter = filter
         # ``target_kind=None`` is the self form — no `TargetSpec` at all, the
         # same way `TapEffect`'s own untargeted modes leave it ``None``, so
@@ -407,7 +407,7 @@ class ReturnToHandEffect(GameEffect):
             )
         if self.group is not None:
             chosen = (targets or [self.target])[0] if (targets or self.target is not None) else None
-            for obj in _group_objects(context, self.group, self.group_player, self.source, chosen) or []:
+            for obj in _mass_group_objects(context, self.group, self.group_player, self.source, chosen, self.filter) or []:
                 bounce(obj)
             return
         if self.selector is not None:
@@ -461,6 +461,10 @@ class PutHandOnBottomEffect(GameEffect):
             context.engine.open_hand_bottom_order_choice(player, self.source)
 
 
+#: `ReturnToLibraryEffect.position` value for "shuffles it into their library" (the library is shuffled, not placed).
+SHUFFLE_POSITION = "shuffle"
+
+
 class ReturnToLibraryEffect(GameEffect):
     """"Put target X on top/the bottom of its owner's library." (RULE 701.3
     "put" — Time Ebb/Griptide/Roil Spout/Vedalken Dismisser-shaped tempo
@@ -496,7 +500,9 @@ class ReturnToLibraryEffect(GameEffect):
         #: "put target `<c1>` or `<c2>` creature on top of its owner's
         #: library" (Hunting Drake) — `TargetSpec.colors`' OR narrowing.
         self.colors = tuple(colors) if colors else None
-        self.position = position if position in ("top", "bottom") else "top"
+        #: ``"shuffle"`` = "its owner shuffles it into their library" (RULE 701.24a): the card goes into its
+        #: owner's library and that library is shuffled, instead of being placed.
+        self.position = position if position in ("top", "bottom", SHUFFLE_POSITION) else "top"
         #: ``target_kind=None`` — "Put **this**/~ on top of its owner's
         #: library." (Sensei's Divining Top-shaped) — no RULE 115 target at
         #: all, mirroring `ExileEffect`/`TapEffect`'s own self mode.
@@ -509,31 +515,37 @@ class ReturnToLibraryEffect(GameEffect):
             if target_kind and self.group is None and not self.attached else None
         )
 
+    def _place(self, context: GameContext, obj: Any) -> None:
+        if self.position == SHUFFLE_POSITION:
+            context.shuffle_into_library(obj)
+        else:
+            context.return_to_library(obj, self.position, self.depth)
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.attached:
             from .. import effect_conditions  # function-scoped: effects↔conditions cycle
 
             host = effect_conditions.subject_of("attached", context, self.source, targets)
             if host is not None:
-                context.return_to_library(host, self.position, self.depth)
+                self._place(context, host)
             return
         if self.group is not None:
             for obj in _group_objects(context, self.group, None, self.source, None) or []:
-                context.return_to_library(obj, self.position, self.depth)
+                self._place(context, obj)
             return
         if self.target_spec is None:
             target = (targets[0] if targets else None) or self.target or self.source
             if target is not None:
-                context.return_to_library(target, self.position, self.depth)
+                self._place(context, target)
             return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
             for target in chosen:
-                context.return_to_library(target, self.position, self.depth)
+                self._place(context, target)
             return
         target = (targets[0] if targets else None) or self.target
         if target is not None:
-            context.return_to_library(target, self.position, self.depth)
+            self._place(context, target)
 
 
 class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):
@@ -581,6 +593,7 @@ class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):
         context.engine.dig_until(
             player, {"type": shared_types},
             hit_destination="battlefield", rest_destination="library_bottom_random",
+            reveal=True,  # RULE 701.20a: "reveal cards ... until you reveal" (Reality Scramble)
         )
 
 
@@ -894,7 +907,8 @@ class ReturnFromGraveyardEffect(GameEffect):
         specs = super().target_specs
         return ([self.controller_target_spec] + specs) if self.controller_target_spec is not None else specs
 
-    def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None) -> None:
+    def _apply_one(self, context: GameContext, target: Any, controller_override: Optional[str] = None,
+                   shuffle: bool = True) -> None:
         # RULE 400.7e/603.7c/111.8: a captured dying card denotes its
         # original graveyard visit; a token that left cannot return.
         if (self.expected_incarnation is not None
@@ -964,11 +978,10 @@ class ReturnFromGraveyardEffect(GameEffect):
             if self.attacking:
                 context.engine.put_onto_battlefield_attacking(target)
             if self.extra_counters:
-                kind = str(self.extra_counters.get("kind", "-1/-1"))
-                count = int(self.extra_counters.get("count", 1))
-                if count > 0:  # a measured "X counters" can be 0
-                    context.add_counters(target, count, kind, source=self.source)
-        if self.shuffle_after and owner_id is not None:
+                for kind, count in entry_counter_amounts(self.extra_counters, "-1/-1").items():
+                    if count > 0:  # a measured "X counters" can be 0
+                        context.add_counters(target, count, kind, source=self.source)
+        if self.shuffle_after and shuffle and owner_id is not None:
             owner = context.state.player_by_id(owner_id)
             context.shuffle_library(owner)
         if self.lose_life_equal_mv and mv:
@@ -1152,10 +1165,16 @@ class ReturnFromGraveyardEffect(GameEffect):
             destination = swap.get("destination")
             if destination in self._DESTINATIONS:
                 self.destination = destination
+        # MEC-145 / RULE 608.2c: "the card returned this way" -- the targeted cards this instruction actually moved from a
+        # graveyard to a hand, in the pool the amount reads (`effect_amounts.THIS_WAY_POOLS["returned_card"]`).
+        from_graveyard = [t for t in targets or [] if getattr(t, "zone", None) == Zone.GRAVEYARD]
         try:
             self._apply_resolved(context, targets)
         finally:
             self.destination = original
+        for card in from_graveyard:
+            if card.zone == Zone.HAND:
+                context.returned_card_objects.append(card)
 
     def _apply_resolved(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.include_source:
@@ -1289,8 +1308,12 @@ class ReturnFromGraveyardEffect(GameEffect):
                 return
             with context.state.simultaneous():
                 for target in chosen:
-                    self._apply_one(context, target)
-            if self.destination == "library_top":
+                    self._apply_one(context, target, shuffle=False)
+                if self.shuffle_after:
+                    for owner_id in dict.fromkeys(target.owner_id for target in chosen
+                                                  if target is not None and target.zone == Zone.LIBRARY):
+                        context.shuffle_library(context.state.player_by_id(owner_id))
+            if self.destination == "library_top" and not self.shuffle_after:
                 self._order_new_top_cards(context, chosen)
             return
         target = (targets[0] if targets else None) or self.target
@@ -2455,6 +2478,12 @@ class DescendantsFurySacrificeEffect(GameEffect):
         )
 
 
+#: `card_query`'s ``shares_creature_type_with`` placeholders `InspectTopChooseEffect._resolved_criteria` resolves
+#: ("shares a creature type with it" = the ability's own source; "... with that creature" = the trigger's creature).
+SHARED_TYPE_SOURCE = "source"
+SHARED_TYPE_TRIGGER_CREATURE = "trigger_creature"
+
+
 class InspectTopChooseEffect(GameEffect):
     """Bounded top-N library inspect and filtered pick (MEC-72).
 
@@ -2578,7 +2607,28 @@ class InspectTopChooseEffect(GameEffect):
             resolved["type"] = chosen
         if "all_types" in resolved:
             resolved["all_types"] = [chosen if t == "chosen_type" else t for t in resolved["all_types"]]
+        shared = resolved.get("shares_creature_type_with")
+        if isinstance(shared, str) and context is not None:
+            resolved["shares_creature_type_with"] = self._creature_types_of_reference(shared, context)
         return resolved
+
+    def _creature_types_of_reference(self, reference: str, context: GameContext) -> list[str]:
+        """RULE 205.3m: the creature types of "it" (this source) or "that creature" (the creature whose trigger fired),
+        read through the layer-aware `continuous.derived_subtype_words` (a changeling has every creature type). A
+        reference that is no longer an object has no types: nothing shares one with it."""
+        from ...models.cards.creature_types import CREATURE_SUBTYPES
+        from .. import continuous  # function-scoped: continuous imports effects' siblings
+
+        if reference == SHARED_TYPE_SOURCE:
+            obj = self.source
+        else:
+            event = context.trigger_event or {}
+            instance_id = event.get("instance_id")
+            obj = context.state.find_object(instance_id) if instance_id is not None else None
+        if obj is None:
+            return []
+        continuous.recompute(context.state)  # RULE 613: read the layer-derived types ("is also a Cleric ...")
+        return sorted(word for word in continuous.derived_subtype_words(obj) if word in CREATURE_SUBTYPES)
 
 
 from .exile_sequences import BlinkEffect

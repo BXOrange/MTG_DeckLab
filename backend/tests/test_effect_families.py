@@ -107,7 +107,7 @@ def test_double_power_and_toughness_reads_each_creatures_own_current_stats_in_a_
 
     spell = _spell(
         "Unnatural Growth", "Double the power and toughness of each creature you control.",
-        [EffectSpec("pump", {"selector": "creatures_you_control", "self_multiplier": 2})],
+        [EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "self_multiplier": 2})],
     )
     caster.hand.append(spell)
     engine.cast_spell(caster, spell, targets=[])

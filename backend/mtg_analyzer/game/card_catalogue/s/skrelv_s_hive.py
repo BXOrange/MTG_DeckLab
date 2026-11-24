@@ -14,7 +14,7 @@ def _card() -> list[AbilitySpec]:
                 'keywords': ['cant_block'], 'oracle_text': "Toxic 1\nThis token can't block."}),
         ], trigger={'event': 'STEP_BEGIN', 'filter': {'step': 'upkeep'}, 'phase_relation': 'you'}),
         AbilitySpec('static', [EffectSpec('grant_keyword', {
-            'affects': 'creatures_you_control', 'object_filter': {'keyword_any': ['toxic']},
+            'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'keyword_any': ['toxic']}}, 
             'keywords': ['lifelink'], 'active_if': {'kind': 'opponent_poison_at_least', 'amount': 3},
         })]),
     ]

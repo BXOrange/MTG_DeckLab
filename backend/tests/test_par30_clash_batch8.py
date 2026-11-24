@@ -70,7 +70,7 @@ def test_untap_lands_of_type_end_to_end():
                      owner_id="p1", zone=Zone.STACK)
     src.controller_id = "p1"
     build_effects([EffectSpec("tap", {
-        "selector": "lands_you_control_of_type_forest", "untap": True,
+        "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land", "subtype": "forest"}}, "untap": True,
     })], src)[0].apply(eng.rules.context, [])
 
     assert all(not f.tapped for f in forests)

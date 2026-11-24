@@ -13,7 +13,8 @@ def _volcanic_torrent() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("damage", {
-                "selector": "each_creature_and_planeswalker_opponents_control",
+                "group": {"zone": "battlefield", "of": "opponents",
+                          "filter": {"card_type_any": ["creature", "planeswalker"]}},
                 "amount_from_count_selector": "spells_cast_this_turn",
             })],
         ),

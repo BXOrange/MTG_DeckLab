@@ -13,7 +13,7 @@ def _ruination() -> list[AbilitySpec]:
     selector+filter split for every other qualified board wipe).
     """
     return [AbilitySpec("spell_effect", [EffectSpec("destroy", {
-        "selector": "all_lands", "filter": {"nonbasic": True},
+        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}, "filter": {"nonbasic": True},
     })])]
 
 

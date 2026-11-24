@@ -16,7 +16,7 @@ def _champion_of_lambholt() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("combat_restriction", {
-            "kind": "cant_be_blocked_by", "affects": "creatures_you_control",
+            "kind": "cant_be_blocked_by", "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
             "filter": {"power_lt_source_power": True},
         })]),
         AbilitySpec(

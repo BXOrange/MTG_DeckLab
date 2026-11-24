@@ -28,10 +28,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
+from .catalogue.dig import THAT_MANY_FIELD, reads_dig_x
 from .catalogue.cost_text import scan_cost_text
+from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from .catalogue.keywords import parse_keywords
 from .catalogue.kicker_mana import kicker_x_mana_restriction_condition
-from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail
+from .catalogue.lands import tap_clause_condition, tapped_entry_choice_tail, tapped_entry_untap_tail
 from .catalogue.levels import (
     CLASS_BECOMES_LEVEL_RE,
     LEVEL_UP_LINE_RE,
@@ -51,7 +53,7 @@ from .catalogue.opening_hand import (
 )
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
-from .catalogue.effect_rows.shared import EVENT_PLAYER_EVENTS_KEY
+from .catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .residue import UnclaimedSpan, minimal_unclaimed_span
@@ -82,7 +84,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "911"
+PARSER_VERSION = "1060"
 
 
 def parser_source_hash() -> str:
@@ -198,7 +200,7 @@ def _expand_ability_word_reminders(raw: str) -> str:
 #: An ability-word paragraph that continues a spell's previous instruction
 #: (see `parse_oracle`): only after a sentence end, only a leading "If".
 _SPELL_RIDER_PARAGRAPH_RE = re.compile(
-    r"(?<=\.)\n(?:Infusion|Addendum) — (?P<rider>If )", re.I,
+    r"(?<=\.)\n(?:Infusion|Addendum|Delirium|Fateful hour|Spell mastery) — (?P<rider>If )", re.I,
 )
 
 
@@ -209,6 +211,17 @@ def _is_spell(card: Any) -> bool:
 #: `_split_triggered_modal_block`'s ``exhausted`` slot value for "choose one that hasn't been chosen" with no turn bound
 #: (RULE 700.2); ``True`` stays the per-turn form. A string so it can never be mistaken for the boolean.
 TRIGGER_MODE_EXHAUST_PERMANENT = "permanent"
+
+
+#: RULE 702.55 Haunt's combined enters / linked-creature-dies wrapper in front of a modal header.
+_HAUNT_MODAL_WRAPPER_RE = re.compile(r"^when ~ enters or the creature it haunts dies,\s*(?P<body>choose .+)$")
+#: Marker key on the linked-death half's trigger dict; `_process_triggered_modal_block` turns it into the
+#: `haunt_linked_death` marker effect `RulesEngine._collect_haunt_triggers` looks for.
+HAUNT_LINK_TRIGGER_KEY = "haunt_linked"
+
+#: An intervening-if clause in front of a trigger's modal header (RULE 603.4); the condition itself is parsed by the
+#: trigger wrapper's own grammar, so this only separates it from the "choose ..." header.
+_INTERVENING_IF_MODAL_RE = re.compile(r"^if .+?,\s*(?P<header>choose .+)$")
 
 
 def _split_triggered_modal_block(
@@ -236,10 +249,25 @@ def _split_triggered_modal_block(
     lines actually printed — fail-closed, the caller falls back to ordinary
     per-line segmentation.
     """
-    trig = TRIGGER_RE.match(lines[start].strip())
+    line = lines[start].strip()
+    # RULE 702.55: Haunt's "When ~ enters or the creature it haunts dies" is two triggers on one line; the wrapper
+    # grammar below knows only the battlefield half, so the line is probed as "when ~ enters" and the linked-death
+    # half is added as a second `DIES` trigger tagged with `HAUNT_LINK_TRIGGER_KEY` (stripped again when bound).
+    haunt_wrapper = _HAUNT_MODAL_WRAPPER_RE.match(line)
+    if haunt_wrapper is not None:
+        line = "when ~ enters, " + haunt_wrapper.group("body")
+    trig = TRIGGER_RE.match(line)
     if trig is None:
         return None
     modal_body = trig.group("body").strip()
+    probe_end = trig.start("body")
+    # RULE 603.4: an intervening "if <condition>," between the trigger event and the modal header ("at the beginning
+    # of your end step, if a creature died this turn, choose one —"). The condition stays part of the trigger wrapper
+    # the probe segments, so it lands on the trigger dict exactly as for any ordinary "..., if X, draw a card." line.
+    intervening = _INTERVENING_IF_MODAL_RE.match(modal_body)
+    if intervening is not None:
+        modal_body = intervening.group("header").strip()
+        probe_end += intervening.start("header")
     header = MODAL_HEADER_RE.match(modal_body)
     conditional = CONDITIONAL_MODAL_HEADER_RE.match(modal_body)
     # RULE 700.2: "choose up to one" -- the zero-or-one choice, carried as ``modes["optional"]``.
@@ -253,13 +281,15 @@ def _split_triggered_modal_block(
     if conditional is not None and override is None:
         return None
     probe = segment_line(
-        lines[start].strip()[: trig.start("body")] + "draw a card.",
+        line[:probe_end] + "draw a card.",
         allow_spell_effect=False,
         provenance=provenance,
     )
     if not probe.claimed or probe.spec is None or probe.spec.ability_kind != "triggered":
         return None
     triggers = [spec.trigger for spec in [probe.spec, *probe.extra_specs]]
+    if haunt_wrapper is not None:
+        triggers.append({"event": "DIES", HAUNT_LINK_TRIGGER_KEY: True})
     if any(not trigger or trigger.get("event") is None for trigger in triggers):
         return None
     # Exhausted mode history belongs to the printed ability, while separate
@@ -337,8 +367,12 @@ def _split_activated_modal_block(
     return spec.cost, exhaust, mode_bodies, next_i
 
 
+#: RULE 603.12: "you may <cost>. When you do, choose N —". A mana/life payment is carried as the bare cost text; a
+#: sacrifice or discard cost keeps its verb (Caesar's "sacrifice another creature") and must be one of the shapes
+#: `MAY_COST_THEN_CLAUSE` already lets `pay_cost_then` charge (checked in `_split_reflexive_modal_block`).
+_REFLEXIVE_SACRIFICE_IT = "sacrifice it"
 _REFLEXIVE_MODAL_RE = re.compile(
-    r"^you may pay (?P<cost>[^.]+)\.\s*when you do,?\s*(?P<header>choose .+)$"
+    r"^you may (?:pay (?P<paid>[^.]+)|(?P<verbed>(?:sacrifice|discard) [^.]+))\.\s*when you do,?\s*(?P<header>choose .+)$"
 )
 
 
@@ -485,6 +519,11 @@ def _split_reflexive_modal_block(
     header = MODAL_HEADER_RE.match(match.group("header").strip())
     if header is None:
         return None
+    cost = (match.group("paid") or match.group("verbed")).strip()
+    if match.group("verbed") and re.fullmatch(MAY_COST_THEN_CLAUSE, cost) is None:
+        # RULE 701.21 + 603.12: "you may sacrifice it" names the trigger's own subject (Gorbag), not a paid cost.
+        if cost != _REFLEXIVE_SACRIFICE_IT or trigger is None:
+            return None
     collected = collect_mode_bodies(lines, start + 1)
     if collected is None:
         return None
@@ -493,7 +532,7 @@ def _split_reflexive_modal_block(
     if choose < 1 or choose > len(bodies):
         return None
     return (
-        trigger, match.group("cost").strip(), bool(header.group("or_both")),
+        trigger, cost, bool(header.group("or_both")),
         bool(header.group("or_more")), "same mode more than once" in match.group("header").lower(),
         choose, bodies, next_i,
     )
@@ -788,12 +827,14 @@ def _merge_room_halves(results: list[ParseResult]) -> ParseResult:
 _THAT_PLAYER_EVENTS: frozenset[str] = frozenset({
     "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "ATTACKS", "PLAYER_ATTACKED",
     "BECOMES_TARGET", "STEP_BEGIN", "SPELL_CAST",
+    # PAR-321 / RULE 603.2c: both stamp the acting player's ``player_id``, which `trigger_player_antecedent` reads.
+    "LAND_PLAYED", "LIFE_LOST",
 })
 #: The head must name that player itself — the event alone isn't enough ("at
 #: the beginning of **your** upkeep" is a `STEP_BEGIN` with no other player).
 _THAT_PLAYER_HEAD_RE = re.compile(
     r"\b(?:a player|an opponent|each opponent's|each player's|defending player|"
-    r"1 of your opponents|an opponent controls)\b"
+    r"1 of your opponents|an opponent controls|attacks the monarch)\b"
 )
 #: …and the body mustn't name another player first, or "that player" is that
 #: one instead (a prior "target opponent", a "for each opponent" iteration).
@@ -803,7 +844,13 @@ _THAT_PLAYER_BODY_RIVAL_RE = re.compile(r"\b(?:players?|opponents?)\b")
 def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target: bool = True) -> bool:
     """Whether a trigger (``event`` + recipient ``filt``, printed as ``text``)
     names the player a "that player" in its body refers to."""
-    before_that = text.lower().split("that player", 1)[0]
+    text = text.lower()
+    if event in DEFENDING_PLAYER_COMBAT_EVENTS and "defending player" in text:
+        # PAR-315 / RULE 508.1b: under an attack / blocked head the printed "defending player" is the very player the
+        # firing event names (`defending_player_id`), so it is the "that player" antecedent no other player precedes.
+        text = text.replace("defending player", "that player")
+        return not _THAT_PLAYER_BODY_RIVAL_RE.search(text.split("that player", 1)[0].partition(", ")[2])
+    before_that = text.split("that player", 1)[0]
     if re.search(
         r"\btarget (?:opponent|player)\b|\btarget [^.]+? (?:an opponent controls|you don'?t control)\b",
         before_that,
@@ -844,6 +891,22 @@ def _nested_trigger_context(node: dict, context: Optional[tuple[str, Any, str]],
     return event, filt, description
 
 
+#: Target-kind markers whose "that player" needs a firing event (PAR-130; PAR-281 adds the graveyard form).
+_THAT_PLAYER_KIND_SUFFIX = "_that_player_controls"
+_THAT_PLAYER_GRAVEYARD_PREFIX = "that_player_graveyard_"
+
+
+#: PAR-286: the "that player" pools an operand phrase announces through ``choose_targets`` (`object_phrase`); they read
+#: the trigger event's player only (`targeting.trigger_player_antecedent`).
+_EVENT_ONLY_THAT_PLAYER_KINDS = frozenset({"permanent_that_player_controls", "nonland_permanent_that_player_controls"})
+
+
+def _is_that_player_kind(kind: Any) -> bool:
+    return isinstance(kind, str) and (
+        kind.endswith(_THAT_PLAYER_KIND_SUFFIX) or kind.startswith(_THAT_PLAYER_GRAVEYARD_PREFIX)
+    )
+
+
 def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], text: str) -> bool:
     """Walk a spec tree; every ``…_that_player_controls`` kind must sit under
     a trigger whose head names that player. A granted trigger (a dict with
@@ -857,7 +920,7 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
         return True
     context = _nested_trigger_context(node, context, text)
     for key, val in node.items():
-        if key.endswith("kind") and isinstance(val, str) and val.endswith("_that_player_controls"):
+        if key.endswith("kind") and _is_that_player_kind(val):
             if node.get("per_player") in _PER_PLAYER_SCOPES:
                 # "for each opponent/player, …" is its own antecedent, but
                 # only a triggered ability or a spell (`targeting.
@@ -866,10 +929,14 @@ def _that_player_tree_ok(node: Any, context: Optional[tuple[str, Any, str]], tex
                     return False
             elif context is None or not _that_player_head_ok(*context):
                 return False
-        elif key == "kinds" and isinstance(val, list) and any(
-            isinstance(kind, str) and kind.endswith("_that_player_controls") for kind in val
-        ):
-            if node.get("per_player") in _PER_PLAYER_SCOPES:
+        elif key == "kinds" and isinstance(val, list) and any(_is_that_player_kind(kind) for kind in val):
+            if any(kind in _EVENT_ONLY_THAT_PLAYER_KINDS for kind in val):
+                # PAR-286: these pools are only resolved against the firing event's player (the attacked player);
+                # a prior "target player" or "for each opponent" round does not feed them.
+                if (node.get("per_player") in _PER_PLAYER_SCOPES or context is None
+                        or not _that_player_head_ok(*context, allow_prior_target=False)):
+                    return False
+            elif node.get("per_player") in _PER_PLAYER_SCOPES:
                 if context is None:
                     return False
             elif context is None or not _that_player_head_ok(*context):
@@ -949,6 +1016,254 @@ def _cast_window_ok(spec: AbilitySpec) -> bool:
     return True
 
 
+#: PAR-284 / RULE 601.2i: the one trigger event whose payload names a spell's mana value ("that spell's mana value").
+_SPELL_MV_EVENTS: frozenset[str] = frozenset({"SPELL_CAST"})
+#: The `SPELL_CAST` payload fields an amount may read ("that spell's mana value", "the amount of mana spent to cast that
+#: spell", "each color of mana spent to cast that spell", RULE 601.2h-i); no other event carries them.
+_SPELL_EVENT_FIELDS: frozenset[str] = frozenset({"mana_value", "mana_spent", "colors_spent"})
+
+
+def _event_amount_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 milestone 19 (RULE 120.3, 119.3): a `trigger_event` amount that names its ``event`` ("the amount of life
+    you gained" -> ``LIFE_GAINED``) reads that event's ``amount`` payload, which only the ability's own trigger carries.
+    Any other head (a spell, an activated ability, another event) has no such payload, so the clause stays unclaimed."""
+
+    def wanted_events(node: Any) -> "list[str]":
+        if isinstance(node, EffectSpec):
+            return wanted_events(node.params)
+        if isinstance(node, dict):
+            own = [node["event"]] if node.get("kind") == "trigger_event" and isinstance(node.get("event"), str) else []
+            return own + [e for child in node.values() for e in wanted_events(child)]
+        if isinstance(node, (list, tuple)):
+            return [e for child in node for e in wanted_events(child)]
+        return []
+
+    wanted = wanted_events([spec.effects, spec.modes])
+    if not wanted:
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    return isinstance(event, str) and all(w == event for w in wanted)
+
+
+def _spell_mv_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284: an amount that reads the firing event's ``mana_value`` ("create X tokens, where X is that spell's mana
+    value") names a spell only under a "whenever you cast ..." trigger. Anywhere else (an activated ability, a spell,
+    another trigger event) the event has no such field, so the clause stays unclaimed rather than measure 0."""
+
+    def reads_event_mv(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_event_mv(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "trigger_event" and node.get("field") in _SPELL_EVENT_FIELDS:
+                return True
+            if node.get("kind") == "color_count" and node.get("of") == "trigger_spell":
+                return True  # "that spell's colors" (RULE 105.1, 601.2i): the firing cast event's spell
+            return any(reads_event_mv(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_event_mv(child) for child in node)
+        return False
+
+    if not reads_event_mv([spec.effects, spec.modes]):
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    events = event if isinstance(event, list) else [event]
+    return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
+
+
+def _spell_name_antecedent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 201.2): a count measured against the firing spell's name ("the same name as that spell") names a
+    spell only under a "whenever a player casts a spell" trigger; anywhere else ``trigger_subject`` is another object."""
+
+    def reads_trigger_subject_name(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_trigger_subject_name(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "count_selector" and node.get("reference") == "trigger_subject" \
+                    and "named_as_reference" in ((node.get("selector") or {}).get("filter") or {}):
+                return True
+            return any(reads_trigger_subject_name(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_trigger_subject_name(child) for child in node)
+        return False
+
+    if not reads_trigger_subject_name([spec.effects, spec.modes]):
+        return True
+    event = (spec.trigger or {}).get("event") if spec.ability_kind == "triggered" else None
+    events = event if isinstance(event, list) else [event]
+    return bool(events) and all(e in _SPELL_MV_EVENTS for e in events)
+
+
+#: `effect_amounts.ANY_COUNTER_KIND`: the ``counter`` of a count over every kind of counter ("for each counter on it").
+_ANY_COUNTER_KIND = "*"
+
+
+def _any_counter_referent_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 122.1): "for each counter on it" measures ``of: source``, which is the ability's own object only
+    under a self trigger, an activated ability or a spell. Under a group trigger ("whenever a creature you control
+    attacks alone, ... counters on it") "it" is the firing creature, a referent this amount does not name, so the
+    clause stays unclaimed rather than count the wrong permanent."""
+
+    def reads_source_counters(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_source_counters(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters" and node.get("counter") == _ANY_COUNTER_KIND and node.get("of") == "source":
+                return True
+            return any(reads_source_counters(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_source_counters(child) for child in node)
+        return False
+
+    if spec.ability_kind != "triggered" or not reads_source_counters([spec.effects, spec.modes]):
+        return True
+    subject = ((spec.trigger or {}).get("condition") or {}).get("subject")
+    return subject in (None, "self")
+
+
+#: ENG-64: the object events whose firing object a mass group's ``reference: trigger_subject`` ("it" / "that creature")
+#: names; a dies / leaves event is read as last-known information (RULE 608.2h, `effect_conditions.last_known_subject`).
+_GROUP_REFERENCE_EVENTS: frozenset[str] = frozenset({"DIES", "LEAVES_BATTLEFIELD", "ENTERS_BATTLEFIELD"})
+
+
+#: The relative filter keys that read the "reference" object ("shares a color with it", "with that name"): what a mass group
+#: compares with, so under a group trigger it must say which object that is (``reference: trigger_subject``).
+_GROUP_RELATIVE_FILTER_KEYS: frozenset[str] = frozenset({
+    "shares_color_with_reference", "shares_creature_type_with_reference", "shares_card_type_with_reference",
+    "named_as_reference",
+})
+
+
+def _group_reference_ok(spec: AbilitySpec) -> bool:
+    """ENG-64 (RULE 603.2 / 608.2c): a mass group carrying ``reference: trigger_subject`` ("destroy all other creatures
+    that share a color with it") compares with the firing object, which exists only under a group-subject trigger of a
+    `_GROUP_REFERENCE_EVENTS` event. Under a self trigger, an activated ability or a spell "it" is another object, so
+    the clause stays unclaimed rather than compare with the wrong one."""
+
+    def reads_group_reference(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_group_reference(node.params)
+        if isinstance(node, dict):
+            if ("zone" in node and node.get("reference") == "trigger_subject") or node.get("shares_type_with"):
+                return True
+            return any(reads_group_reference(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_group_reference(child) for child in node)
+        return False
+
+    def reads_unreferenced_relative_group(node: Any) -> bool:
+        # An effect's own ``group`` / ``selector`` whose filter compares with "it" but names no reference compares with the
+        # ability's source, which is not what a group trigger's "it" means.
+        if isinstance(node, EffectSpec):
+            return reads_unreferenced_relative_group(node.params)
+        if isinstance(node, dict):
+            for key in ("group", "selector"):
+                group = node.get(key)
+                # A count amount ("for each other creature that shares a creature type with it") names its reference on
+                # the amount node itself (`effect_amounts`), so only a bare effect group needs the key on the group.
+                if (isinstance(group, dict) and "zone" in group and "reference" not in group and "reference" not in node
+                        and _GROUP_RELATIVE_FILTER_KEYS & set(group.get("filter") or {})):
+                    return True
+            return any(reads_unreferenced_relative_group(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_unreferenced_relative_group(child) for child in node)
+        return False
+
+    trigger_subject = ((spec.trigger or {}).get("condition") or {}).get("subject") if spec.ability_kind == "triggered" else None
+    if trigger_subject not in (None, "self") and reads_unreferenced_relative_group([spec.effects, spec.modes]):
+        return False
+    if not reads_group_reference([spec.effects, spec.modes]):
+        return True
+    if spec.ability_kind != "triggered":
+        return False
+    trigger = spec.trigger or {}
+    events = trigger.get("event") if isinstance(trigger.get("event"), list) else [trigger.get("event")]
+    return (((trigger.get("condition") or {}).get("subject")) in ("group", "self_or_group")
+            and bool(events) and all(e in _GROUP_REFERENCE_EVENTS for e in events))
+
+
+#: The object events whose firing object is the one a "counters on that creature" amount names, with its counters as
+#: they were (a dies / leaves event carries the last-known tally, RULE 603.10a; an enters event reads them live).
+_TRIGGER_SUBJECT_COUNTER_EVENTS: frozenset[str] = frozenset({"DIES", "LEAVES_BATTLEFIELD", "ENTERS_BATTLEFIELD"})
+
+
+def _trigger_subject_counters_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 122.1 / 603.10a): a counters amount ``of: trigger_subject`` ("for each fungus counter on that creature")
+    names the firing object only under a group-subject trigger of a `_TRIGGER_SUBJECT_COUNTER_EVENTS` event; under any
+    other head the referent is something else, so the clause stays unclaimed rather than count the wrong permanent."""
+
+    def reads_subject_counters(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads_subject_counters(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters" and node.get("of") == "trigger_subject":
+                return True
+            return any(reads_subject_counters(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads_subject_counters(child) for child in node)
+        return False
+
+    if not reads_subject_counters([spec.effects, spec.modes]):
+        return True
+    if spec.ability_kind != "triggered":
+        return False
+    trigger = spec.trigger or {}
+    events = trigger.get("event") if isinstance(trigger.get("event"), list) else [trigger.get("event")]
+    return (((trigger.get("condition") or {}).get("subject")) == "group"
+            and bool(events) and all(e in _TRIGGER_SUBJECT_COUNTER_EVENTS for e in events))
+
+
+def _iteration_reference_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 608.2): an amount measured ``reference: iteration`` ("for each Aura attached to that creature" inside a
+    per-member loop) names the loop item, so it is only meaningful inside a ``for_each`` body; anywhere else the referent
+    is unbound and the clause stays unclaimed rather than measure 0."""
+
+    def unbound(node: Any, inside_loop: bool) -> bool:
+        if isinstance(node, EffectSpec):
+            return unbound(node.params, inside_loop)
+        if isinstance(node, dict):
+            if node.get("reference") == "iteration" and not inside_loop:
+                return True
+            looped = inside_loop or (isinstance(node.get("over"), dict) and isinstance(node.get("effects"), list))
+            return any(unbound(child, looped) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(unbound(child, inside_loop) for child in node)
+        return False
+
+    return not unbound([spec.effects, spec.modes], False)
+
+
+def _this_way_window_ok(spec: AbilitySpec) -> bool:
+    """PAR-284 (RULE 608.2c): a discard / sacrifice "this way" amount reads the events logged since a `mark_event_log`
+    window opened in front of the instruction it measures (`effect_body.open_this_way_window`). An ability that reads
+    one with no window (an additional cost's sacrifice happened at cast time) would measure 0, and one that also keeps a
+    bare announced X (``"x"``) has no X for it to name (a trigger's later sentence), so both stay unclaimed."""
+    reads = False
+    opened = False
+    dangling_x = False
+
+    def walk(node: Any) -> None:
+        nonlocal reads, opened, dangling_x
+        if isinstance(node, EffectSpec):
+            walk(node.type)
+            walk(node.params)
+        elif isinstance(node, dict):
+            if node.get("kind") in ("this_way_count", "this_way_sum", "this_way_max") and node.get("pool") in ("discarded", "sacrificed"):
+                reads = True
+            if node.get("kind") == "counter_recipients_since_mark":
+                reads = True  # PAR-287: the "countered" pool is a window too
+            dangling_x = dangling_x or any(v == "x" for v in node.values())
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                walk(child)
+        elif node == "mark_event_log":
+            opened = True
+
+    walk([spec.effects, spec.modes])
+    return not reads or (opened and not dangling_x)
+
+
 def _amass_x_ok(spec: AbilitySpec) -> bool:
     """PAR-243: an "amass Orcs X" count is only sound once a `bind` has measured the X (``"$n"``).
 
@@ -959,25 +1274,291 @@ def _amass_x_ok(spec: AbilitySpec) -> bool:
     )
 
 
+def _counters_removed_amounts_ok(spec: AbilitySpec) -> bool:
+    """RULE 602.2b: a ``counters_removed_as_cost`` amount ("the number of counters removed this way") reads the total the
+    activation's own cost stamped on its source, so it is only sound in an activated ability whose cost text removes
+    counters of that kind (any kind when the amount names none). A trigger, spell or effect-side removal fails closed."""
+    cost = str((spec.cost or {}).get("text", ""))
+
+    def walk(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return walk(node.params)
+        if isinstance(node, dict):
+            if node.get("kind") == "counters_removed_as_cost":
+                counter = re.escape(str(node["counter"])) + " " if node.get("counter") else r"(?:\S+ )?"
+                if spec.ability_kind != "activated" or not re.search(
+                    rf"\bremove (?:all|\d+|x) {counter}counters? from ~(?:,|$)", cost,
+                ):
+                    return False
+            return all(walk(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return all(walk(child) for child in node)
+        return True
+
+    return walk([spec.effects, spec.modes])
+
+
+#: MEC-145: the evidence a cost of each referent verb leaves -- on an activated ability's cost text, and on a spell's
+#: `additional_cost` dict key -- without which a "the <verb>ed card's <stat>" amount has no referent to read.
+_COST_REFERENT_COST_TEXT: dict[str, str] = {
+    "discarded": r"\bdiscard\b(?! (?:your hand|~))",
+    "exiled": r"\bexile (?!~)[^,:]*(?:from your graveyard|of your library)|\bexile an? creature you control",
+    "tapped": r"\btap (?!~)", "revealed": r"\breveal\b",
+    "sacrificed": r"\bsacrifice\b",
+}
+_COST_REFERENT_ADDITIONAL_KEYS: dict[str, frozenset[str]] = {
+    "discarded": frozenset({"discard"}), "exiled": frozenset({"exile_from_graveyard"}),
+    "tapped": frozenset({"tap_others"}), "revealed": frozenset({"reveal_from_hand"}),
+    "sacrificed": frozenset({"sacrifice", "sacrifice_count"}),
+}
+_COST_REFERENT_SELECTOR_RE = re.compile(
+    r"^cost_referent_(?P<kind>[a-z]+?)_(?:creature_)?(?:mana_value|power|toughness|card_types|count|subtype_[a-z-]+_count)$")
+
+
+def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bool:
+    """RULE 608.2h: a ``cost_referent_<kind>_<stat>`` amount reads what the ability's own cost (or a spell's additional
+    cost) moved, so it is sound only in an activated ability whose cost text, or a spell whose `additional_cost`, has that
+    verb. A trigger, or a cost of another verb, fails closed rather than measuring an empty record as 0."""
+    cost = str((spec.cost or {}).get("text", ""))
+
+    def paid(kind: str) -> bool:
+        if spec.ability_kind == "activated":
+            return re.search(_COST_REFERENT_COST_TEXT[kind], cost) is not None
+        if spec.ability_kind == "spell_effect":
+            return any(
+                other.additional_cost and set(other.additional_cost) & _COST_REFERENT_ADDITIONAL_KEYS[kind]
+                for other in effect_specs
+            )
+        return False
+
+    def walk(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return walk(node.params)
+        if isinstance(node, dict):
+            # Any string value may name the selector (``selector``, an anthem's ``power_count``, ...).
+            for value in node.values():
+                found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                if found is not None and not paid(found.group("kind")):
+                    return False
+            return all(walk(child) for child in node.values())
+        if isinstance(node, (list, tuple)):
+            return all(walk(child) for child in node)
+        return True
+
+    return walk([spec.effects, spec.modes])
+
+
+def _respell_cost_sacrificed_pools(effect_specs: list[AbilitySpec]) -> None:
+    """MEC-169 / RULE 608.2h: "for each creature sacrificed this way" / "the total power of the creatures sacrificed this
+    way" after a *cost* that sacrificed (Emrakul's Evangel, Vicious Betrayal, Sword of the Ages) measures the objects the
+    cost moved, not an instruction of the effect: the amount is respelled onto the cost's ``sacrificed`` referents
+    (`game/cost_referents.py`, snapshotted as each object left). An ability whose own body also sacrifices keeps the
+    "this way" window reading, and a filter outside "creature" (a subtype, colour, "non-") is left for the window check
+    to refuse rather than measured wrongly."""
+    count_stat, sum_stats = "count", {"power", "toughness", "mana_value"}
+
+    def selector(node: dict) -> Optional[str]:
+        filt = {key: value for key, value in node.items() if key in ("card_type", "negate", "subtype", "color")}
+        if set(filt) == {"subtype"} and node.get("kind") == "this_way_count":
+            # MEC-173: "for each Spirit sacrificed this way" counts the records that were of that subtype.
+            return f"cost_referent_sacrificed_subtype_{str(filt['subtype']).lower()}_count"
+        if filt and filt != {"card_type": "creature"}:
+            return None
+        prefix = "creature_" if filt else ""
+        if node.get("kind") == "this_way_count":
+            return f"cost_referent_sacrificed_{prefix}{count_stat}"
+        stat = str(node.get("characteristic", ""))
+        return f"cost_referent_sacrificed_{prefix}{stat}" if stat in sum_stats else None
+
+    def rewrite(node: Any) -> Any:
+        if isinstance(node, EffectSpec):
+            node.params = rewrite(node.params)
+            return node
+        if isinstance(node, dict):
+            if node.get("kind") in ("this_way_count", "this_way_sum") and node.get("pool") == "sacrificed":
+                chosen = selector(node)
+                if chosen is not None:
+                    kept = {key: value for key, value in node.items()
+                            if key not in ("kind", "pool", "card_type", "negate", "subtype", "color", "characteristic")}
+                    return {"kind": "count_selector", "selector": chosen, **kept}
+            return {key: rewrite(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [rewrite(child) for child in node]
+        return node
+
+    for spec in effect_specs:
+        if not _cost_paid(spec, "sacrificed", effect_specs):
+            continue
+        if any("sacrifice" in kind for kind, _ in _effect_nodes([spec.effects, spec.modes])):
+            continue
+        spec.effects = rewrite(spec.effects)
+        if spec.modes:
+            spec.modes = rewrite(spec.modes)
+
+
+#: Effects that leave the REVEALED referent (RULE 701.20): "the revealed card's <stat>" after one of them names that card.
+_REVEAL_PRODUCER_TYPES = ("reveal_top", "put_revealed_card", "reveal_random_hand_card")
+_REVEALED_STATS = {"mana_value", "power", "toughness"}
+
+
+def _respell_effect_revealed_referents(effect_specs: list[AbilitySpec]) -> None:
+    """RULE 608.2h / 701.20: a "the revealed card's <stat>" that no reveal *cost* paid names the card an earlier
+    instruction of the same effect revealed (Planeswalker's Scorn), so the cost-referent reading is respelled onto the
+    `revealed` characteristic. An ability with a reveal cost keeps the cost reading."""
+    for spec in effect_specs:
+        if _cost_paid(spec, "revealed", effect_specs):
+            continue
+        if not any(_has_effect_type(node, _REVEAL_PRODUCER_TYPES) for node in [spec.effects, spec.modes]):
+            continue
+
+        def rewrite(node: Any) -> None:
+            if isinstance(node, EffectSpec):
+                rewrite(node.params)
+            elif isinstance(node, dict):
+                for key, value in list(node.items()):
+                    found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                    stat = value[len("cost_referent_revealed_"):] if found and found.group("kind") == "revealed" else None
+                    if stat in _REVEALED_STATS:
+                        # the sibling `selector` key belongs to the count_selector dict this value sits in
+                        node.clear()
+                        node.update({"kind": "characteristic", "characteristic": stat, "of": "revealed", "minimum": 0})
+                        return
+                    rewrite(value)
+            elif isinstance(node, (list, tuple)):
+                for child in node:
+                    rewrite(child)
+
+        rewrite([spec.effects, spec.modes])
+
+
+def _has_effect_type(node: Any, types: tuple[str, ...]) -> bool:
+    if isinstance(node, EffectSpec):
+        return node.type in types or _has_effect_type(node.params, types)
+    if isinstance(node, dict):
+        return any(_has_effect_type(v, types) for v in node.values())
+    if isinstance(node, (list, tuple)):
+        return any(_has_effect_type(v, types) for v in node)
+    return False
+
+
+def _link_exile_referents(effect_specs: list[AbilitySpec]) -> None:
+    """RULE 607.2a / 608.2h: a "the exiled card's <stat>" that no cost of its own ability paid names the card another
+    ability of the *same object* exiled (Bishop of Binding's attack trigger reading its enter trigger's exile, Drach'Nyen's
+    Equipment reading its own exile). The amount is respelled onto the linked-exile handle (`linked_exile_<stat>`) and the
+    exiling effects are told to record the link. A card with no exile effect, or whose ability paid its own exile cost,
+    keeps the cost reading (and `_cost_referents_ok` then refuses what no cost paid)."""
+    exilers = [params for spec in effect_specs for kind, params in _effect_nodes([spec.effects, spec.modes])
+               if kind == "exile" and params.get("target_kind")]
+    # An additional cost that exiles (Redemptor Dreadnought's optional one) links the exiled card to the spell, which is the
+    # same object once it enters; the engine records that link, so no effect needs flagging.
+    cost_exile = any(spec.additional_cost and "exile_from_graveyard" in spec.additional_cost for spec in effect_specs)
+    if not exilers and not cost_exile:
+        return
+
+    def rewrite(spec: AbilitySpec, node: Any) -> bool:
+        changed = False
+        if isinstance(node, EffectSpec):
+            return rewrite(spec, node.params)
+        if isinstance(node, dict):
+            for key, value in list(node.items()):
+                found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
+                if (found is not None and found.group("kind") == "exiled"
+                        and not _cost_paid(spec, "exiled", effect_specs)
+                        and not value.endswith("card_types")):
+                    node[key] = "linked_exile_" + value[len("cost_referent_exiled_"):]
+                    changed = True
+                else:
+                    changed = rewrite(spec, value) or changed
+        elif isinstance(node, (list, tuple)):
+            for child in node:
+                changed = rewrite(spec, child) or changed
+        return changed
+
+    if any([rewrite(spec, [spec.effects, spec.modes]) for spec in effect_specs]):
+        for params in exilers:
+            params["track_exiled_with"] = True
+
+
+def _cost_paid(spec: AbilitySpec, kind: str, effect_specs: list[AbilitySpec]) -> bool:
+    """Whether ``spec``'s own cost (or a spell's `additional_cost`) has the ``kind`` verb."""
+    if spec.ability_kind == "activated":
+        return re.search(_COST_REFERENT_COST_TEXT[kind], str((spec.cost or {}).get("text", ""))) is not None
+    if spec.ability_kind == "spell_effect":
+        return any(other.additional_cost and set(other.additional_cost) & _COST_REFERENT_ADDITIONAL_KEYS[kind]
+                   for other in effect_specs)
+    return False
+
+
+def _amassed_army_ok(spec: AbilitySpec) -> bool:
+    """RULE 701.47a: "the amassed Army's power" (`of: "amassed_army"`) names the Army an `amass` of the *same* ability
+    just fed, so an ability reading it must also hold an `amass` effect; otherwise the amount would measure nothing."""
+
+    def reads(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads(node.params)
+        if isinstance(node, dict):
+            return node.get("of") == "amassed_army" or any(reads(v) for v in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads(v) for v in node)
+        return False
+
+    return not reads([spec.effects, spec.modes]) or any(
+        kind == "amass" for kind, _ in _effect_nodes([spec.effects, spec.modes]))
+
+
+def _sacrificed_mv_filter_ok(spec: AbilitySpec) -> bool:
+    """RULE 608.2h: the `exact_mana_value: "sacrificed_cost"` filter reads the creature the ability's own cost sacrificed,
+    so it is claimed only on an activated ability whose cost text sacrifices; anywhere else it would measure nothing."""
+
+    def reads(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads(node.params)
+        if isinstance(node, dict):
+            return node.get("exact_mana_value") == "sacrificed_cost" or any(reads(v) for v in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads(v) for v in node)
+        return False
+
+    return not reads([spec.effects, spec.modes]) or _cost_paid(spec, "sacrificed", [spec])
+
+
 def _dig_x_ok(spec: AbilitySpec) -> bool:
     """A dig's ``x`` count ("look at the top X cards") is the announced {X} of a spell or an activated
     ability. Under a trigger nothing announced an X (the word then means a measured or "where X is"
     amount), so it fails closed instead of reading 0."""
-    for effect in spec.effects:
-        amount = effect.params.get("count")
-        if isinstance(amount, dict) and amount.get("kind") == "counters_removed_as_cost":
-            counter = re.escape(str(amount.get("counter", "")))
-            cost = str((spec.cost or {}).get("text", ""))
-            if spec.ability_kind != "activated" or not re.search(
-                rf"\bremove (?:all|\d+|x) {counter} counters? from ~(?:,|$)", cost,
-            ):
-                return False
+    if not _counters_removed_amounts_ok(spec):
+        return False
+    if any(
+        params.get("count") == "x" or params.get("max_mana_value") == "x"
+        for params in _dig_params(spec.effects, ("look_top_cast_free",))
+    ):
+        return False  # PAR-292 M19: the free-cast dig has no announced-X reading (only a bound `$n` count)
     if spec.ability_kind != "triggered":
-        return True
+        # PAR-292 M12: "shares a creature type with it / that creature" names the trigger's own source or creature; with
+        # no trigger the placeholder resolves to nothing, so the pick would silently offer no card.
+        return not any(
+            effect.type == "inspect_top_choose"
+            and isinstance((effect.params.get("criteria") or {}).get("shares_creature_type_with"), str)
+            for effect in spec.effects
+        )
+    # PAR-292 M19: the same holds for the "mana value X or less" bound (`dig.MV_X_MARKER`) of a dig's criteria.
+    # A dig inside a `bind` (a "where X is ..." clause) had its X rewritten to ``$n`` there, so what still reads "x" is unbound.
     return not any(
-        effect.type in ("inspect_top_choose", "look_top_select") and effect.params.get("count") == "x"
-        for effect in spec.effects
+        params.get("count") == "x" or reads_dig_x(params.get("criteria"))
+        for params in _dig_params(spec.effects)
     )
+
+
+def _dig_params(effects: Any, kinds: tuple[str, ...] = ("inspect_top_choose", "look_top_select")):
+    """The params of every dig effect (``kinds``) in an effect tree, nested ``effects`` lists included."""
+    for effect in effects or []:
+        kind = effect.type if isinstance(effect, EffectSpec) else effect.get("type")
+        params = (effect.params if isinstance(effect, EffectSpec) else effect.get("params")) or {}
+        if kind in kinds:
+            yield params
+        nested = params.get("effects")
+        if isinstance(nested, list):
+            yield from _dig_params(nested, kinds)
 
 
 def _that_player_antecedent_ok(spec: AbilitySpec) -> bool:
@@ -1009,6 +1590,8 @@ _THAT_MUCH_TRIGGER_FIELDS: dict[str, str] = {
     "LIFE_GAINED": "amount",
     "LIFE_LOST": "amount",
     "COUNTER": "amount",
+    # PAR-321 / RULE 122.6: `COUNTERS_REMOVED` carries the number removed in one batch (Chandra, Fire Artisan).
+    "COUNTERS_REMOVED": "amount",
 }
 
 
@@ -1023,6 +1606,15 @@ def _resolve_that_much_tree(node: Any, field: Optional[str], amount: Optional[di
     nested = _nested_trigger_context(node, None, "")
     if nested is not None:
         field, amount = _THAT_MUCH_TRIGGER_FIELDS.get(nested[0]), None
+    if node.get("kind") == "trigger_event" and node.get("field") == THAT_MANY_FIELD:
+        # PAR-292 M18: a dig's "that many cards" count operand (`catalogue/dig.py`).
+        if amount is not None:
+            node.clear()
+            node.update(amount)
+        elif field is None:
+            return False
+        else:
+            node["field"] = field
     if node.get("amount_from_trigger_event") == "that_much":
         if amount is not None:
             node.pop("amount_from_trigger_event")
@@ -1073,10 +1665,15 @@ def _resolve_event_player_tree(node: Any, event: str, context: tuple[str, Any, s
     allowed = node.pop(EVENT_PLAYER_EVENTS_KEY, None)
     if allowed is not None and event not in allowed:
         return False
-    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE"}
+    if (allowed is not None and isinstance(node.get("amount"), dict) and node["amount"].get("of") == "damaged_player"
+            and not _that_player_head_ok(*context, allow_prior_target=False)):
+        # PAR-284 milestone 23: a count about "they" under a damage head must be the damaged *player* (not a creature).
+        return False
+    if (allowed is not None and event in {"SPELL_CAST", "DAMAGE", "LAND_PLAYED", "LIFE_LOST", "STEP_BEGIN"}
             and (node.get("player") == {"of": "trigger_player", "as": "self"}
                  or node.get("referent") == "trigger_player"
-                 or node.get("controller_ref") == "trigger_player")
+                 or node.get("controller_ref") == "trigger_player"
+                 or node.get("digger") == "event_player")  # PAR-292 M20: "that player exiles cards ..."
             and not _that_player_head_ok(*context, allow_prior_target=False)):
         return False
     return all(_resolve_event_player_tree(value, event, context) for value in node.values())
@@ -1123,7 +1720,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         return ParseResult(specs=list(keyword_specs), coverage=NEVER_SUPPORTED)
     raw = _expand_ability_word_reminders(raw)
     if _is_spell(card):
-        # RULE 608.2c: on an instant or sorcery an "Infusion —"/"Addendum —"
+        # RULE 608.2c: on an instant or sorcery an ability-word ("Infusion —", "Addendum —", "Delirium —", "Fateful hour —", "Spell mastery —")
         # paragraph is the same spell ability's next instruction, so "that
         # creature"/"… instead" must see the paragraph before it.
         raw = _SPELL_RIDER_PARAGRAPH_RE.sub(r" \g<rider>", raw)
@@ -1342,7 +1939,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             # tapped-entry engine consumes the first sentence; continue with
             # the narrowly extracted second one so its enter replacement is
             # bound too.
-            choice_tail = tapped_entry_choice_tail(line)
+            choice_tail = tapped_entry_choice_tail(line) or tapped_entry_untap_tail(line)
             if choice_tail is None:
                 return
             line = choice_tail
@@ -1587,9 +2184,15 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             unclaimed.extend(f"• {b}" for b in mode_bodies)
             return
         options, descriptions = parsed
+        own_effects: list[EffectSpec] = []
+        if trigger.get(HAUNT_LINK_TRIGGER_KEY):
+            # RULE 702.55: the modal body itself is chosen as the trigger goes on the stack, so the marker carries
+            # no effects of its own; it only lets the exiled haunter's linked-death scan find this ability.
+            own_effects = [EffectSpec("haunt_linked_death", {"effects": []})]
+            trigger = {k: v for k, v in trigger.items() if k != HAUNT_LINK_TRIGGER_KEY}
         effect_specs.append(AbilitySpec(
             "triggered",
-            effects=[],
+            effects=own_effects,
             trigger=trigger,
             modes={
                 "or_both": or_both,
@@ -1708,6 +2311,30 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             unclaimed.extend(f"• {body}" for body in mode_bodies)
             return
         options, descriptions = parsed
+        modes = {
+            "or_both": or_both, "at_least": or_more, "repeatable": repeatable, "choose": choose,
+            "options": [[spec.to_dict() for spec in option] for option in options],
+            "descriptions": descriptions,
+        }
+        if cost == _REFLEXIVE_SACRIFICE_IT:
+            # The ordinary segmenter already reads "you may sacrifice it. When you do, <effect>" under a group
+            # trigger (the `sacrifice_self` of the trigger subject, optional); keep its antecedent and swap the
+            # placeholder payoff for the modal reflexive trigger.
+            probe = segment_line(
+                header[: header.index("when you do")] + "when you do, draw a card.",
+                allow_spell_effect=False, provenance=provenance,
+            )
+            antecedent = probe.spec.effects[:-1] if probe.claimed and probe.spec is not None else []
+            if len(antecedent) != 1 or antecedent[0].type != "sacrifice_self" or not probe.spec.optional:
+                all_claimed = False
+                unclaimed.append(header)
+                unclaimed.extend(f"• {body}" for body in mode_bodies)
+                return
+            effect_specs.append(AbilitySpec(
+                "triggered", [*antecedent, EffectSpec("reflexive_trigger", {"then_trigger_modes": modes})],
+                trigger=trigger, optional=True, raw_text=header, parser=provenance,
+            ))
+            return
         payment = EffectSpec("pay_cost_then", {
                 "cost": cost,
                 "then_trigger_modes": {
@@ -1997,6 +2624,9 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             if kind == "exile" and str(params.get("target_kind", "")).startswith("any_graveyard"):
                 params["remember"] = True
 
+    _link_exile_referents(effect_specs)
+    _respell_effect_revealed_referents(effect_specs)
+    _respell_cost_sacrificed_pools(effect_specs)
     for spec in effect_specs:
         # RULE 701.23a: "a card named Avarax" is a literal named quality,
         # even though normalization folded the printing's name to "~".
@@ -2020,7 +2650,8 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
         if not _action_limit_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
-        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec):
+        if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _sacrificed_mv_filter_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

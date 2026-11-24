@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ...models.cards.card_query import PERMANENT_CARD_TYPES
-from .core import GameEffect
+from .core import GameEffect, YOUR_CREATURES_GROUP
 from .. import continuations
 from ._runtime import install, register
 
@@ -644,6 +644,11 @@ class InstallTemporaryPlayerTriggerEffect(GameEffect):
         )
 
 
+#: Events whose "whenever that creature <acts> this turn" trigger stops with the chosen object (RULE 400.7). DIES and
+#: leaves-the-battlefield heads are not here: the death itself is the zone change the trigger waits for.
+LINKED_OBJECT_STAY_EVENTS = frozenset({"ATTACKS", "BECOMES_BLOCKED", "DAMAGE"})
+
+
 class CreateTurnTriggerEffect(GameEffect):
     """A spell or ability that creates a triggered ability lasting the turn (RULE
     603.7a) — "whenever a creature you control attacks this turn, create a 1/1 …"
@@ -690,6 +695,7 @@ class CreateTurnTriggerEffect(GameEffect):
         bake_previous_objects: bool = False,
         bake_source_object: bool = False,
         grant_zone: Optional[str] = None,
+        damaged_this_way: bool = False,
     ) -> None:
         super().__init__(source)
         self.trigger = dict(trigger or {})
@@ -713,12 +719,26 @@ class CreateTurnTriggerEffect(GameEffect):
         self.bake_previous_objects = bool(bake_previous_objects)
         self.bake_source_object = bool(bake_source_object)
         self.grant_zone = grant_zone
+        #: "Whenever a creature dealt damage this way dies this turn" (Ghired's Belligerence, Reckless Blaze,
+        #: Skeletonize): the trigger watches only the creatures the preceding damage clause hit
+        #: (`GameContext.damaged_this_way`), captured when this effect resolves.
+        self.damaged_this_way = bool(damaged_this_way)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..binding.core import bind_ability  # function-scoped: effects↔binder cycle
         from ...parser.oracle.spec import AbilitySpec, EffectSpec
+        from ...models.game.game_object import Zone
         from ...models.game.game_state import TurnScopedTrigger
 
+        dealt_damage_visits = None
+        if self.damaged_this_way:
+            # RULE 603.7c: the watched set is whatever the damage clause hit; nothing hit means nothing to watch.
+            dealt_damage_visits = {
+                o.instance_id: o.zone_incarnation for o in context.damaged_this_way
+                if getattr(o, "zone", None) == Zone.BATTLEFIELD
+            }
+            if not dealt_damage_visits:
+                return
         if not self.trigger.get("event") or not self.inner_specs:
             return
         if self.grant_zone is not None and (
@@ -727,6 +747,12 @@ class CreateTurnTriggerEffect(GameEffect):
         ):
             return
         trigger = dict(self.trigger)
+        chosen_object = None
+        if not self.grant_zone and (trigger.get("condition") or {}).get("subject") == "you":
+            controller = _controller_of(self.source, context)
+            if controller is None:
+                return
+            trigger["condition"] = {**trigger["condition"], "controller_id_override": controller.id}
         if self.target_spec is not None or self.previous_subject:
             if self.previous_subject:
                 chosen = [t for t in context.previous_targets if t is not None]
@@ -735,6 +761,7 @@ class CreateTurnTriggerEffect(GameEffect):
                 target = targets[0] if targets else None
             if target is None:
                 return  # RULE 608.2b: fizzle — no legal target remained
+            chosen_object = target
             trigger["condition"] = {
                 **dict(trigger.get("condition") or {}),
                 "instance_id_override": target.instance_id,
@@ -820,12 +847,16 @@ class CreateTurnTriggerEffect(GameEffect):
                 if isinstance(effect, SacrificeSpecificEffect):
                     effect.objects = list(baked_objects)
                     effect.incarnations = {o.instance_id: o.zone_incarnation for o in baked_objects}
+            linked = chosen_object if chosen_object is not None and trigger.get("event") in LINKED_OBJECT_STAY_EVENTS else None
             context.state.turn_scoped_triggers.append(
                 TurnScopedTrigger(one, None if self.grant_zone else context.state.internal_turn.number,
                     once=self.once,
-                    bound_object_id=self.source.instance_id if self.grant_zone else None,
-                    bound_incarnation=source_stay if self.grant_zone else None,
-                    bound_zone=self.grant_zone)
+                    bound_object_id=linked.instance_id if linked is not None
+                    else (self.source.instance_id if self.grant_zone else None),
+                    bound_incarnation=linked.zone_incarnation if linked is not None
+                    else (source_stay if self.grant_zone else None),
+                    bound_zone=self.grant_zone, ends_when_object_moves=linked is not None,
+                    dealt_damage_visits=dealt_damage_visits)
             )
 
 
@@ -1012,10 +1043,14 @@ class MayExileSourceThenEffect(GameEffect):
         self, then_trigger: Optional[list[dict[str, Any]]] = None,
         prompt: Optional[str] = None,
         source: Optional["GameObject"] = None,
+        required: bool = False,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
         self.prompt = prompt
+        #: "Exile it. When you do, ..." (Glissa's Retriever, RULE 603.12): the exile is not a choice, so it happens
+        #: at once and only the reflexive payoff follows.
+        self.required = required
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -1023,8 +1058,43 @@ class MayExileSourceThenEffect(GameEffect):
             return
         context.engine._request_exile_source_then(
             player, self.source, self.then_trigger_specs, prompt=self.prompt,
-            event=getattr(context, "trigger_event", None),
+            event=getattr(context, "trigger_event", None), required=self.required,
         )
+
+
+#: `ReflexiveTriggerEffect.carry_referent`: the antecedent's object is whatever it made or returned this resolution.
+CARRIED_CREATED = "created"
+
+
+class CarriedAntecedentEffect(GameEffect):
+    """RULE 603.12 + 608.2h (PAR-286): the first instruction of a reflexive trigger whose payoff names the antecedent's
+    object ("Create a 4/4 token. When you do, **it** deals damage equal to its power ...", "Amass Orcs 2. When you do,
+    ~ deals X damage ..., where X is the amassed Army's power").
+
+    The reflexive trigger is a fresh ability with its own resolution, so what the antecedent made is gone from the
+    context by then. `RulesEngine.enqueue_reflexive_trigger` records those objects here together with the zone visit
+    each was in (RULE 400.7); on resolution this seeds `GameContext.previous_targets`, the referent every payoff
+    reader already uses for "it" / "that creature". An object that has since changed zones is a new object (RULE
+    400.7), so the payoff never touches the new one: it reads the departed visit's last-known snapshot
+    (`GameState.zone_visit_sources`, taken as it left the battlefield, RULE 608.2h / 113.7a) for a source's damage
+    or amount, and an instruction that needs the object still in play (a fight, RULE 701.14b) finds it gone and does
+    nothing. A visit with no snapshot (it never left the battlefield) is dropped. The seeding consumes no target.
+    """
+
+    def __init__(self, objects: list[Any], source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.carried = [(obj, getattr(obj, "zone_incarnation", None)) for obj in objects]
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        seeded: list[Any] = []
+        for obj, visit in self.carried:
+            if getattr(obj, "zone_incarnation", None) == visit:
+                seeded.append(obj)
+                continue
+            last_known = context.state.zone_visit_sources.get((getattr(obj, "instance_id", None), visit))
+            if last_known is not None:
+                seeded.append(last_known)
+        context.previous_targets = seeded
 
 
 class ReflexiveTriggerEffect(GameEffect):
@@ -1045,18 +1115,31 @@ class ReflexiveTriggerEffect(GameEffect):
         self, then_trigger: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
         then_trigger_condition: Optional[dict[str, Any]] = None,
+        then_trigger_modes: Optional[dict[str, Any]] = None,
+        carry_referent: Optional[str] = None,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 603.12 + 608.2h (PAR-286): the antecedent's object the payoff names ("it", "the amassed Army"). The only
+        #: vocabulary is `CARRIED_CREATED`: what the instruction before it made / returned / amassed
+        #: (`GameContext.created_objects`). Anything else carries nothing (the readers ignore unknown keys).
+        self.carry_referent = carry_referent
+        #: RULE 603.12 + 700.2b: a modal reflexive trigger ("When you do, choose one —"); its modes are chosen as it is put on the stack.
+        self.then_trigger_modes = dict(then_trigger_modes or {})
         #: RULE 603.12 + 603.4: "When you do, if <condition>, <effect>" -- checked as the reflexive trigger is
         #: created, so a false condition puts nothing on the stack and announces no target.
         self.then_trigger_condition = then_trigger_condition
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.source is None or not self.then_trigger_specs:
+        if self.source is None or not (self.then_trigger_specs or self.then_trigger_modes):
             return
+        carried = (
+            [o for o in context.created_objects if o is not None]
+            if self.carry_referent == CARRIED_CREATED else None
+        )
         context.enqueue_reflexive_trigger(
-            self.then_trigger_specs, self.source, condition=self.then_trigger_condition)
+            self.then_trigger_specs, self.source, condition=self.then_trigger_condition,
+            modes=self.then_trigger_modes or None, carried_objects=carried)
 
 
 class PayCostThenEffect(GameEffect):
@@ -1459,30 +1542,20 @@ class UntapSelfEffect(GameEffect):
 
 
 class ReboundFreeCastWindowEffect(GameEffect):
-    """RULE 702.88b Rebound's delayed half: "At the beginning of your next
-    upkeep, you may cast this card from exile without paying its mana
-    cost." Fires as a `DelayedTrigger`'s effect, armed by `RulesEngine.
-    resolve_top_of_stack` when a `GameObject.has_rebound` card resolves
-    having been cast from hand (Ephemerate-shaped).
+    """RULE 702.88: offer the exact exiled card once during the next upkeep."""
 
-    Modeled as a *standing* temp-cast permission (`GameState.temp_play_
-    permissions`, already known to `can_cast`/`cast_spell`) plus `GameState.
-    free_cast_instance_ids` to zero the mana cost, rather than a forced
-    yes/no choice at this trigger's own resolution: RULE 702.88b's delayed
-    ability really does ask "you may cast X" right then, but this engine has
-    no synchronous mid-resolution chooser for a one-shot optional action
-    (`RulesEngine.discard`'s "auto-choose, no chooser in this MVP" is the
-    same fidelity level elsewhere). Same-turn-only (swept at this upkeep's
-    own cleanup, `GameEngine._step_cleanup`) — "use it this turn or lose
-    it", matching Rebound's real one-shot window closely enough without new
-    step-scoped cleanup machinery.
-    """
+    def __init__(self, source=None):
+        super().__init__(source)
+        self.exile_incarnation = getattr(source, 'zone_incarnation', None)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         obj = self.source
-        if obj is None or obj.zone != Zone.EXILE:
+        if (obj is None or obj.zone != Zone.EXILE
+                or obj.zone_incarnation != self.exile_incarnation):
             return
-        context.engine.grant_free_cast_window_from_exile(obj)
+        controller = _controller_of(obj, context)
+        if controller is not None:
+            context.engine._request_resolution_play(controller, [obj], free=True, only_spells=True)
 
 
 class TheRingTemptsYouEffect(GameEffect):
@@ -1647,6 +1720,10 @@ class ChooseObjectsEffect(GameEffect):
             minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
         )
 
+    def _defending_chooser(self, context: GameContext) -> Optional[Any]:
+        """The attacked player a combat trigger's event names, else the player the source (or its host) attacks."""
+        return _combat_defending_player(context) or _defending_player_of(self.source, context)
+
     def pool_candidates(
         self, context: GameContext, targets: Optional[list[Any]] = None,
     ) -> Optional[tuple[Any, list[Any]]]:
@@ -1660,6 +1737,11 @@ class ChooseObjectsEffect(GameEffect):
             player = targets[0] if targets else None
         elif self.player_selector == "active_player":
             player = context.state.active_player
+        elif self.player_selector == "defending_player":
+            # PAR-317, RULE 506.2 / 508.1b: "defending player chooses / sacrifices / exiles ..." -- the player the source
+            # attacks makes the pick (not its controller), from their own objects. No defender (RULE 506.2: nobody to
+            # defend, or the source is not attacking) means no chooser, so nothing happens.
+            player = self._defending_chooser(context)
         else:
             player = _controller_of(self.source, context)
         if player is None:
@@ -1869,8 +1951,16 @@ class ChoosePlayerObjectsEffect(GameEffect):
                  card_types_any=None, declined_ids=None, else_effects=None, permanent_filter=None,
                  else_simultaneous=False, start_with_next_opponent=False, keep_types=None, keep_state=None,
                  keep_count=None, keep_up_to=False, rest_action="sacrifice", victim_filter=None,
-                 act_on_chosen=False):
+                 act_on_chosen=False, sacrifice_what=None, sacrifice_count=1, sacrifice_fraction=None):
         super().__init__(source)
+        #: PAR-320: how many permanents each chooser picks -- a fixed ``sacrifice_count`` ("each player sacrifices X
+        #: lands") or ``sacrifice_fraction`` (``{"divisor": 2, "round_up": False}``: "half the creatures they control",
+        #: RULE 107.1a rounds down unless the card says up), counted over that chooser's own eligible pool.
+        self.sacrifice_count = sacrifice_count if isinstance(sacrifice_count, int) and sacrifice_count > 0 else 1
+        self.sacrifice_fraction = dict(sacrifice_fraction) if isinstance(sacrifice_fraction, dict) else None
+        #: PAR-319: a `_matches_permanent_type` word narrowing the sacrificable pool beside ``permanent_filter`` -- the
+        #: mass edict "each player sacrifices a nontoken creature of their choice" (`SacrificeEffect`) reads it.
+        self.sacrifice_what = sacrifice_what
         #: MEC-127 "chooses N <permanents> they control, then sacrifices/destroys the rest": one pick of ``keep_count``
         #: (``keep_up_to`` for "up to N") from the pool instead of one pick per ``keep_types`` category.
         self.keep_count = keep_count  # validated in `_choose_keepers`, which fails closed on a non-positive/non-int value
@@ -1904,6 +1994,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
 
     def apply(self, context, targets=None):
         from .. import combat
+        from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules<->effects cycle
 
         controller = _controller_of(self.source, context)
         if controller is None:
@@ -1939,6 +2030,7 @@ class ChoosePlayerObjectsEffect(GameEffect):
                 candidates = (list(player.hand) if self.action == "discard_or_sacrifice" else []) + [
                     o for o in context.state.permanents_controlled_by(player.id)
                     if not o.cant_be_sacrificed_this_turn
+                    and (self.sacrifice_what is None or _matches_permanent_type(o, self.sacrifice_what))
                     and (self.card_types_any is None or set(self.card_types_any) & o.type_words)
                     and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)]
             params = {"player_ids": remaining[1:], "chosen_ids": list(self.chosen_ids),
@@ -1946,17 +2038,30 @@ class ChoosePlayerObjectsEffect(GameEffect):
                       "action": self.action, "optional": self.optional, "card_types_any": self.card_types_any,
                       "declined_ids": self.declined_ids, "else_effects": self.else_effects,
                       "permanent_filter": self.permanent_filter, "else_simultaneous": self.else_simultaneous,
-                      "start_with_next_opponent": self.start_with_next_opponent}
+                      "start_with_next_opponent": self.start_with_next_opponent,
+                      "sacrifice_what": self.sacrifice_what, "sacrifice_count": self.sacrifice_count,
+                      "sacrifice_fraction": self.sacrifice_fraction}
+            pick_count = self.sacrifice_count
+            if self.sacrifice_fraction is not None:
+                from ..effect_amounts import pool_fraction  # function-scoped: effects<->amounts cycle
+
+                # Count all matching controlled permanents, even ones that cannot be sacrificed.
+                population = sum(
+                    (self.sacrifice_what is None or _matches_permanent_type(o, self.sacrifice_what))
+                    and combat.matches_object_filter(o, self.permanent_filter, reference=self.source, state=context.state)
+                    for o in context.state.permanents_controlled_by(player.id))
+                pick_count = pool_fraction(population, int(self.sacrifice_fraction.get("divisor", 2)),
+                                           bool(self.sacrifice_fraction.get("round_up")))
             declined = {"type": "choose_player_objects", "params": {
                 **params, "declined_ids": self.declined_ids + [player.id],
             }}
-            if not candidates:
+            if not candidates or pick_count <= 0:
                 context.engine._apply_effect_specs([declined], self.source)
                 return
             continuation = {"type": "choose_player_objects", "params": {
                 **params, "chosen_ids": self.chosen_ids + [{"kind": "chosen_instance_ids"}],
             }}
-            context.choose_objects(player, candidates, "select_referent", count=1,
+            context.choose_objects(player, candidates, "select_referent", count=min(pick_count, len(candidates)),
                                    source=self.source, then_specs=[continuation], optional=self.optional,
                                    else_specs=[declined],
                                    prompt="Handkarte abwerfen oder Permanent opfern" if self.action == "discard_or_sacrifice"
@@ -1981,6 +2086,8 @@ class ChoosePlayerObjectsEffect(GameEffect):
                 if obj.zone == Zone.HAND:
                     context.discard_specific(obj, cause=self.source)
                 elif obj.zone == Zone.BATTLEFIELD and not obj.cant_be_sacrificed_this_turn:
+                    if self.action == "sacrifice":
+                        context.engine.note_sacrificed(self.source, obj)  # RULE 608.2h, as the chooser's own sacrifice does
                     context.engine.put_into_graveyard(obj)
                 else:
                     continue
@@ -2148,6 +2255,10 @@ class ChoosePlayerObjectsEffect(GameEffect):
         return f"{label} behalten"
 
 
+#: RULE 701.50f: the spec `ConniveEffect` runs after the chosen discard (`ConnivedEventEffect`).
+_CONNIVED_EVENT_SPEC = {"type": "connived_event", "params": {}}
+
+
 class ConniveEffect(GameEffect):
     """"`<permanent>` connives[ N]." (RULE 701.47/701.50, MEC-43 — Ledger
     Shredder; PAR-29): its controller draws a card, then discards a card; if
@@ -2279,10 +2390,14 @@ class ConniveEffect(GameEffect):
             before = getattr(state, "pending_choice", None)
             context.draw(player, times)
             if player.hand:
+                # RULE 701.50f: the permanent connives once the discard (and its counters) are done, so the event is
+                # the chosen discard's own tail; a pick that never happens (empty hand) fires it below.
                 context.engine._request_choose_objects(
                     player, list(player.hand), "discard", count=min(times, len(player.hand)),
-                    source=obj, connive=True,
+                    source=obj, connive=True, then_specs=[_CONNIVED_EVENT_SPEC],
                 )
+            else:
+                ConnivedEventEffect(source=obj).apply(context)
             opened = getattr(state, "pending_choice", None)
             if opened is not None and opened is not before and i + 1 < len(queue):
                 remainder = ConniveEffect(source=self.source)
@@ -4053,19 +4168,27 @@ class ExtraCombatPhaseEffect(GameEffect):
     """
 
     def __init__(self, main_phase_too: bool = False, source: Optional["GameObject"] = None,
-                 after_current_phase: bool = False, untap_at_beginning: bool = False) -> None:
+                 after_current_phase: bool = False, untap_at_beginning: bool = False,
+                 after_second_main: bool = False, untap_attacked_this_turn: bool = False) -> None:
         super().__init__(source)
         self.main_phase_too = main_phase_too
         self.after_current_phase = after_current_phase
         self.untap_at_beginning = untap_at_beginning
+        self.after_second_main = after_second_main
+        self.untap_attacked_this_turn = untap_attacked_this_turn
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        if self.after_current_phase or self.untap_at_beginning:
+        if self.after_current_phase or self.untap_at_beginning or self.after_second_main:
             controller = _controller_of(self.source, context)
             context.state.pending_extra_combats.append({
                 "main_phase_too": self.main_phase_too,
                 "after_current_phase": self.after_current_phase,
-                "untap_controller_id": controller.id if controller and self.untap_at_beginning else None,
+                "after_second_main": self.after_second_main,
+                "untap_controller_id": controller.id if controller and (
+                    self.untap_at_beginning or self.untap_attacked_this_turn) else None,
+                "untap_selector": (
+                    {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacked_this_turn": True}}
+                    if self.untap_attacked_this_turn else None),
             })
         else:
             context.state.pending_extra_combats.append(self.main_phase_too)
@@ -4080,6 +4203,8 @@ class GrantProtectionEffect(GameEffect):
     grant_protection_choice`) for the effect's controller; the chosen quality
     lands in ``target.temp_protections`` (cleared at cleanup, RULE 514.2).
     ``allow_colorless`` is Giver of Runes' extra option.
+    A battlefield ``selector`` grants one chosen color to the entire
+    untargeted group, with recipients fixed when the choice opens.
     """
 
     def __init__(
@@ -4088,6 +4213,7 @@ class GrantProtectionEffect(GameEffect):
         allow_colorless: bool = False,
         previous_subject: bool = False,
         group: Optional[dict[str, Any]] = None,
+        selector: Any = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
@@ -4096,13 +4222,14 @@ class GrantProtectionEffect(GameEffect):
         #: color" (Bathe in Light, MEC-126): ``{"shares", "filter"}`` — the one colour pick covers the target
         #: and its sharing group (`composition.shared_characteristic_group`).
         self.group = dict(group) if group else None
+        self.selector = selector
         #: "~ gains protection from the color of your choice until end of
         #: turn" (Jareth, Cartel Aristocrat, …) — no RULE 115 target, act on
         #: this effect's own source.
         self.previous_subject = previous_subject
         self.target_spec = (
             TargetSpec(kind=target_kind)
-            if target_kind is not None and not previous_subject else None
+            if target_kind is not None and not previous_subject and selector is None else None
         )
 
     def target_polarity(self) -> Optional[str]:
@@ -4111,6 +4238,13 @@ class GrantProtectionEffect(GameEffect):
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         controller = _controller_of(self.source, context)
         if controller is None:
+            return
+        if self.selector is not None:
+            from ..continuous import group_selector_objects
+
+            members = group_selector_objects(context.state, controller.id, self.selector, src=self.source)
+            if members:
+                context.engine.grant_protection_choice(members[0], controller, self.allow_colorless, also=members[1:])
             return
         if self.previous_subject:
             recipients = list(context.previous_targets)
@@ -4136,12 +4270,12 @@ class GrantFixedProtectionGroupEffect(GameEffect):
     """Give each selected creature protection from one fixed colour this turn."""
 
     def __init__(
-        self, color: str, selector: str = "creatures_you_control",
+        self, color: str, selector: "Optional[dict[str, Any]]" = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.color = str(color).upper()
-        self.selector = selector
+        self.selector = selector if selector is not None else dict(YOUR_CREATURES_GROUP)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ..continuous import group_selector_objects
@@ -4162,12 +4296,12 @@ class GrantCantBeTargetOfSpellColorEffect(GameEffect):
     """
 
     def __init__(
-        self, colors: Optional[list[str]] = None, selector: str = "creatures_you_control",
+        self, colors: Optional[list[str]] = None, selector: "Optional[dict[str, Any]]" = None,
         source: Optional["GameObject"] = None,
     ) -> None:
         super().__init__(source)
         self.colors = [str(c).upper() for c in (colors or [])]
-        self.selector = selector
+        self.selector = selector if selector is not None else dict(YOUR_CREATURES_GROUP)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if not self.colors:
@@ -4179,6 +4313,31 @@ class GrantCantBeTargetOfSpellColorEffect(GameEffect):
             context.state, controller_id, self.selector, src=self.source,
         ):
             obj.temp_cant_be_target_of_spell_colors.update(self.colors)
+
+
+class GrantCantBeTargetOfOpponentsEffect(GameEffect):
+    """"Target creature can't be the target of spells or abilities your opponents control this turn" (Vines of
+    Vastwood). RULE 115.4: a plain targeting restriction on the object, stored as the turn-scoped
+    `GameObject.temp_cant_be_target_of_opponents` -- never the hexproof keyword (RULE 702.11b), so it is not reported
+    by `combat.has_hexproof` and a "loses hexproof" effect leaves it alone. ``previous_subject`` reads the creature an
+    earlier clause chose."""
+
+    def __init__(
+        self, target_kind: Optional[str] = "creature", previous_subject: bool = False,
+        source: Optional["GameObject"] = None,
+    ) -> None:
+        super().__init__(source)
+        self.previous_subject = previous_subject
+        self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None and not previous_subject else None
+
+    def target_polarity(self) -> Optional[str]:
+        return "beneficial"
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        recipients = list(context.previous_targets) if self.previous_subject else list(targets or [])
+        for obj in recipients:
+            if obj is not None:
+                obj.temp_cant_be_target_of_opponents = True
 
 
 class LoseGameEffect(GameEffect):
@@ -4312,7 +4471,6 @@ class ReturnExiledCreatureAndAuraEffect(GameEffect):
             context.return_from_graveyard(aura, "battlefield", attach_to=creature)
 
 
-register(globals())
 
 
 def offer_opponent_decision(rules, controller, decision):
@@ -4336,3 +4494,65 @@ def _resume_opponent_decider(rules, choice, answer):
         rules.open_choice(choice)
         raise ValueError("Choose a listed opponent")
     rules.open_choice({**choice["decision"], "player_id": answer})
+
+
+#: The `GameEvent` data kinds the `effect_option` choice carries across the pause: plain scalars, so the choice stays
+#: JSON-serialisable for clone / undo / the wire (`GameEvent.to_dict` keeps the same set).
+_EVENT_SCALARS = (str, int, float, bool, type(None))
+
+
+class ChooseEffectOnResolutionEffect(GameEffect):
+    """RULE 608.2d: "<instruction A> or <instruction B>" -- the ability's controller picks one instruction as the ability
+    *resolves* (not when it is put on the stack, which is what a RULE 700.2 "choose one" mode does), and only that
+    instruction is carried out.
+
+    ``options`` is a list of serialized effect lists (``{"type", "params"}`` dicts) and ``descriptions`` labels them. The
+    choice is a normal pending choice for the controller (a bot goes through the same path; nothing is auto-picked). It
+    keeps the firing event's scalar data and the source, so a trigger-subject reference inside the chosen list still
+    reads the object the trigger named when the chosen list is applied after the pause (`_resume_effect_option`).
+    """
+
+    def __init__(self, options: Optional[list[list[dict[str, Any]]]] = None,
+                 descriptions: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+        super().__init__(source)
+        self.options = [list(option) for option in (options or []) if option]
+        self.descriptions = list(descriptions or [])
+
+    def apply(self, context, targets=None):
+        controller = _controller_of(self.source, context)
+        if controller is None or not self.options:
+            return
+        event = context.trigger_event
+        context.engine.open_choice({
+            "kind": "effect_option", "player_id": controller.id,
+            "prompt": "Wähle eine Anweisung",
+            "options": [
+                {"id": str(index), "label": self.descriptions[index] if index < len(self.descriptions) else str(index + 1)}
+                for index in range(len(self.options))
+            ],
+            "effect_lists": self.options,
+            "source_id": getattr(self.source, "instance_id", None),
+            "event_type": getattr(event, "type", None),
+            "event_data": {k: v for k, v in (getattr(event, "data", None) or {}).items()
+                           if isinstance(v, _EVENT_SCALARS)},
+        })
+
+
+@continuations.choice("effect_option", answer=continuations.ANSWER_STR, rule="608.2d")
+def _resume_effect_option(rules, choice, answer):
+    if answer not in {o["id"] for o in choice["options"]}:
+        rules.open_choice(choice)
+        raise ValueError("Choose a listed instruction")
+    from ...models.game.events import GameEvent  # function-scoped: keep this module's import surface unchanged
+
+    context = rules.context
+    saved = context.trigger_event
+    if choice.get("event_type") is not None:
+        context.trigger_event = GameEvent(choice["event_type"], **choice.get("event_data", {}))
+    try:
+        rules._apply_effect_specs(choice["effect_lists"][int(answer)], rules._object_by_instance_id(choice.get("source_id")))
+    finally:
+        context.trigger_event = saved
+
+
+register(globals())

@@ -30,6 +30,184 @@ same continuation methods when imported by the composition. Shared predicates,
 constants and serialized-branch helpers live in `misc_helpers.py` and remain
 re-exported from `misc_mixin.py` for existing callers.
 
+## Explicit phasing effects
+
+`phase_out` with `trigger_subject=True` reads the triggering permanent and its
+`instance_zone_incarnation` from the event, so a later zone visit cannot be
+phased out by that trigger. Explicit phasing preserves attachment links and
+sets `phased_out_with` on indirect attachments to the directly phased-out root,
+including nested attachments. The existing untap sweep returns the whole group
+together regardless of attachment controllers. Phasing emits `PHASED_OUT`
+before visibility changes, removes combat assignments without making an
+opposing blocked attacker unblocked, and preserves counters and zone visits
+(RULE 702.26b/d/g, 506.4).
+
+`phase_out` with `selector="artifacts_and_creatures"` snapshots all players’
+matching permanents and phases the whole group out together. An Equipment
+selected directly and attached to another selected permanent instead phases
+indirectly (702.26h), independent of battlefield order. A live
+`phase_in_prohibition` static suppresses both direct and indirect phase-in
+during untap; the check precedes simultaneous phase-out. Removing, phasing out,
+or stripping abilities from its source ends the prohibition. Covered by
+`test_the_city_on_the_edge_of_forever.py`.
+
+Group trigger predicates resolve their source’s controller from the current
+state when checking an event, including after control changes and cloning;
+“you” is not frozen when the ability is bound (RULE 109.5).
+
+## Cycling self triggers
+
+The extra `CYCLED` trigger scan finds only the cycled object by the event’s
+`instance_id`, wherever its discard cost put it. Discard replacements can leave
+it in exile or another zone; the trigger is not graveyard-only (RULE 702.29c).
+Battlefield cycling payoffs use the ordinary permanent scan, so this extra scan
+skips a cycled object already on the battlefield and does not wake unrelated
+cycling payoffs in graveyards.
+
+## Static keywords on cast spells
+
+`grant_spell_keyword` uses the `spell_keyword` static layer and re-derives
+`GameObject._granted_spell_keywords` for stack spells each continuous pass.
+`artifact_mana_spent` reads the actual completed payment, including Treasure
+and artifact-creature mana, rather than mana remaining in the pool.
+`cast_by_player_id` is stamped when a spell is cast and cleared on a new zone
+visit; changing control of the stack item does not change who cast it.
+Spell copies that were not cast do not qualify. Static removal and source
+control changes are reflected on the next recompute (RULE 611.3a).
+
+Cast announcement recomputes after the spell joins the stack and before the
+cast event is dispatched, so a conditional split-second grant already applies
+when players next receive priority (RULE 702.61a).
+
+## Ownership-scoped card types across zones
+
+`grant_owned_card_type` re-derives `GameObject._owned_card_added_types` for
+matching cards owned by the source’s current controller across personal zones,
+the battlefield and the stack. It excludes tokens, face-down cards and
+phased-out permanents. Keyword-dependent membership is evaluated after ability
+grants. Previously affected objects are cleared before the next continuous
+pass, including objects that changed zones or whose source left or lost its
+abilities. Clone state owns its own tracked objects.
+
+`type_words`, `is_instant`/`is_sorcery` and `characteristic_card()` expose the
+derived types without mutating printed/copiable `Card` data. Instant/sorcery
+graveyard and stack-target filters use these derived predicates. Hybrid
+playtest spells with a permanent card type resolve as permanents even when
+their printed type line also includes Instant; this permits the intended
+Instant Creature behaviour. The Mystery Booster [release notes](https://magic.wizards.com/en/news/feature/mystery-booster-release-notes-2019-11-11)
+explicitly require accommodating playtest cards’ unusual rules structures.
+
+## Next-spell flash riders
+
+A `grant_flash_until_eot` with `next_only=True` may carry `entry_counters`
+and `cant_be_countered`. Casting the next matching spell consumes all matching
+grants, aggregates their entry counters into that spell’s `entry_bonus_counters`
+and stamps `cast_uncounterable`. These riders follow the cast spell through
+control changes, rather than applying to every creature that enters this turn.
+The existing entry-counter collection applies the bonus before entry together
+with printed counters. A new zone visit clears the bound riders; an unused
+grant expires at cleanup. Clone state preserves unconsumed and bound grants.
+
+Next-spell flash grants may also carry an `object_filter`. The same predicate
+checks permission and consumes the grant on cast. `of_chosen_type=True` freezes
+the source’s linked entry choice into a literal subtype filter, which also
+matches changeling. Activated abilities snapshot `source_chosen_type` before
+costs so a departed or returned source cannot replace the old ability’s choice.
+A mandatory entry-time creature-type choice with no in-game type suggestions
+falls back to the complete legal creature-type vocabulary instead of being
+skipped.
+
+
+## Static costs and flash after ability removal
+
+Spell-cost reductions and standing flash permissions reject a static ability
+when `_static_ability_ceased` reports that its source lost that ability.
+The same predicate preserves resolved floating effects and later granted
+statics. These non-characteristic queries must not keep using printed statics
+merely because they remain bound on the source after layer-6 removal.
+
+## Turn-long filtered flash and cast-time ability grants
+
+`grant_flash_until_eot` with `spell_filter` creates a repeatable filtered
+timing grant. The shared flash-grant collection records `next_only=False`, so
+matching casts leave it active until cleanup; legacy next-spell grants still
+consume on the first matching cast.
+
+`create_turn_trigger` freezes “you” in its created trigger condition using
+`controller_id_override`. The created ability’s controller must not follow a
+dead source into its owner’s graveyard or change when the source changes
+controller later.
+
+`grant_until(previous_subject=True, referent="trigger_subject")` captures the
+exact cast spell named by the event and rejects a later zone visit. Its
+existing stack-to-permanent continuous-effect bridge carries a granted ability
+onto that spell’s resulting permanent, not onto a later return. Stack spells’
+derived triggered-ability grants are cleared each continuous pass before they
+are rebuilt, avoiding duplicate granted abilities across recomputations.
+
+## Enchant-qualified flash permissions
+
+`flash_permission.enchant_quality` requires an Aura spell with that exact bound
+Enchant quality, not merely an Aura that can legally target some creature.
+`has_standing_flash_permission(..., as_bestow=True)` considers a valid proposed
+Bestow choice as an Aura with enchant creature before the timing check
+(RULE 601.3b). The normal creature form receives no such permission.
+
+## Printing-scoped spell permissions and costs
+
+`flash_permission` and `cost_reduction` accept `set_codes`; both use the same
+case-insensitive exact printing-code predicate. A card with an unknown code
+cannot qualify for a printing-scoped effect. Matching another printing of the
+same Oracle card is insufficient.
+
+The Keeper catalogue identifies Secret Lair printings with SLD (Drops), SLP
+(Promos), SLU (Ultimate Edition), SLC (Countdown) and SLZ (Zeta). Universes
+Within (SLX) and ordinary set printings are excluded. The [official Everyone’s
+Invited printing breakdown](https://magic.wizards.com/en/news/announcements/secret-lair-everyones-invited-commander-decklist)
+distinguishes SLD cards from accompanying reprints carrying original set codes;
+the engine uses the selected card’s stored printing code.
+
+## Flash bundled with linked exile permission
+
+`linked_exile_permission` with `flash=True` is consulted by the standing flash
+query using the same live permission reader as its exile-zone and mana-wildcard
+checks. Its `active_if` gate, current controller, source ability availability
+and exact source/card zone visits therefore scope the timing benefit too.
+
+Ordered opponent exile choices use the common object chooser’s `then_specs`
+and `else_specs`; an empty first pool still proceeds to the graveyard choice.
+Each choice records the original resolving source visit, even when that source
+leaves between choices. This preserves the links without reviving a departed
+source’s static permission.
+
+## Proposed cast choices in conditional timing
+
+`conditional_flash_holds(..., announced_x=..., announced_teamwork=...,
+announced_additional=...)`
+evaluates structured timing conditions against a shallow proposal object
+carrying those proposed choices. Spell legality
+passes its current X, Teamwork and optional-additional-cost arguments; loyalty timing keeps its existing live-object
+behaviour. A `can_cast` preview never overwrites the actual object’s `x_paid`
+or trusts a stale value from an earlier proposal. Teamwork proposals use the
+existing `flag: teamwork_paid` condition, and the normal Teamwork selection
+check still validates the required untapped creatures and total power.
+This is a timing permission,
+so independent flash permission can still allow a larger X.
+
+## Chosen tap costs on spells
+
+A spell’s `additional_cost` may contain `tap_others: [count, permanent_word]`;
+its existing qualifier matcher handles `creature_flying`. `can_cast` and the
+actual payer receive the same explicit `tap_choices` and validate exact count,
+distinctness, untapped status, controller and the required qualities. The
+selection is not routed through Escalate when only the additional tap cost
+applies. Omitting picks keeps the established non-interactive fallback.
+
+An optional tap payment can gate `conditional_flash` using the proposed
+`additional_cost_paid` flag. Cost validation still runs, so merely choosing
+to pay does not create permission when the creatures are unavailable. The
+cast uses ordinary timing without that payment whenever otherwise legal.
+
 ## Identity and snapshots
 
 - Room-name searches freeze the names of currently unlocked controlled doors
@@ -138,6 +316,89 @@ re-exported from `misc_mixin.py` for existing callers.
   trigger or a chapter from an older source visit does not protect a Saga.
 
 ## Resolution
+
+- Explicit `activation_zones` may include exile. Granted off-battlefield
+  abilities can retain `granted_zone_incarnation`, checked by activation
+  legality so returning to exile does not restore an old grant. Exile-zone
+  abilities appear in their owner's legal actions. Q shuffles first, exiles
+  through the first nonland, and grants only that card a repeatable own-turn
+  hand-exile cost. `copy_imprinted_card.from_self` supports `optional_cast`
+  with normal mana costs; uncast copies cease when their resolution-local
+  window closes, and cast permanent card-copies become tokens as they resolve
+  (RULE 707.10f/707.12). Covered by `test_q_stacking_the_deck.py`.
+
+- Resolution-local play windows support `copy_for_player_id` and
+  `draw_if_no_cast_player_id`: once the offered player finishes the actual
+  hand cast, copy that exact stack spell for the captured controller, with
+  new-target choices, before either resolves. Declining or having no castable
+  hand spell draws once for that controller, through normal draw replacements.
+  The selection reveals no hand cards to other seats and survives clone/undo;
+  additional costs are paid only for the original cast and their copied
+  information follows the spell. Covered by `test_cmdr_troi_outgoing_empath.py`.
+
+- `graveyard_cast_permission.outside_game` also permits playing owned
+  permanent cards from the loaded outside-game pool (RULE 400.11), including
+  lands. Both zones and both play kinds share `cross_zone_play_used_turn` on
+  the granting source; the turn stamp renews independently of untapping and
+  resets on a new source visit. Casts consume the use even if countered;
+  unsuccessful attempts and ordinary hand plays do not. Permission checks use
+  the actual modal face, and outside lands appear in legal actions and leave
+  the sideboard when played. Covered by `test_the_holodeck.py`.
+
+- Paired next-spell undaunted grants retain separate artifact-creature and
+  Spacecraft slots per resolving effect. A spell matching both consumes both
+  slots but receives one instance from that effect; independent resolutions
+  stack. Queries and failed casts do not consume grants; successful casts do,
+  even if free or later countered. Cleanup expires unused slots. Undaunted
+  reduces generic mana in the total cost, including commander tax and
+  additional mana costs, counts only living opponents, and preserves cost
+  floors (RULE 601.2f/702.125). Main-phase STEP_BEGIN events carry the actual
+  `main_phase_number` for first-main triggers, including skipped or inserted
+  phases. Covered by `test_v_x_child_of_the_collective.py`.
+
+- `extra_combat_phase.after_second_main` waits until the second actual main
+  phase ends (RULE 505.1b), counting inserted phases and excluding skipped
+  ones. Later requests cannot insert phases retroactively; unresolved requests
+  expire with the turn. Each inserted combat retains its own respondable
+  untap trigger; `untap_attacked_this_turn` selects current creatures that
+  attacked, regardless of controller. A new zone visit clears attack history.
+  Rebound now offers its exact exiled visit only during the next own upkeep's
+  delayed-trigger resolution, with no residual cast permission on declining
+  (RULE 702.88). Covered by `test_world_at_war.py`.
+
+- `exile.spell_filter` narrows stack targets through the shared spell
+  predicate. Stack spell targets recheck type/controller restrictions at
+  resolution, whether supplied as a `GameObject` or `StackItem`. Optional
+  effects retain stack IDs across their pending decision and clone/undo.
+  Resolution-local `noncreature_only` permissions validate the chosen spell
+  face, including Adventure and modal DFC sides, instead of only filtering
+  front-face cards in hand. Covered by `test_brazen_bluff.py`.
+
+- Opponent-by-opponent land selection first exiles all opponents' library-top
+  pools using one resolution-time count, then defers one mandatory selection
+  per owner. Pool IDs and exile incarnations survive each pending choice and
+  cloning. `choose_objects` action `grant_temp_play_standing` validates the
+  offered visit and gives only that selected card a lasting play permission;
+  normal timing and land-drop limits still apply. Covered by
+  `test_ensign_pavel_chekov.py`.
+
+- Resolution-local play windows can retain a separate `bottom_player_id` and
+  exact `bottom_visits` for the whole exiled pool. Declining, finding no
+  castable spell, or completing the permitted cast bottoms the remaining
+  original visits in random order in that player's library, before the new
+  spell resolves. A cast-only window never permits playing a land, including
+  through `can_play_land`. Covered by `test_lieutenant_nyota_uhura.py`.
+
+- `become_copy_of_target_until_eot.group_word` captures the resolving
+  controller's matching permanent group and copies the one announced target
+  into each member (RULE 611.2c/707.2). Members are not targeted; later arrivals
+  are not included. Copies preserve token status and attachments and unwind
+  their ordered duration layers at cleanup. `attach.target_kind="source"`
+  attaches newly created Equipment without targeting the source or following
+  a later source visit; `mover="created_all"` names the created token group.
+  Covered by `test_gwyndala_the_progeny.py`.
+
+- `fight.dies_this_turn_effects` installs a delayed DIES ability for each exact fighter visit only after both fighters pass fight validation (RULE 701.14b). The abilities retain the resolving controller, precede lethal fight damage, and survive source departure; declining the enclosing optional action installs nothing. Zero-power creatures still fight. Covered by `test_t_pring_never_parted.py`.
 
 - MB2 playtest `{D}` costs use `ActivationCost.pay_land_drops` and the
   player's `land_drops_given_up_this_turn`, reset on their next turn.
@@ -350,6 +611,7 @@ re-exported from `misc_mixin.py` for existing callers.
 - Emerge (RULE 702.119a,c) uses `alt_cost=True` and the existing `sacrifice_choice` instance ID. `_emerge_payment` validates the creature, includes commander tax and applies its mana-value reduction before cost floors. Payment records sacrifice characteristics through `note_sacrificed`; `emerge_cost_paid` gates the existing condition/override composition. A normal recast clears the flag.
 - Crew (RULE 702.122b,c) records payment-time subtypes and exact creature visits. Historical counts include departed creatures; target filters require the original live visit. The turn reset clears both histories, and source-visit snapshots preserve them for resolving abilities after departure.
 - "As ~ enters, choose ..." answers are state-owned: `GameState.pending_enter_choice` (object + zone visit) with the `pending_permanent_entry` / `pending_land_entry` / `pending_token_entry` record naming the entry path; `RulesEngine._take_enter_choice`/`_enter_choice_exit` re-derive the open effect, the remaining `enter_choice_effects` queue and the exit from them, so undo/clone onto an open choice still enters the permanent (RULE 614.12, 400.7; a changed zone visit enters nothing). New entry paths set one of the records instead of capturing a closure.
+- Two kicker costs ("Kicker A and/or B", RULE 702.33b/d/f): the keyword carries `costs` (printed order; `cost` stays the first) and the spell records `GameObject.kicker_costs_paid` (cost indices) beside `kicker_count` (payments); copies carry both (RULE 707.10). `kicked` is an int N (first N printed costs, so count-only callers still work) or a list of indices; `game/kicker_costs.py` normalizes, prices and validates it (each cost once). `legal_actions` offers `kicker_costs` and the affordable `kicker_options` per combination; the cast form shows one toggle per cost. "Kicked with its {A} kicker" is the `kicked` condition's `cost` param, failing closed on a cost the object does not print, and reads the pending announcement before the record exists.
 - Announced kicker conditions use the pending cast choice before target selection and the persisted kicker count afterward. Cast offers may provide a complete `kicker_variant` with distinct requirements. `damage_divisions` maps requirement indices to positive integer shares in target order; validate before paying, preserve shares on the private stack effects and their bound specs, and never redistribute shares when a target becomes illegal. Lazy composite branches pin source references to the resolving source visit.
 
 - Open Ward payments retain their exact `StackItem`, payer and resolved cost in
@@ -412,11 +674,229 @@ re-exported from `misc_mixin.py` for existing callers.
   after casting, so a later cast does not inherit it (RULE 702.47). The card
   remains in hand. Free and alternative host costs still pay Splice; legal
   actions, session dispatch, and board controls retain the selected IDs.
+- Entry-copy name exceptions retain `Card.copy_ability_name` as the original
+  catalogue binding identity. The changed name and original ability identity
+  survive later copies and Card serialization (RULE 707.9b).
+  `enter_as_copy.name_first_letter` replaces the first letter, retaining
+  any leading digits or punctuation.
+- `become_copy_until_eot.copy_of_revealed` copies a creature card revealed
+  earlier in the same resolution, without targeting or moving that card.
+  Its source must still be the resolving trigger's battlefield visit;
+  copy exceptions remain copiable while the duration expires independently
+  of any subsequent copy of the object (RULE 400.7/707.9).
+- Structured battlefield selectors combine opposing control with
+  `owned_by_you`; the ownership filter uses the resolving ability's frozen
+  controller rather than its source's current controller. A `bind` keeps
+  shared X instructions on one resolution-time measurement (RULE 108.3/110.2).
+  Selector-based group pumps likewise select for the resolving ability's
+  controller, independently of later control changes to its source.
+- Untap costs can select opposing permanents through
+  `ActivationCost.untap_others_scope`. Mana options coupled to that cost
+  carry the chosen land's exact battlefield visit through the session and
+  board controls; validation precedes payment. Possible mana types ignore
+  affordability, include colorless and replacements, and traverse reflecting
+  lands with a visited-path guard (RULE 106.7). Offers project the tap/untap
+  costs on a clone so post-cost characteristics determine the menu without
+  mutating the live state. Ability copies keep the paid land as a receipt
+  and use its last-known visit after departure.
+- `ActivationCost.reveal_shared_color` requires a fixed number of distinct
+  hand cards with a nonempty intersection of actual colors; colorless is
+  not a shared color (RULE 105.2c). Existence checks and automatic payment
+  find a complete compatible set. Explicit choices are validated before
+  any cost payment, and reveals leave the cards in hand. Fixed reveal-cost
+  UI rounds carry color metadata and narrow later picks to compatible
+  partners; drawing remains a separate stack resolution.
+- `discard_matching_names` validates a fixed number of distinct nonland
+  hand cards before paying costs, using the intersection of their actual
+  names (RULE 201.2a). Automatic payment and the board picker find compatible
+  partners; split cards contribute both names while DFC and Adventure hand
+  cards contribute their front name. Comparison keys normalize the official
+  SLX interchangeable-name pairs (RULE 201.3), independently of display
+  names and flavor names; a changed name replaces the original identity.
+  Nameless objects cannot pay a same-name cost.
+- `discard_filter=last_drawn_this_turn` selects the latest completed draw
+  for the payer from current-turn history, including draws on opponents'
+  turns. Completed draw events retain the hand zone incarnation, so a card
+  that left and returned cannot pay; losing the last card never falls back
+  to an earlier draw. Prevented/replaced draws and cards put into hand do
+  not replace the latest actual draw (RULE 121.2/400.7).
+- `discard_mana_value_x` checks the discarded hand card against announced
+  X before any cost payment. Offers derive available X values from hand
+  mana values and mana affordability; target controls present discrete X
+  choices and the later discard picker filters to the announced value.
+  The ordinary stack receipt freezes X independently for each activation
+  (RULE 202.3/602.2b).
+- `discard_different_names` requires a fixed number of distinct hand
+  cards whose actual names are nonempty and pairwise disjoint, including
+  split names and official interchangeable-name equivalences (RULE 201.2b).
+  Automatic payment backtracks to find a complete set; the board filters
+  each pick by whether a complete set remains possible.
+  `counters_instead_of_empty_draw` replaces each individual empty-library
+  draw with native counter placement, without recording a draw or an
+  empty-draw loss. Bound replacement methods retain the cloned source,
+  and applicability reads its current controller (RULE 614.1a/614.6).
+- Black/nonblack discard filters read actual hand-card colors, including
+  multicolor and Devoid, independently of Commander identity (RULE 105.2).
+  `draw_then_discard_drawn` snapshots the event-log boundary and uses a
+  deferred tail to choose only actual completed draws from that instruction,
+  retaining their hand zone visits. Cards returned by draw replacements and
+  older hand cards are excluded. The player and boundary survive choices
+  and clone/undo through the ordinary effect continuation (RULE 608.2c/400.7).
+- `exile_others_total_mana_value_x` pays with a nonempty subset of other
+  controlled permanents whose current mana values total exactly X. Dynamic
+  programming supplies reachable X values and a concrete automatic payment,
+  including a real zero-value object for X=0. Explicit IDs are validated
+  before mana/tap/exile payment; exiles form one simultaneous cost. The board
+  selects a reachable X, filters the graveyard target ceiling, and permits
+  finishing the cost only with a nonempty exact-sum subset. Each later pick
+  must leave a possible completion. Native artifact-restricted mana uses
+  card-type matching for casts and abilities of artifact sources.
+- `exile_instant_or_sorcery_spell` selects exactly one controlled instant
+  or sorcery spell on the stack as a cost, using `tap_choices` for its ID.
+  It is not a target or a counter; copies qualify and ownership does not
+  determine eligibility. Native stack exile now emits the ordinary EXILE
+  event before off-stack copies cease to exist. The ability resolves
+  independently of the consumed spell and retains its original source
+  visit for self effects (RULE 602.2b/400.7/406).
+- `sacrifice_all_lands` validates every currently controlled land before
+  payment and sacrifices the complete set together after mana is paid,
+  including a land source and tapped/animated/stolen lands. Prohibited
+  sacrifices make the entire activation unpayable (RULE 602.2b/701.17).
+  Mana damage riders normalize printed self names and may carry
+  `self_damage_unless_subtype`; actual controlled subtype membership is
+  evaluated during each original or copied mana resolution (RULE 605.3b).
+- Creature-subtype filters on graveyard exile costs use live subtype
+  membership rather than only printed type lines, including Changeling
+  and outside-battlefield subtype changes (RULE 702.73a). Existing
+  affected-object counter measurements provide per-recipient static
+  bonuses; a separate structured permanent selector can place counters
+  on matching noncreatures without widening a creature-only anthem.
+- Announced-X graveyard exile costs expose a fixed-card picker after X
+  and targets are chosen. Payability bounds X by the eligible graveyard
+  pool, validates exact distinct IDs before costs, and permits X=0 with
+  an empty payment. The board skips the picker for zero. Every payment
+  clears its prior exile receipt, including zero; the native stack item
+  freezes X for later effects independently of further activations.
+- Once-per-turn trigger stamps include the source zone incarnation
+  as well as the turn. Re-entry grants a fresh limit even when the bound
+  ability object is reused; control changes and phasing retain the limit
+  for the same visit (RULE 400.7). Existing self-or-group entry batches
+  combine self entry and matching simultaneous entrants into one firing.
+  Source-aware `other` matching remains local to its OR branch, allowing
+  an alternative token branch to pay without widening the creature branch.
+- Structured count selectors support `aggregate=max_shared_name_initial`:
+  count distinct matching objects per initial of their actual names, then
+  take the largest group. Multiple names on one permanent contribute at
+  most once to each initial; nameless and face-down objects contribute
+  none. Existing state-trigger occupancy prevents duplicate firings while
+  an earlier trigger remains pending/on stack (RULE 603.8); a guarded
+  sacrifice plus `seq.if_you_do_from` keeps the payoff conditional on
+  sacrificing the exact source visit.
+- `tap_shared_creature_type` constrains a tap-others cost using current
+  creature types, including layer changes and Changeling. Existence checks,
+  automatic payment and UI options find compatible distinct creatures;
+  summoning sickness does not restrict this non-symbol tap cost (RULE 302.6).
+  Untargeted attached-permanent exile uses a live Aura's current host or
+  its last-known exact attachment visit after departure (RULE 608.2h/400.7).
+  Ability copies retain that relationship independently of the source.
+- `tap_total_power` selects any subset of other untapped controlled
+  creatures using signed actual power, without Crew/Saddle bonuses or
+  mechanic-specific events. The board shows running power and permits
+  confirmation only at the threshold. Standing `regenerate_self`
+  replacements survive each use and cleanup; their bound methods retain
+  the restored source through clone/undo. Regeneration clears damage,
+  taps through the normal event path and removes reciprocal combat
+  relationships, while blocked attackers remain blocked (RULE 701.19).
+- Activation self-return costs are paid after counter-removal costs so
+  the zone reset cannot erase the payment's counters first (RULE 601.2h).
+  Departure LKI records the remaining counters, while the paid-counter
+  amount survives as the activation receipt. The resolving controller
+  remains independent of the owner who receives the returned card.
+- Ability occurrences share exact-source-visit turn history across activated,
+  triggered and mana abilities. `ABILITY_TRIGGERED` is emitted at triggering
+  time; reserved stack identities acquire their announced modes and targets
+  at placement, with last-known recipes retained after departure. Pending
+  trigger queues and ordering frames belong to snapshots. Copied mana
+  abilities retain their cost receipts, choose production afresh, remeasure
+  variable amounts and repeat printed riders without paying costs or
+  repeating tap-for-mana events/replacements (RULE 603.2/707.10). Copiable
+  granted ability lines survive Card serialization, including duplicates.
+- Copy exceptions can remove intrinsic keywords through
+  `Card.copy_removed_keywords`; these losses survive later copies and Card
+  serialization, while an explicit later copy exception can add the keyword
+  back. Mirage Phalanx uses this for Haste copies without Soulbond. Each
+  paired creature owns its granted combat trigger and its one-shot combat-end
+  exile; losing the pair does not remove triggers already on the stack.
+  Self-copy triggers use the source visit's last-known copiable values.
+  Soulbond checks eligibility when triggering and resolving, offers pairing
+  only at resolution, fixes the later entrant as the partner for that half,
+  and reads restored objects after undo. Pairing records its controller and
+  breaks on departure or a control change even when both members change to
+  the same new controller (RULE 702.95).
+- Mixed-origin creature-exile triggers use one EXILE batch for controlled
+  battlefield creatures and creature cards from the controller's graveyard.
+  The event preserves both departing and arriving zone incarnations; Kaya's
+  optional card pool contains only the still-exiled creature-card visits,
+  while its token target is fixed before resolution. Tokens and animated
+  noncreature cards can trigger the battlefield half without being eligible
+  card choices. Departed Kaya sources use RULE 603.10a lookback. The chosen
+  token receives a duration copy with flying through cleanup. Kaya's +2
+  selects its untargeted graveyard card after Surveil; its -2 announces a
+  required own creature and optional, separately scoped other-player targets.
+- `copy_permanent` can add registered intrinsic ability lines to token
+  copies, including through creation replacements and paused entry choices.
+  It reads the actual current face. Untargeted copies of an event subject
+  use that exact battlefield visit's last-known values after departure.
+  Firion's Equipment copy carries only its own Equip discount as a copiable
+  value; its one-shot next-upkeep sacrifice captures all created tokens
+  separately and belongs to the original trigger controller.
+- Heterogeneous token copies can defer entry into a state-owned token batch:
+  creation replacements run first, all entry choices finish before any
+  entrant is published, then the group enters with buffered ETB events.
+  Creation events are announced after entry, and pending entrants remain
+  discoverable through clone/undo without appearing in an exile zone.
+  Face Yourself uses this path and copies the current face. Its intrinsic
+  Haste and registered end-step ability are copiable; identical added
+  abilities remain independent instances (RULE 113.2c/707.9a). The sacrifice
+  checks the current controller's planeswalkers at trigger time and the
+  resolving controller's again at resolution, with exact source-visit and
+  sacrifice-control checks.
+- Base-power measurements read the layer-7a/7b result (`base_power`, RULE
+  208.4b), ignoring counters, modifiers and switching. Departure snapshots
+  retain this value for exact-visit last-known information. Curie's combat
+  damage draw measures it at resolution, even after a copy change.
+  Exile-cost activations retain the newly exiled cards' copiable values in
+  their own event, independently of later activations or moves. Battlefield
+  copy effects end before exile characteristics are captured; copied ability
+  lines bind on Curie and further copies through `register_ability_line`.
+- `register_ability_line` supplies fresh specs for an exact trusted ability
+  line carried by a RULE 707.9a copy exception. `granted_line_specs` checks
+  this registry before the parser, so a hand-authored retained ability is
+  rebound on subsequent copies too. Court of Vantress retains only its
+  upkeep ability; its fixed optional target is shared by the monarch token
+  branch and the permanent self-copy branch, selected at resolution. A
+  departed or returned source cannot be changed by the old trigger.
+- Granted artifact-spell Replicate (RULE 702.56, Hugh) announces `replicate`
+  as an ordered list of nonnegative payment counts, one per live granting
+  instance. Its mana is added before reductions and floors, including free
+  and alternative-cost casts. Each paid instance creates its own counterable
+  cast trigger with a stack-copy recipe; losing the grant or the original
+  spell does not erase that trigger. Copies retain X/choices, optionally
+  choose new targets, and permanent copies become tokens on resolution.
+  Legal actions expose `replicate_costs`; board inputs and session dispatch
+  preserve the separate counts through target/cost choices and undo.
 - `RulesEngine.exile(..., face_down=True)` stamps face-down status before
-  announcing exile. `face_down_exile_viewers_explicit` makes an empty viewer
+  announcing exile. Optional `face_down_viewers` also establishes the permitted
+  lookers before the event; looking before face-down exile retains that right
+  throughout the exile visit (RULE 406.3, Vulcan Mind-Meld).
+  `face_down_exile_viewers_explicit` makes an empty viewer
   set mean nobody may look (RULE 406.3), rather than the legacy owner-visible
   default. Session views hide identity while retaining public counters; the
   permission marker is cleared when the card leaves its exile visit.
+- Reciprocal library-top exile grants each exiler a standing exact-visit play
+  permission with `mana_wildcard='type'`. Ownership does not confer the other
+  player's permission or visibility; ordinary timing, costs, and land-drop
+  limits remain in force. Covered by `test_vulcan_mind_meld.py`.
 - The Salubrious Philosopher reuses the optional draw-dig continuation with
   `categories=salubrious` and random bottom ordering. Its card-specific
   predicate reads printed Oracle instructions, including conditional/modal
@@ -458,3 +938,81 @@ re-exported from `misc_mixin.py` for existing callers.
 - Graveyard-arrival events retain `zone_incarnation`. Guile's shuffle
   trigger uses that visit, so moving the card in response leaves the new
   object alone (RULE 400.7), including a later graveyard visit.
+
+### Iterated spell-copy choices
+
+- Deferred iteration frames retain the firing event and resolving source visit, restoring both for every resumed body (RULE 608.2h). Nested optional choices therefore keep the same copiable spell recipe across players and clone/undo.
+- Untargeted `copy_spell` may use `controller_from_target` for a player supplied by a loop body; each instructed player controls their own copy (RULE 707.10). The player referent survives the optional question without changing the triggered ability’s controller. Covered by `test_curse_of_echoes.py`.
+
+### Attachment events and Aura-bound control
+
+- `ATTACHED_TO_PERMANENT` fires for a genuine attachment change to any permanent, alongside the existing creature-specific event where applicable. It carries both exact zone visits and the attachment generation; attaching to the same host does not fire again (RULE 701.3).
+- Eriette compares the host and Aura mana values when the attachment happens. Her triggered control effect uses the Aura as its duration anchor, retaining the original trigger controller. The existing `source_attached_to_affected` clock ends on attachment-generation or zone-visit changes and does not restart after it expires (RULE 611.2b). Card-specific coverage: `test_eriette_the_beguiler.py`.
+
+### Combined target announcements
+
+- `TARGETS_ANNOUNCED` accompanies the existing individual `BECOMES_TARGET` events once per announcement. It snapshots targeted players and controllers of targeted battlefield permanents, excluding stale zone visits and cards in other zones. Leyline of Combustion consumes this combined event so mixed or repeated targets cause one trigger (RULE 603.2c); distinct spells, abilities and copies remain independent. Covered by `test_leyline_of_combustion.py`.
+
+### Per-creature block transitions
+
+- `BECOMES_BLOCKED_BY` fires once per newly assigned blocker, separately from the existing aggregate `BECOMES_BLOCKED` event. Giant Shark uses it with the existing related-creature damage filter, so each qualifying creature contributes its own +2/+0 and trample trigger.
+- `damaged_this_turn` matches the recipient’s exact zone visit when damage history carries that visit. Removing marked damage preserves the history; leaving and returning does not. Giant Shark’s no-Islands sacrifice uses the shared `STATE_CHECK` mechanism (RULE 603.8), including entry and control changes. Covered by `test_giant_shark.py`.
+
+### Targeted keyword abilities and copy recipes
+
+- `players_cant_attack_this_turn` blocks attacker declarations against any defender, including with creatures entering later, and expires at cleanup. Optional effect continuations preserve the triggering player for draw/restriction riders; win effects use the resolving ability’s controller. Covered by `test_peace_in_our_time.py`, including draw replacement/prevention and last-known counter checks.
+- Bound floating trigger doublers use the normal duration clock with exact source and affected visits. They follow the chosen object across controller changes; a real source untap sweeps condition-bounded effects immediately, preventing revival on retap, while a stun-replaced untap leaves them active. Covered by `test_lwaxana_troi_charming_guest.py`.
+- `share_creature_combat_abilities` snapshots the listed keywords and exact protection/landwalk qualities at resolution, granting them to the captured creature group until cleanup. Static protection accepts canonical color/name/mana-value/blanket tokens as well as printed words. Landwalk preserves qualified land properties and reads current land subtypes. Covered by `test_concerted_effort.py`.
+- The direct `put_into_graveyard` sacrifice path honors the same effective sacrifice prohibition as cost selection and player sacrifice choices. This prevents self-sacrifice instructions from bypassing Quark’s standing Treasure-token restriction, without preventing destruction. Covered by `test_quark_humble_proprietor.py` and `test_quark_humble_proprietor_additional.py`.
+- Activation events carry the source name before cost payment. `MANA_ABILITY_ACTIVATED` also covers immediate battlefield mana abilities, separately from nonmana `ACTIVATED_ABILITY`. The `source_name_chosen` trigger filter reads this name or a cast event’s spell name; caster relation reads the current observer controller and event actor. Qualified entry-name choices remain pending on rejected names. Covered by `test_kai_winn_faithless_leader.py`.
+- `grant_mana_ability.amount_selector` resolves a granted mana menu against current source/state, using the same amount vocabulary as printed mana abilities. A `commander_spell` restriction with `your_commander` captures the producing player as `owner_id` on the mana lot; casting checks both commander designation and ownership. Covered by `test_queen_s_diamond.py`.
+- `crew_station_power_multiplier` affects only the effective power used for Crew and Station, including cost previews and the paid Station snapshot. It reads current derived power without changing that characteristic or Saddle contribution. Covered by `test_sulu_heroic_helmsman.py`.
+- `GameState.players_begun_extra_turn` records per-player game-long history at actual extra-turn selection, after turn-skipping replacements. The `begun_extra_turn` resolution condition uses the resolving controller; queued and skipped turns do not count, and clone/undo retain the history. Covered by `test_h_m_s_bounty_unlikely_timeship.py`.
+- Restricted mana kind `card_type_spell` checks current card types for casting and, with `allow_ability`, the activation source’s current types. It is distinct from creature-subtype `type_spell` and retains ordinary color payment requirements. Covered by `test_ambulatory_reactor.py`.
+- Multi-target `return_from_graveyard` library moves with `shuffle_after` finish the selected moves before shuffling each affected owner once; top-card ordering is skipped when the destination is shuffled. Covered by `test_those_old_scientists.py`, including multiple owners, cloned partial target choices and one illegal target.
+- `ActivationCost.bottom_self_from_graveyard` moves the owning player’s source card directly from graveyard to library bottom during payment, without shuffling. It pairs with explicit graveyard `activation_zones`, which survive `to_dict`/parse round-trips. Covered by `test_daniels_temporal_agent.py`, including legal action discovery and countered activations.
+- `owner_draw_then_shuffle` sequences the owner’s draw and an exact-visit battlefield-to-library move through the normal effect continuation chain. Draw replacement choices, including cloned pending dredge decisions, finish before the creature is shuffled. Covered by `test_unification.py`.
+- `grant_player_hexproof_until_eot` appends an independent turn-numbered marker to `Player.player_effects`; `player_has_hexproof` combines it with standing static grants, and cleanup removes the temporary marker. Covered by `test_the_needs_of_the_many.py`, including resolution-time targeting and surviving static hexproof.
+- Graveyard permission lookup includes granted statics on current battlefield sources. Layer-6 ability stripping removes older granted triggered and activated abilities alongside granted statics; later timestamp grants may still add abilities. Covered by `test_nog_ambitious_cadet.py`.
+- Single-permanent sacrifice activation costs snapshot current derived subtypes as `sacrificed_cost_subtypes` on the activation event before payment. The `sacrificed_cost_subtype` resolution condition reads this snapshot rather than mutable source fields or the card’s later zone characteristics. Covered by `test_gowron_eager_for_battle.py`.
+- Granted triggers accept `related_to_source` to scope a relation event to the receiving permanent through `related_ids`, instead of equating the firing creature with the recipient. Trigger-subject P/T changes honor `instance_zone_incarnation` when present and affect only a current battlefield object. Covered by `test_extraction_integrant.py`.
+- Hand-to-battlefield selection accepts `entry_counters_by_type`, serialized through the search choice as `extra_counters.by_type`. Matching card types or subtypes accumulate `entry_bonus_counters` before the normal entry-counter replacement path, so native counters and ETB conditions see the combined result. Covered by `test_chief_montgomery_scott.py`.
+- `TargetSpec.ability_source` distinguishes abilities from spells independently of the source zone. Ability announcement, resolution, retargeting and copied-target choices preserve it; the artifact-ability targeting restriction reads the current source type and ability controller, including when other target restrictions use announcement-time values. Covered by `test_species_8472.py`.
+- Individual `BECOMES_TARGET` events carry the targeting ability’s keyword identity from the stack item’s effects. Mirror-Shield Hoplite filters `backup` independently of the ability’s controller.
+- When a targeting listener can copy the announced item, its copiable recipe is captured before target events fire: target announcement can precede the item’s stack insertion. The recipe survives countering and clone/undo; live stack values still take precedence (RULE 707.10 / 608.2h). Covered by `test_mirror_shield_hoplite.py`.
+
+### Escape entry counts and prevention counter riders
+
+- Registered entry-counter metadata may carry `escape_count`: it replaces the normal `count` for an escaped cast, rather than adding another counter placement (Polukranos, Unchained).
+- Counter-removal riders on prevention effects still apply to unpreventable damage (RULE 615.12), using the attempted damage amount while allowing all damage through. These riders remain in the replacement loop; pure prevention remains skipped. Standing prevention closures resolve their source through the current state so clone/undo cannot remove counters from the original state. Covered by `test_polukranos_unchained.py`.
+
+### Escape-cost links and restricted resolution casts
+
+- Escape cost exiles are recorded as a simultaneous payment and linked to the escaping spell’s exact stack visit. The existing spell-to-permanent transfer preserves those links, while a later Escape uses a fresh source visit (RULE 400.7 / 607.2q).
+- Skyway Robber grants its combat-damage ability only on its escaped battlefield visit. A pending trigger reads that visit’s still-exiled cards even after source departure. Resolution-play permissions may specify `allowed_spell_types`, checked against the actual selected face in both casting legality and the immediate-play action; this permits an artifact back face without permitting its creature front. Covered by `test_skyway_robber.py`.
+
+### Escape-only entry counter choices
+
+- `choose_enter_counter` accepts `escape_only`; the pre-entry pipeline checks the current cast’s Escape flag before offering the mandatory counter-kind choice (Tizerus Charger). The selected counter is present before battlefield entry (RULE 614.1c / 122.1b).
+- A newly resolving permanent spell restores its bound entry-choice template and clears earlier-visit counters/damage. Resuming a pending entry preserves its already-consumed queue, including after clone/undo. This separates fresh entry from continuation and allows normal cast → Escape and repeated Escape. Covered by `test_tizerus_charger.py`.
+
+### Fire Penguin overlay and later ability grants
+
+- Curse of the Fire Penguin follows the [official Unhinged FAQ](https://magic.wizards.com/en/news/feature/unhinged-faqtiwdawcc): the Aura overlays the host below its illustration; it is not a RULE 710 flip despite the cache layout. Name, mana cost, colors and art persist; type/supertype, abilities, base P/T and printing facts are replaced. `printing_metadata` exposes the derived Unhinged symbol, rarity and artist without mutating the shared printed card.
+- Layer-4 type removal can remove printed/granted legendary. Layer-6 ability removal suppresses intrinsic triggers while permitting grants applied later in the same layer; earlier grants are already cleared by recompute.
+- The granted death effect captures the Aura’s exact granting visit and returns only its ensuing graveyard visit, under its owner’s control and attached via a mandatory untargeted creature choice. No legal host leaves the Aura in the graveyard. Covered by `test_curse_of_the_fire_penguin.py`, including repeated deaths, token hosts, hexproof and clone/undo.
+
+### Returning a flip card already flipped
+
+- Homura’s death ability follows the ensuing exact graveyard visit, resets it as a new object and binds the flipped half before battlefield entry (RULE 400.7 / 710.2). The shared flip binder accepts `as_enters` for this explicit instruction, clearing the previous half’s abilities without a transient creature entry.
+- Homura’s Essence grants its controller’s creatures the anthem, flying and their own activated pump abilities; losing the grant does not remove an already-stacked activation. Covered by `test_homura.py`, including owner-control return, countering, stale visits and clone/undo.
+
+### Counting Auras and moving one to a different creature
+
+- `source_enchanted` / `source_equipped` accept a minimum attachment count (default one), counting actual current Aura/Equipment subtypes. Kitsune Mystic checks two Auras both when the end-step trigger would fire and when its flip resolves (RULE 603.4).
+- Autumn-Tail targets only an Aura currently attached to a creature. Its resolution chooses a different legal creature without targeting that creature, using the Aura’s current host and enchant restrictions. The chosen Aura and host retain exact zone visits across the state-owned choice; source departure/control changes do not change the ability’s chooser. Covered by `test_kitsune_mystic.py`.
+
+### Revealing the hand and same-name mana triggers
+
+- `ActivationCost.reveal_hand` publishes every current hand card during cost payment, without moving it; an empty hand can pay. The cost survives serialization and is distinct from a free activation. Sasaya’s seven-land check is a resolution condition, so later hand changes affect the flip while the paid reveal remains public.
+- Sasaya’s Essence filters own land mana taps and resolves as a triggered mana ability (RULE 605.1b). It counts other currently controlled lands with the same name, independent of how much mana the tap produced. Multiple produced types allow a separate choice per additional mana; state-owned iterations preserve remaining choices across clone/undo. Covered by `test_sasaya.py`.

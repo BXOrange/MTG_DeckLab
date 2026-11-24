@@ -20,8 +20,9 @@ here without a cycle.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 from ..models.game.game_object import GameObject, Zone
 from ..models.game.game_state import GameState
@@ -72,14 +73,14 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # enchantment whose printed type line carries no "Aura" subtype.
     "non_aura_enchantment": lambda o: bool(o.is_enchantment)
     and not o.has_subtype("aura"),
-    "instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery),
+    "instant_or_sorcery": lambda o: bool(o.is_instant or o.is_sorcery),
     # "target instant card from your graveyard" (Torrential Gearhulk).
-    "instant": lambda o: bool(o.card.is_instant),
+    "instant": lambda o: bool(o.is_instant),
     # "target instant, sorcery, or artifact card from your graveyard" (Scholar of the Lost Trove).
-    "instant_sorcery_or_artifact": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_artifact),
+    "instant_sorcery_or_artifact": lambda o: bool(o.is_instant or o.is_sorcery or o.is_artifact),
     # "target **sorcery** card in your graveyard gains flashback…" (MEC-24,
     # Recoup) — the sorcery-only narrowing of the combined filter above.
-    "sorcery": lambda o: bool(o.card.is_sorcery),
+    "sorcery": lambda o: bool(o.is_sorcery),
     # RULE 110.4: a permanent card has any permanent type -- battle included (`card_query.is_permanent_card`).
     "permanent": lambda o: is_permanent_card(o.card),
     "nonland_permanent": lambda o: is_nonland_permanent_card(o.card),
@@ -102,10 +103,13 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     "rebel_permanent": lambda o: o.has_subtype("rebel"),
     "mercenary_permanent": lambda o: o.has_subtype("mercenary"),
     # "exile target equipment, instant, or sorcery card from your graveyard" (Thor, God of Thunder).
-    "equipment_instant_or_sorcery": lambda o: bool(o.card.is_instant or o.card.is_sorcery)
+    "equipment_instant_or_sorcery": lambda o: bool(o.is_instant or o.is_sorcery)
     or o.has_subtype("equipment"),
     # "exile target noncreature, nonland card from your graveyard" (Practiced Scrollsmith).
     "noncreature_nonland": lambda o: not o.is_creature and not o.is_land,
+    # "return target noncreature artifact card with mana value 1 or less from your graveyard to the battlefield"
+    # (Salvaging Station): an artifact card that is not also a creature card (RULE 205.4b).
+    "noncreature_artifact": lambda o: bool(o.is_artifact) and not o.is_creature,
     # "exile target card with a cycling ability from your graveyard" (Rooting Moloch) -- RULE 702.29: cycling, and
     # typecycling/landcycling, are cycling abilities; the word marks them all in the printed rules text.
     "card_with_cycling": lambda o: "cycling" in (o.card.oracle_text or "").lower()
@@ -115,7 +119,7 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
     # "put target creature or battle card from your graveyard on top of your library" (Flitting Guerrilla, PAR-162).
     "creature_or_battle": lambda o: o.is_creature or bool(o.is_battle),
     # "put an instant, sorcery, or battle card from your graveyard on top of your library" (Halo-Charged Skaab).
-    "instant_sorcery_or_battle": lambda o: bool(o.card.is_instant or o.card.is_sorcery or o.is_battle),
+    "instant_sorcery_or_battle": lambda o: bool(o.is_instant or o.is_sorcery or o.is_battle),
     # "return target creature or Vehicle card from your graveyard to the battlefield" (Back on Track). RULE 301.7: a Vehicle
     # is an artifact whose printed type line is never "creature", so a graveyard card must match either word.
     "creature_or_vehicle": lambda o: o.is_creature or o.has_subtype("vehicle"),
@@ -137,6 +141,10 @@ _GRAVEYARD_TYPE_FILTERS: dict[str, Any] = {
         (bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"))
         and not o.has_subtype("assassin")
     ),
+    # "exile target historic card from your graveyard" (Rona, Disciple of Gix): RULE 700.6 -- artifact, legendary or Saga.
+    "historic_card": lambda o: bool(o.is_artifact) or o.is_legendary or o.has_subtype("saga"),
+    # "exile up to 2 target legendary creature cards from your graveyard" (The Kenriths' Royal Funeral).
+    "legendary_creature": lambda o: o.is_creature and o.is_legendary,
     # "return target artifact creature card with mana value 3 or less from your graveyard to the battlefield" (Resistance Is
     # Futile): both card types at once (an intersection, unlike the unions above).
     "artifact_creature": lambda o: o.is_creature and bool(o.is_artifact),
@@ -185,8 +193,42 @@ _ENCHANT_QUALITY_PREDICATES: dict[str, Any] = {
     "land": lambda o: o.is_land,
     "planeswalker": lambda o: o.is_planeswalker,
     "vehicle": lambda o: o.has_subtype("vehicle"),
+    # PAR-323: "Enchant artifact or non-Aura enchantment" (Puppet Crafting).
+    "non-aura enchantment": lambda o: bool(o.is_enchantment) and not o.has_subtype("aura"),
 }
 
+
+#: RULE 702.5 (PAR-323): "Enchant non-Wall creature" (Aggression, Consuming Ferocity, Krovikan Plague) -- a creature whose
+#: subtypes lack the named one.
+_ENCHANT_NON_SUBTYPE_RE = re.compile(r"^non-(?P<subtype>[a-z]+) creature$")
+
+
+def enchant_union_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant `<X>` or `<Y>`" quality (the union of each word's predicate), ``None`` when the
+    quality is not such a union or names a word this table lacks (the caller then keeps its own reading)."""
+    words = [w.strip() for w in quality.lower().split(" or ") if w.strip()]
+    if len(words) < 2 or any(w not in _ENCHANT_QUALITY_PREDICATES for w in words):
+        return None
+    predicates = [_ENCHANT_QUALITY_PREDICATES[w] for w in words]
+    return lambda o: any(p(o) for p in predicates)
+
+
+def enchant_non_subtype_predicate(quality: str) -> Optional[Callable[[Any], bool]]:
+    """The host predicate of an "Enchant non-<subtype> creature" quality, ``None`` for any other quality."""
+    m = _ENCHANT_NON_SUBTYPE_RE.match(quality.strip().lower())
+    if m is None:
+        return None
+    subtype = m.group("subtype")
+    return lambda o: bool(o.is_creature) and not o.has_subtype(subtype)
+
+
+#: `TargetSpec.max_mana_value` sentinels read off the ability's source power: "mana value less than or equal to ~'s
+#: power" (Guardian Scalelord) and the strict "mana value less than ~'s power" (Narset, Enlightened Exile).
+#: MEC-173: `max_mana_value` / `exact_mana_value` sentinels measured off the announced X when targets are offered.
+X_LESS_THAN_BOUND = "x_less_than"
+X_PLUS_ONE_BOUND = "x_plus_one"
+SOURCE_POWER_BOUND = "source_power"
+SOURCE_POWER_LESS_THAN_BOUND = "source_power_less_than"
 
 #: RULE 115.1/601.2c: the value of `TargetSpec.chooser` for "of an opponent's choice".
 CHOOSER_OPPONENT = TARGET_CHOOSER_OPPONENT
@@ -340,6 +382,12 @@ ALLOWED_TARGET_KINDS: frozenset[str] = frozenset(
         "spell_or_nonland_permanent_you_dont_control",
         # "target spell, nonland permanent, or card in a graveyard" (Endless Detour) — the unscoped three-way union.
         "spell_nonland_permanent_or_graveyard_card",
+        # "other target creatures from the battlefield and/or creature cards from graveyards" (Angel of Serenity,
+        # Aurelia's Vindicator, Savior of Ollenbock): one pool of battlefield creatures plus creature cards in any graveyard.
+        "creature_or_any_graveyard_creature",
+        # "target permanent or suspended card" / "target permanent with a time counter on it or suspended card" (Shivan
+        # Sand-Mage, Timebender, Timecrafting): a battlefield permanent or an exiled card with suspend and a time counter.
+        "permanent_or_suspended_card", "permanent_with_time_counter_or_suspended_card",
         # "target commander that entered this turn" (Forge of Heroes) — a commander on the battlefield that arrived this turn.
         "commander_entered_this_turn",
         # "target artifact, enchantment, or tapped creature an opponent controls" (Summon: Yojimbo)
@@ -506,12 +554,15 @@ _GRAVEYARD_TYPE_LABELS: dict[str, str] = {
     "equipment_or_vehicle": "Ausrüstungs- oder Fahrzeugkarte",
     "creature_or_vehicle": "Kreaturen- oder Fahrzeugkarte",
     "non_assassin_historic": "historische Nicht-Assassinen-Karte",
+    "historic_card": "historische Karte",
+    "legendary_creature": "legendäre Kreaturenkarte",
     "artifact_creature": "Artefaktkreaturenkarte",
     "spacecraft_card": "Raumschiffkarte",
     "creature_or_spacecraft": "Kreaturen- oder Raumschiffkarte",
     "non_doctor_permanent": "Karte eines bleibenden Kartentyps ohne Doktor-Untertyp",
     "equipment_instant_or_sorcery": "Ausrüstungs-, Spontanzauber- oder Hexereikarte",
     "noncreature_nonland": "Nichtkreatur-Nichtlandkarte",
+    "noncreature_artifact": "Nichtkreatur-Artefaktkarte",
     "card_with_cycling": "Karte mit Cycling",
 }
 #: German "whose graveyard" phrase per `_GRAVEYARD_SCOPE_PREFIXES` scope.
@@ -668,7 +719,13 @@ class TargetSpec:
     #: opponents" with `distinct_controllers` doing the "that player" half.
     #: See `TARGET_COUNT_SELECTORS`. ``None`` (the common case) keeps
     #: ``count`` exactly as printed.
-    count_selector: Optional[str] = None
+    #: PAR-284 milestone 22: may also be a structured count selector dict (`continuous.count_selector`'s
+    #: ``{"zone", "of", "filter"}`` / ``{"terms", "plus"}`` forms) -- "return up to X target creatures ..., where X is 1
+    #: plus the number of cards named ~ in all graveyards as you cast this spell" (Aether Burst) -- or a
+    #: ``{"kind": "trigger_event", "field", "event"}`` payload read off the event that fired the trigger (Elrond, Master
+    #: of Healing: "up to X target creatures, where X is the number of cards looked at while scrying this way").
+    #: `resolved_count` reads both as the spell / ability is announced (RULE 601.2c), never later.
+    count_selector: Optional[Union[str, dict[str, Any]]] = None
     #: A creature-subtype filter on a `_GRAVEYARD_TARGET_KINDS` target
     #: (Morcant's Loyalist's "return **another target Elf** card from your
     #: graveyard to your hand") — narrows the kind's own card-type filter
@@ -705,6 +762,12 @@ class TargetSpec:
     #: `requirements_with_targets`/`gameBoardView.js` (how many rounds to
     #: offer, and where the "stop early" boundary sits).
     count_max: Optional[int] = None
+    # Ability identity is independent of the source object's zone (e.g. a stack/graveyard ability).
+    ability_source: bool = False
+    #: RULE 113.7a / 601.2c: "target activated ability from an artifact source" (Rust) -- which *source* the
+    #: targeted stack ability may have: ``{"card_types": [...]}`` (an OR over current type words of the source) or
+    #: ``{"colorless": True}`` (RULE 105.2c). Only the ``ability``-family kinds read it. ``None`` = unfiltered.
+    stack_source_filter: Optional[dict[str, Any]] = None
     any_number: bool = False
     #: RULE 601.2c: all cards chosen for this occurrence share one graveyard.
     same_graveyard: bool = False
@@ -851,6 +914,9 @@ class TargetSpec:
                 "Artefakt, Verzauberung oder getappte Kreatur eines Gegners",
             "spell_nonland_permanent_or_graveyard_card":
                 "Zauberspruch, nichtländliche bleibende Karte oder Karte in einem Friedhof",
+            "creature_or_any_graveyard_creature": "Kreatur im Spiel oder Kreaturenkarte in einem Friedhof",
+            "permanent_or_suspended_card": "bleibende Karte oder ausgesetzte Karte",
+            "permanent_with_time_counter_or_suspended_card": "bleibende Karte mit Zeitmarke oder ausgesetzte Karte",
             "artifact_creature_or_enchantment": "Artefakt, Kreatur oder Verzauberung",
             "artifact_enchantment_or_nonbasic_land":
                 "Artefakt, Verzauberung oder nichtgrundlegendes Land",
@@ -984,7 +1050,7 @@ def mark_source_exclusion(effect: Any) -> None:
     )
 
 
-def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
+def stamped_specs(effect: Any, *, polarity: bool = True, ability_source: bool = False) -> list[TargetSpec]:
     """``effect``'s requirements in printed order, tagged with its polarity and, for an effect carrying
     ``target_chooser`` ("of an opponent's choice", MEC-118), its chooser.
 
@@ -995,7 +1061,7 @@ def stamped_specs(effect: Any, *, polarity: bool = True) -> list[TargetSpec]:
     slots = getattr(effect, "target_chooser_slots", None)
     stamped: list[TargetSpec] = []
     for index, spec in enumerate(getattr(effect, "target_specs", None) or []):
-        spec = _with_polarity(spec, hint)
+        spec = replace(_with_polarity(spec, hint), ability_source=ability_source)
         if chooser and (slots is None or index in slots):
             spec = replace(spec, chooser=chooser, chooser_controls=bool(getattr(effect, "target_chooser_controls", False)))
         stamped.append(spec)
@@ -1100,6 +1166,11 @@ def _targetable_by(obj: GameObject, source: Optional[GameObject]) -> bool:
     # same simplification every X-cost-target gap in this file already
     # accepts rather than threading a genuine ``is_spell`` flag through
     # every one of `legal_targets`' many call sites.
+    # RULE 115.4 (not RULE 702.11b): "can't be the target of spells or abilities your opponents control this turn"
+    # (Vines of Vastwood) restricts targeting exactly as hexproof does, but is no keyword, so `combat.has_hexproof`
+    # and lose-hexproof effects never see it. Opponent-scoped: its controller's own sources can still target it.
+    if getattr(obj, "temp_cant_be_target_of_opponents", False) and obj.controller_id != source.controller_id:
+        return False
     restricted_colors = getattr(obj, "temp_cant_be_target_of_spell_colors", None)
     if restricted_colors and source.zone != Zone.BATTLEFIELD:
         if set(getattr(source, "colors", None) or set()) & restricted_colors:
@@ -1152,14 +1223,60 @@ def _creature_matches_filter(
         wanted = (trigger_event or {}).get("defending_player_id") if trigger_event else None
         if wanted is None or not obj.attacking or defender.get("kind") != "player" or defender.get("id") != wanted:
             return False
-    if filt.get("max_power_from_source_x"):
-        if reference is None or (obj.power or 0) > int(getattr(reference, "x_paid", 0) or 0):
-            return False
+    # RULE 107.3: "with power/toughness X or less" -- X is the source's announced {X}.
+    for stat_key, read_stat in SOURCE_X_STAT_BOUND_KEYS.items():
+        if filt.get(stat_key):
+            if reference is None or (read_stat(obj) or 0) > int(getattr(reference, "x_paid", 0) or 0):
+                return False
     combat_filter = {
         key: value for key, value in filt.items()
-        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", "max_power_from_source_x"}
+        if key not in {"attacking", "attacking_you", "attacking_trigger_defender", *SOURCE_X_STAT_BOUND_KEYS}
     }
     return combat.matches_object_filter(obj, combat_filter, reference=reference, state=state, controller_id=controller_id)
+
+
+#: Creature-filter keys bounding a stat by the source's announced {X} ("target creature with power X or
+#: less", Gang Up; "...with toughness X or less", Finale of Eternity), mapped to the stat they read.
+SOURCE_X_STAT_BOUND_KEYS: dict[str, Callable[[GameObject], Optional[int]]] = {
+    "max_power_from_source_x": lambda obj: obj.power,
+    "max_toughness_from_source_x": lambda obj: obj.toughness,
+}
+
+
+#: The only keys `stack_source_matches` reads; anything else is an unknown filter, so the item never matches.
+STACK_SOURCE_FILTER_KEYS: frozenset[str] = frozenset({"card_types", "colorless"})
+
+
+def stack_source_matches(source: Optional[GameObject], source_filter: Optional[dict[str, Any]]) -> bool:
+    """Whether the source of a stack ability satisfies a `TargetSpec.stack_source_filter` (RULE 113.7a).
+
+    The source's characteristics are read as the object stands (last known information when it has left the
+    battlefield, RULE 113.7a); an ability with no bound source, or an unknown filter key, never matches
+    (fail closed)."""
+    if not source_filter:
+        return True
+    if source is None or set(source_filter) - STACK_SOURCE_FILTER_KEYS:
+        return False
+    card_types = source_filter.get("card_types")
+    if card_types and not (set(card_types) & source.type_words):
+        return False
+    # RULE 105.2c: a colorless object has no colors.
+    if source_filter.get("colorless") and source.colors:
+        return False
+    return True
+
+
+#: PAR-285: the negation / union keys of a spell filter, carried by the "counter" parser row through the registry and
+#: `CounterSpellEffect` into `TargetSpec.spell_filter` (one list so the three hops cannot drift apart).
+SPELL_FILTER_EXTRA_KEYS: tuple[str, ...] = ("color_any", "non_color", "without_card_types", "without_subtype")
+
+
+def _spell_has_card_type(obj: GameObject, type_word: str) -> bool:
+    """RULE 205.2a: whether the spell ``obj`` has the card type ``type_word`` (the `without_card_types` vocabulary)."""
+    return bool({
+        "artifact": obj.is_artifact, "enchantment": obj.is_enchantment, "instant": obj.is_instant,
+        "sorcery": obj.is_sorcery, "planeswalker": obj.is_planeswalker, "battle": obj.is_battle,
+    }.get(type_word, False))
 
 
 def _spell_matches_filter(
@@ -1179,17 +1296,33 @@ def _spell_matches_filter(
     color = spell_filter.get("color")
     if color and color not in obj.colors:
         return False
+    # RULE 105.2: "counter target red or green spell" -- a spell of at least one listed colour; "nonblue" -- none of it.
+    color_any = spell_filter.get("color_any")
+    if color_any and not any(c in obj.colors for c in color_any):
+        return False
+    non_color = spell_filter.get("non_color")
+    if non_color and non_color in obj.colors:
+        return False
+    # RULE 205.2a / 205.3: "nonartifact spell", "non-Faerie spell".
+    for type_word in spell_filter.get("without_card_types") or ():
+        if _spell_has_card_type(obj, type_word):
+            return False
+    without_subtype = spell_filter.get("without_subtype")
+    if without_subtype and obj.has_subtype(str(without_subtype)):
+        return False
     card_types = spell_filter.get("card_types")
     if card_types:
         type_checks = {
             "creature": obj.is_creature,
-            "instant": bool(obj.card.is_instant),
-            "sorcery": bool(obj.card.is_sorcery),
+            "instant": bool(obj.is_instant),
+            "sorcery": bool(obj.is_sorcery),
             "artifact": bool(obj.is_artifact),
             "enchantment": bool(obj.is_enchantment),
             "planeswalker": obj.is_planeswalker,
             # "counter target creature or battle spell" (Assimilate Essence)
             "battle": bool(obj.is_battle),
+            # "counter target creature or Aura spell" (Nullify): an Aura spell carries the Aura subtype (RULE 303.4).
+            "aura": obj.has_subtype("aura"),
         }
         if not any(type_checks.get(t, False) for t in card_types):
             return False
@@ -1214,6 +1347,12 @@ def _spell_matches_filter(
     if isinstance(max_mana_value, dict):
         max_mana_value = _candidate_mana_value_bound(state, max_mana_value, obj)
     if max_mana_value is not None and obj.mana_value > max_mana_value:
+        return False
+    # PAR-281: "…spell with power or toughness 2 or less" -- a spell with neither stat (no printed P/T) never matches.
+    max_pt = spell_filter.get("max_power_or_toughness")
+    if max_pt is not None and not any(
+        stat is not None and stat <= max_pt for stat in (obj.power, obj.toughness)
+    ):
         return False
     # "…spell with mana value 4 or greater" (PAR-215): the floor sibling of the ceiling above.
     min_mana_value = spell_filter.get("min_mana_value")
@@ -1518,13 +1657,18 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "noncreature_permanent": TargetFrame(
         "noncreature_permanent", apply_color=True, apply_max_mana_value=True),
 
-    # --- single permanent types -----------------------------------------
-    "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True),
-    "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True),
-    "land": TargetFrame("land", exclude_source=False, apply_color=True, apply_max_mana_value=True),
-    "other_land": TargetFrame("land", apply_color=True, apply_max_mana_value=True, exclude_source=True),
+    # --- single permanent types ---------------------------------------
+    # PAR-285 (RULE 115.1 / 205): the parsed quality of "X target noncreature artifacts" / "target snow land" rides
+    # `creature_filter` (`combat.matches_object_filter` reads any object, not only creatures), so these pools apply it
+    # as the creature-shaped pools do; before, "noncreature artifact" offered artifact creatures and "snow land" any land.
+    "artifact": TargetFrame("artifact", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "enchantment": TargetFrame("enchantment", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "land": TargetFrame(
+        "land", exclude_source=False, apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
+    "other_land": TargetFrame(
+        "land", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True, exclude_source=True),
     "noncreature_artifact": TargetFrame(
-        "noncreature_artifact", apply_color=True, apply_max_mana_value=True),
+        "noncreature_artifact", apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
     "nonbasic_land": TargetFrame("nonbasic_land"),
     "basic_land": TargetFrame("basic_land"),
     "mountain": TargetFrame("mountain"),
@@ -1632,12 +1776,14 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "creature_or_planeswalker_that_player_controls": TargetFrame(
         "creature_or_planeswalker", SCOPE_THAT_PLAYER, exclude_source=False,
         apply_max_mana_value=True),
+    # PAR-286: "target tapped nonland permanent that player controls" (The Spear of Bashenga) -- the quality filter
+    # applies like it does for the creature and "you don't control" pools.
     "permanent_that_player_controls": TargetFrame(
         "permanent", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
-        apply_max_mana_value=True),
+        apply_max_mana_value=True, apply_creature_filter=True),
     "nonland_permanent_that_player_controls": TargetFrame(
         "nonland_permanent", SCOPE_THAT_PLAYER, exclude_source=False,
-        apply_color=True, apply_max_mana_value=True),
+        apply_color=True, apply_max_mana_value=True, apply_creature_filter=True),
     "land_that_player_controls": TargetFrame(
         "land", SCOPE_THAT_PLAYER, exclude_source=False, apply_color=True,
         apply_max_mana_value=True),
@@ -1731,7 +1877,8 @@ def trigger_player_antecedent(state: "GameState", event: Any) -> Optional[str]:
         return event.get("defending_player_id")
     if event_type == "BECOMES_TARGET":
         return event.get("controller_id")
-    if event_type == "SPELL_CAST":
+    if event_type in ("SPELL_CAST", "LAND_PLAYED", "LIFE_LOST"):
+        # RULE 603.2c / 305.1 / 119.3: the player who cast, played the land, or lost the life.
         return event.get("player_id")
     if event_type == "STEP_BEGIN":
         active = getattr(state, "active_player", None)
@@ -1875,6 +2022,13 @@ def graveyard_card_matches(kind: str, obj: GameObject) -> bool:
     return bool(type_filter and type_filter(obj))
 
 
+def _blocked_by_artifact_ability(target: Any, source: Optional[GameObject],
+                                 controller_id: str, spec: TargetSpec) -> bool:
+    return bool(spec.ability_source and source is not None and "artifact" in getattr(source, "type_words", ())
+                and isinstance(target, GameObject) and target.controller_id != controller_id
+                and "untargetable_by_opponent_artifact_abilities" in combat._obj_keywords(target))
+
+
 def legal_targets(
     state: GameState,
     controller_id: str,
@@ -1885,6 +2039,10 @@ def legal_targets(
     """The currently legal targets for ``spec`` — see `_legal_targets_for`, less the object a
     group trigger fired for when the spec says "other than that creature" (PAR-123)."""
     found = _legal_targets_for(state, controller_id, spec, source, trigger_event)
+    if spec.ability_source:
+        found = [option for option in found
+                 if not _blocked_by_artifact_ability(state.find_object(option.get("instance_id")),
+                                                     source, controller_id, spec)]
     if spec.object_ids is not None:
         found = [option for option in found if option.get("instance_id") in spec.object_ids]
     if spec.zone_incarnations is not None:
@@ -1944,6 +2102,8 @@ def target_meets_restrictions(
     by the very predicate that offered the target (`legal_targets`), not a second list of keys. Requirements
     measured against announce-time state (`_announce_relative`) are not re-evaluated. A player target is judged
     the same way: opponent/"you" scope, player hexproof (RULE 702.11b-c) and protection (RULE 702.16b)."""
+    if _blocked_by_artifact_ability(target, source, controller_id, spec):
+        return False
     if _announce_relative(spec):
         return True
     offered = legal_targets(state, controller_id, spec, source, trigger_event)
@@ -2007,6 +2167,13 @@ def _legal_targets_for(
     # stamps it for real.
     if spec.exact_mana_value == "x":
         spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0))
+    if spec.exact_mana_value == X_PLUS_ONE_BOUND:
+        # MEC-173 (Sidisi, Regent of the Mire): "a creature card with mana value X plus 1" -- one above the announced X.
+        spec = replace(spec, exact_mana_value=int(getattr(source, "x_paid", 0) or 0) + 1)
+    if spec.max_mana_value == X_LESS_THAN_BOUND:
+        # MEC-173 (Scrap Welder): "mana value less than X" is strict, one under the announced X (a card of mana value
+        # X is not a legal target).
+        spec = replace(spec, max_mana_value=int(getattr(source, "x_paid", 0) or 0) - 1)
     if spec.max_mana_value in ("x", "-x"):
         x_paid = int(getattr(source, "x_paid", 0) or 0)
         spec = replace(spec, max_mana_value=x_paid if spec.max_mana_value == "x" else -x_paid)
@@ -2018,7 +2185,7 @@ def _legal_targets_for(
         _snap = (trigger_event or {}).get("counters") or {}
         _total = sum(v for v in _snap.values() if isinstance(v, int) and v > 0)
         spec = replace(spec, max_mana_value=_total)
-    if spec.max_mana_value == "source_power":
+    if spec.max_mana_value in (SOURCE_POWER_BOUND, SOURCE_POWER_LESS_THAN_BOUND):
         # "…with mana value X or less, where X is ~'s power." (Guardian
         # Scalelord, PAR-60) — the ability's own source, read live.
         # RULE 608.2h / 113.7a: a source that left the battlefield (a dies trigger's reflexive payoff, Sandbender
@@ -2026,9 +2193,11 @@ def _legal_targets_for(
         _event = trigger_event or {}
         if (getattr(source, "zone", None) is not Zone.BATTLEFIELD and _event.get("power") is not None
                 and _event.get("instance_id") == getattr(source, "instance_id", None)):
-            spec = replace(spec, max_mana_value=int(_event.get("power") or 0))
+            _source_power = int(_event.get("power") or 0)
         else:
-            spec = replace(spec, max_mana_value=int(getattr(source, "power", 0) or 0))
+            _source_power = int(getattr(source, "power", 0) or 0)
+        # RULE 107.1b-adjacent: "less than ~'s power" (Narset, Enlightened Exile) is strict, one under the ceiling form.
+        spec = replace(spec, max_mana_value=_source_power - (spec.max_mana_value == SOURCE_POWER_LESS_THAN_BOUND))
     # PAR-215: "…with mana value less than or equal to the number of Plains you control" (Lay Down Arms) -- a
     # `continuous.count_selector` measured for the ability's controller while the target is offered (RULE 601.2c).
     for bound_attr in ("max_mana_value", "exact_mana_value"):
@@ -2208,6 +2377,13 @@ def _legal_targets_for(
                         if any(p(o) for p in predicates)
                         and o is not source and controller_ok(o) and _targetable_by(o, source)
                     ]
+            non_subtype = enchant_non_subtype_predicate(quality)
+            if non_subtype is not None:
+                return [
+                    {"instance_id": o.instance_id, "name": o.name}
+                    for o in state.permanents()
+                    if non_subtype(o) and o is not source and controller_ok(o) and _targetable_by(o, source)
+                ]
             if quality == "creature":
                 return [
                     {"instance_id": o.instance_id, "name": o.name}
@@ -2368,6 +2544,25 @@ def _legal_targets_for(
             and _targetable_by(o, source)
         ]
         return spells + permanents
+    if kind in ("permanent_or_suspended_card", "permanent_with_time_counter_or_suspended_card"):
+        # RULE 702.62b: a suspended card is exiled with suspend and a time counter; a battlefield permanent is a normal
+        # RULE 115 target (hexproof / protection apply, an exiled card has none). Only the put-mode kind asks the
+        # permanent for a time counter already.
+        from .suspended_cards import time_counter_pool  # function-scoped: keeps this module's import list unchanged
+
+        return [
+            {"instance_id": o.instance_id, "name": o.name}
+            for o in time_counter_pool(
+                state, permanents_need_counter=kind == "permanent_with_time_counter_or_suspended_card")
+            if (o.zone != Zone.BATTLEFIELD or _targetable_by(o, source)) and not _excludes_source(spec, o, source)
+        ]
+    if kind == "creature_or_any_graveyard_creature":
+        # RULE 115.1 / 115.4: a battlefield creature (hexproof/protection apply) or a creature card in any graveyard
+        # (never targetable by anything, so no such filtering); each half reads its own existing branch.
+        return [
+            *_legal_targets_for(state, controller_id, replace(spec, kind="creature"), source, trigger_event),
+            *_legal_targets_for(state, controller_id, replace(spec, kind="any_graveyard_creature"), source, trigger_event),
+        ]
     if kind == "spell_nonland_permanent_or_graveyard_card":
         spells = [
             {"instance_id": item.obj.instance_id, "name": item.description or item.obj.name}
@@ -2458,7 +2653,9 @@ def _legal_targets_for(
             for gy in graveyards
             for o in gy
             if type_filter(o)
-            and (not spec.subtype or spec.subtype.lower() in o.card.type_line.lower())
+            # RULE 205.3 / 702.73: a whole subtype word of the card (a Changeling card in a graveyard has every creature
+            # type), never a substring of another type word.
+            and (not spec.subtype or o.has_subtype(spec.subtype))
             and not (spec.exclude_legendary and o.card.is_legendary)
             and _within_mana_value_ceiling(state, spec.max_mana_value, o)
             and (spec.min_mana_value is None or o.mana_value >= spec.min_mana_value)
@@ -2519,6 +2716,7 @@ def _legal_targets_for(
             if item.kind == "ability" and item.source is not None
             and (kind != "ability_you_control" or item.controller_id == controller_id)
             and (kind != "activated_ability" or item.category == "activated_ability")
+            and stack_source_matches(item.source, spec.stack_source_filter)
         ]
         if kind == "spell_or_ability":
             # "target spell or ability" (Deflecting Swat) — the plain
@@ -2547,10 +2745,20 @@ TARGET_COUNT_SELECTORS: frozenset[str] = frozenset({
     # Battlefront: "goad up to X target creatures, where X is the number of opponents you attacked this turn"
     # (Galvanizing Tenor) -- a history count, read through `continuous.count_selector` below.
     "opponents_attacked_this_turn",
+    # Archipelagore announces targets using the source's mutate count (RULE 702.140c).
+    "times_mutated",
 })
 #: PAR-150: "up to X target creatures ..., where X is your devotion to black" (Mogis's Marauder) -- RULE 202.2f;
 #: any ``devotion_to_<colour>`` name `continuous.count_selector` knows is a valid target-count selector.
 DEVOTION_COUNT_SELECTOR_PREFIX = "devotion_to_"
+#: "Destroy up to X target lands, where X is the number of verse counters on ~" (Rumbling Crescendo): the source's own
+#: counters of one kind, ``source_<kind>_counters`` (`continuous.count_selector`). RULE 602.2b/601.2c: an activated
+#: ability announces its targets before paying costs, so the sacrificed source still carries its counters then.
+SOURCE_COUNTERS_SELECTOR_PREFIX = "source_"
+#: The ``kind`` of a dict `TargetSpec.count_selector` that reads a payload field of the firing trigger event (the
+#: same spelling an amount uses, so `gate._event_amount_antecedent_ok` checks it against the ability's own trigger).
+TRIGGER_EVENT_COUNT_KIND = "trigger_event"
+SOURCE_COUNTERS_SELECTOR_SUFFIX = "_counters"
 
 
 def resolved_count(
@@ -2558,6 +2766,7 @@ def resolved_count(
     state: Optional[GameState] = None,
     controller_id: Optional[str] = None,
     source: Optional[GameObject] = None,
+    event: Optional[Any] = None,
 ) -> int:
     """How many targets ``spec`` wants *right now* (RULE 601.2c).
 
@@ -2568,13 +2777,35 @@ def resolved_count(
     of picks to offer.
     """
     selector = spec.count_selector
+    if isinstance(selector, dict):
+        # PAR-284 milestone 22 / RULE 601.2c: a structured count (or the firing event's payload) read as announced.
+        if state is None:
+            return spec.count
+        if selector.get("kind") == TRIGGER_EVENT_COUNT_KIND:
+            # RULE 603.3d: the event that fired the ability is known when its targets are chosen. Only the event the
+            # selector names counts (`gate._event_amount_antecedent_ok` already tied it to the ability's own trigger).
+            payload = event.get(selector["field"]) if event is not None and event.type == selector.get("event") else None
+            return max(0, int(payload or 0))
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
     if selector and selector.startswith(DEVOTION_COUNT_SELECTOR_PREFIX) and state is not None:
+        from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
+
+        return max(0, _count_selector(state, controller_id, selector, source=source))
+    if (selector and selector.startswith(SOURCE_COUNTERS_SELECTOR_PREFIX)
+            and selector.endswith(SOURCE_COUNTERS_SELECTOR_SUFFIX) and state is not None):
         from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
 
         return max(0, _count_selector(state, controller_id, selector, source=source))
     if not selector or selector not in TARGET_COUNT_SELECTORS or state is None:
         return spec.count
-    if selector == "opponents_attacked_this_turn":
+    if selector in ("opponents_attacked_this_turn", "times_mutated"):
+        if selector == "times_mutated" and event is not None and source is not None:
+            # RULE 603.3d / 608.2h: the source may leave before targets are chosen.
+            visit = event.get("source_zone_incarnation")
+            if visit is not None and visit != source.zone_incarnation:
+                source = state.zone_visit_sources.get((source.instance_id, visit))
         from .continuous import count_selector as _count_selector  # function-scoped: continuous imports this module
 
         return max(0, _count_selector(state, controller_id, selector, source=source))
@@ -2664,6 +2895,7 @@ def expand_counts(
     state: Optional[GameState] = None,
     controller_id: Optional[str] = None,
     source: Optional[GameObject] = None,
+    event: Optional[Any] = None,
 ) -> tuple[list[TargetSpec], list[int]]:
     """Split every multi-target requirement into one single-target spec each.
 
@@ -2704,7 +2936,7 @@ def expand_counts(
             expanded.extend(rounds)
             spans.append(len(rounds))
             continue
-        minimum = max(0, resolved_count(spec, state, controller_id, source))
+        minimum = max(0, resolved_count(spec, state, controller_id, source, event))
         if spec.count_selector and minimum == 0 and spec.count_max is None:
             # PAR-150: a dynamic count that resolved to 0 ("up to X target creatures ..., where X is the number of
             # times ~ was kicked", unkicked) asks for no target at all -- not one optional round, which would let the
@@ -2748,7 +2980,7 @@ def collapse_groups(groups: list[list[Any]], spans: list[int]) -> list[list[Any]
     return out
 
 
-def effects_target_specs(effects: Any) -> list[TargetSpec]:
+def effects_target_specs(effects: Any, *, ability_source: bool = False) -> list[TargetSpec]:
     """Every RULE 115.1 requirement a raw effects list announces, in printed
     order — the shared body `ability_target_specs` wraps. Takes a bare
     effects list (not an ability) so a **modal** activated ability's own
@@ -2759,7 +2991,7 @@ def effects_target_specs(effects: Any) -> list[TargetSpec]:
     wrapper object."""
     specs: list[TargetSpec] = []
     for effect in effects or []:
-        specs.extend(stamped_specs(effect))
+        specs.extend(stamped_specs(effect, ability_source=ability_source))
     return _mark_prior_target_antecedents(specs)
 
 
@@ -2798,7 +3030,7 @@ def ability_target_specs(ability: Any) -> list[TargetSpec]:
     the same `GameEffect.target_specs` read `RulesEngine._trigger_target_specs`
     does (so a *single* effect wanting two differently-typed targets announces
     both)."""
-    return effects_target_specs(getattr(ability, "effects", None) or [])
+    return effects_target_specs(getattr(ability, "effects", None) or [], ability_source=True)
 
 
 def target_rounds(
@@ -2945,7 +3177,7 @@ def requirements_with_targets(
             "polarity": spec.polarity,
         }
         add_target_budget_metadata(state, spec, entry)
-        if spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
+        if isinstance(spec.count_selector, str) and spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
             entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
         if spec.count_max is not None:
             entry["count_max"] = spec.count_max

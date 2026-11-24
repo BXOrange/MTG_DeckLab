@@ -77,7 +77,7 @@ def test_heal_effect_self_target_and_group():
     assert b.damage_marked == 0
 
     b.damage_marked = 2
-    HealEffect(selector="creatures_you_control", source=a).apply(eng.rules.context)
+    HealEffect(selector={"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, source=a).apply(eng.rules.context)
     assert (a.damage_marked, b.damage_marked, opp.damage_marked) == (0, 0, 2)
 
 
@@ -127,7 +127,7 @@ def test_heal_on_damage_replacement_only_heals_its_own_source():
 def test_heal_clause_parses():
     assert match_clause("heal all damage from ~") == [EffectSpec("heal", {})]
     assert match_clause("heal all damage from each creature you control") == [
-        EffectSpec("heal", {"selector": "creatures_you_control"})
+        EffectSpec("heal", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})
     ]
     assert match_clause("heal 2") is None  # RULE 701.69a is only ever "all"
 

@@ -147,11 +147,12 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 # RULE 707.10: casting choices are copied; cast history and mana expenditure are not.
 _SPELL_COPY_CHOICES = (
-    "kicker_count", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
+    "kicker_count", "kicker_costs_paid", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
     "gift_promised", "gift_recipient_id", "blitz_cost_paid", "emerge_cost_paid", "offered_additional_costs",
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
-    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_was_suspected", "sacrificed_cost_instance_id",
+    "sacrificed_cost_counters", "sacrificed_cost_card_types", "sacrificed_cost_words", "sacrificed_cost_was_suspected", "sacrificed_cost_instance_id",
+    "cost_referents",  # MEC-145: what the original's costs moved (RULE 608.2h snapshot), read by "the discarded card's ..."
 )
 
 
@@ -211,12 +212,15 @@ class CopiesMixin:
         add_colors: Optional[list[str]] = None,
         add_keywords: Optional[list[str]] = None,
         on_created: Optional[dict] = None,
+        add_ability_lines: Optional[list[str]] = None,
+        remove_keywords: Optional[list[str]] = None,
+        only_types: Optional[list[str]] = None,
     ) -> list[GameObject]:
         """Create ``count`` token copies of ``source`` (RULE 707.2 / 111.5).
 
         A token copy takes ``source``'s *copiable* characteristics — for this
-        basic version, its printed `Card` (the front face if it's transformed,
-        RULE 713.1a) — and enters as a token under ``controller_id``. Reuses
+        version, its current face's `Card` — and enters as a token under
+        ``controller_id``. Reuses
         `create_token`, so the copy's own abilities bind and it follows the
         token cease-to-exist lifecycle (RULE 704.5d).
 
@@ -227,7 +231,7 @@ class CopiesMixin:
         modifiers `copy_mechanics.become_copy` already applies for the
         enters-as-a-copy replacement shape.
         """
-        copiable = getattr(source, "_front_card", source.card)
+        copiable = source.card
         if add_colors:
             # "…in addition to its other colors" (PAR-135): the copiable colours plus these, expressed
             # through `Card.as_copy`'s replace-only ``set_colors`` so the card model needs no change.
@@ -237,11 +241,24 @@ class CopiesMixin:
             # original already has is not added a second time ("Creature Artifact Creature").
             present = {word.lower() for word in copiable.type_line.partition("—")[0].split()}
             add_types = [t for t in add_types if t.lower() not in present]
-        if (add_types or add_subtypes or not_legendary or set_power is not None
-                or set_toughness is not None or set_colors is not None or add_keywords):
+        if only_types:
+            from ...models.cards.subtype_types import SUBTYPES_BY_CARD_TYPE
+
+            # RULE 205.1a / 205.4b: replacing card types keeps supertypes
+            # and only the printed subtypes still valid for a retained type.
+            main, _, subtypes = copiable.type_line.partition("—")
+            supertypes = [word for word in main.split()
+                          if word.lower() in {"basic", "legendary", "snow", "world", "ongoing"}]
+            valid_subtypes = frozenset().union(*(SUBTYPES_BY_CARD_TYPE.get(t.lower(), ()) for t in only_types))
+            retained = [word for word in subtypes.split() if word.lower() in valid_subtypes]
+            only_types = [*supertypes, *only_types]
+            add_subtypes = list(dict.fromkeys([*retained, *(add_subtypes or [])]))
+        if (only_types or add_types or add_subtypes or not_legendary or set_power is not None
+                or set_toughness is not None or set_colors is not None or add_keywords or add_ability_lines or remove_keywords):
             copiable = copiable.as_copy(
                 add_types=add_types, add_subtypes=add_subtypes, not_legendary=not_legendary,
                 set_power=set_power, set_toughness=set_toughness, set_colors=set_colors, add_keywords=add_keywords,
+                add_ability_lines=add_ability_lines, remove_keywords=remove_keywords, only_types=only_types,
             )
             if set_colors is not None:
                 with_color_override(copiable, [c for c in set_colors if c in VALID_COLORS])  # RULE 707.9b: beats the unchanged mana cost
@@ -462,7 +479,9 @@ class CopiesMixin:
             trigger_event=item.trigger_event,
             category=item.category,
         )
+        copy_item.cost_stamps = copy.deepcopy(item.cost_stamps)  # RULE 707.10: a copy reads the same paid costs
         copy_item.source_zone_incarnation = item.source_zone_incarnation
+        copy_item.source_attachment_lki = getattr(item, 'source_attachment_lki', None)
         if new_targets is None:
             copy_item.target_incarnations = list(item.target_incarnations)
         self._substitute_x(copy_item.effects, item.x)
@@ -669,17 +688,18 @@ class CopiesMixin:
                 )
             )
         return True
-    def _flip_permanent(self, obj: GameObject) -> bool:
+    def _flip_permanent(self, obj: GameObject, *, as_enters: bool = False) -> bool:
         """Flip a flip card's permanent (RULE 710): its alternative name, type line, text and power/toughness
         replace the normal ones (RULE 710.2) while its mana cost and colour stay (RULE 710.1c). One-way (RULE
-        710.4) and only on the battlefield — ``False`` for an unflippable or already-flipped object.
+        710.4) and ordinarily only on the battlefield. ``as_enters`` binds an explicit
+        "return flipped" entrant before its entry event. False for an unflippable or already-flipped object.
 
         `GameObject.flip` swaps ``card`` only, so, like `transform_permanent`, the half's own abilities are bound
         afresh and the old half's cleared; counters, damage, attachments and tapped state are untouched (the
         permanent is the same object, RULE 710.4 — this is not a zone change)."""
         from ..binding.core import bind_from_catalogue  # function-scoped: avoid a cycle
 
-        if obj not in self.state.battlefield or not obj.flip():
+        if (not as_enters and obj not in self.state.battlefield) or not obj.flip():
             return False
         obj.spell_effects = []
         obj.triggered_abilities = []

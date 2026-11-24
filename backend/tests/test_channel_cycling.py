@@ -294,7 +294,9 @@ def test_typecycling_variant_does_not_get_the_generic_draw_ability():
     )
     bind_from_catalogue(obj)
 
-    assert obj.activated_abilities == []
+    # MEC-168: the typed variant is modeled now -- exactly one ability, the search, and still no "draw a card".
+    (ability,) = obj.activated_abilities
+    assert [type(effect).__name__ for effect in ability.effects] == ["SearchLibraryEffect"]
 
 
 def test_hand_authored_cycling_is_not_duplicated_by_the_generic_binder():
@@ -527,7 +529,7 @@ def test_when_you_cycle_this_card_trigger_fires_from_the_graveyard():
     bonus = TriggeredAbility(
         trigger_event=EventType.CYCLED,
         condition=lambda e, c, iid=obj.instance_id: e.get("instance_id") == iid,
-        effects=[DestroyEffect(target_kind="permanent", selector="all_creatures")],
+        effects=[DestroyEffect(target_kind="permanent", group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}})],
         source=obj,
     )
     obj.triggered_abilities.append(bonus)

@@ -17,7 +17,7 @@ def _martial_coup() -> list[AbilitySpec]:
                     "subtypes": ["Soldier"], "token_name": "Soldier",
                 }),
                 EffectSpec(
-                    "destroy", {"selector": "all_creatures", "exclude_created": True},
+                    "destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "exclude_created": True},
                     condition={"source_x_paid_at_least": 5},
                 ),
             ],

@@ -34,7 +34,7 @@ def _venser_the_sojourner() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "activated",
-            [EffectSpec("unblockable", {"selector": "all_creatures"})],
+            [EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
             cost={"loyalty": -1},
         ),
         AbilitySpec(

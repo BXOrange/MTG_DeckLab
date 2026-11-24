@@ -43,7 +43,7 @@ def _kamahl_heart_of_krosa() -> list[AbilitySpec]:
             "triggered",
             [EffectSpec("pump", {
                 "power": 3, "toughness": 3, "keywords": ["trample"],
-                "selector": "creatures_you_control",
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
             })],
             trigger={
                 "event": "STEP_BEGIN",

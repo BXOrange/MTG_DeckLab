@@ -56,7 +56,7 @@ def _tyvar_kell() -> list[AbilitySpec]:
             [
                 EffectSpec(
                     "grant_mana_ability",
-                    {"affects": "creatures_you_control", "subtype": "Elf", "mana": [{"B": 1}]},
+                    {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'subtype': 'Elf'}}, "mana": [{"B": 1}]},
                 )
             ],
         ),

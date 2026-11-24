@@ -137,7 +137,7 @@ def test_destroy_all_creatures_executes_and_wipes_the_board():
     obj = GameObject(
         Card(id="Wipe", name="Wipe", type_line="Sorcery"), owner_id="p1", zone=Zone.STACK
     )
-    obj.spell_effects = [DestroyEffect(selector="all_creatures")]
+    obj.spell_effects = [DestroyEffect(group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}})]
     item = StackItem(kind="spell", controller_id="p1", obj=obj, description="Wipe",
                       effects=obj.spell_effects)
     state.stack.append(item)
@@ -157,7 +157,7 @@ def test_exile_all_lands_executes():
         Card(id="Farewell Half", name="Farewell Half", type_line="Sorcery"),
         owner_id="p1", zone=Zone.STACK,
     )
-    obj.spell_effects = [ExileEffect(selector="all_lands")]
+    obj.spell_effects = [ExileEffect(group={"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}})]
     item = StackItem(kind="spell", controller_id="p1", obj=obj, description="Farewell Half",
                       effects=obj.spell_effects)
     state.stack.append(item)
@@ -225,11 +225,12 @@ def test_baral_full_card_is_modeled():
             "draw a card. If you do, discard a card."
         ),
     )
-    # Baral's second ability (countering a spell/ability) isn't in this
-    # batch's scope — only the cost-reduction line is expected to claim.
+    # PAR-286 M11 added the "a spell or ability you control counters a spell" head, so both lines claim.
     result = parse_oracle(card)
-    assert not result.modeled
-    assert "cost_reduction" not in "".join(result.unclaimed)  # the cost line itself is claimed
+    assert result.modeled
+    assert [spec.ability_kind for spec in result.specs] == ["static", "triggered"]
+    assert result.specs[0].effects[0].type == "cost_reduction"
+    assert result.specs[1].trigger["event"] == "SPELL_COUNTERED"
 
 
 def test_instant_and_sorcery_cost_reduction_executes():

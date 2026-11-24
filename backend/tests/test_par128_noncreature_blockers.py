@@ -318,9 +318,11 @@ def test_the_group_row_wins_over_the_named_selectors():
     assert spec.params == {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}
     [spec] = parse_effect_body("destroy all artifacts your opponents control")
     assert spec.params == {"group": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "artifact"}}}
-    # the named row still reads the numeric-X bound the group grammar does not
+    # the mass row still reads the numeric-X bound the group grammar does not
     [spec] = parse_effect_body("destroy all artifacts with mana value x or less")
-    assert spec.params["selector"] == "all_artifacts"
+    assert spec.params == {
+        "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "artifact"}}, "filter": {"max_mana_value": "x"},
+    }
 
 
 @pytest.mark.parametrize("oracle", [

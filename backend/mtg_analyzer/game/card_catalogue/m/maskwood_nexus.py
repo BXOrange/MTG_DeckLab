@@ -25,7 +25,7 @@ def _maskwood_nexus() -> list[AbilitySpec]:
         AbilitySpec(
             'static',
             [
-                EffectSpec('type_change', {'affects': 'creatures_you_control',
+                EffectSpec('type_change', {'affects': {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}},
                             'add_subtypes': ['changeling'],
                             'off_battlefield': 'cards_you_own'}),
             ],

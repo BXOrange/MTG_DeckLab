@@ -14,6 +14,7 @@ from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
     COLOR_WORD_ALT,
+    COUNT,
     count_of,
     count_or_x_of,
     OTHER_PREFIX,
@@ -27,6 +28,7 @@ from ..subgrammars import (
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_YOU, battlefield_group
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
 from .shared import (
@@ -42,6 +44,8 @@ from .shared import (
     MASS_DESTROY_FILTER,
     mass_destroy_filter_dict,
     mass_group_params,
+    stamp_group_reference,
+    strip_group_reference_tail,
     MULTI_TARGET_ALT,
     multi_target_params,
     MULTI_TARGET_QUANTIFIER,
@@ -85,8 +89,8 @@ _RETURN_GROUP_RE = compile_clause(
 )
 
 
-def _return_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = mass_group_params(m.group("group"), m.group("quant"))
+def _return_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    params = mass_group_params(m.group("group"), m.group("quant"), group_clause=reading.group_clause)
     return None if params is None else [EffectSpec("return_to_hand", params)]
 
 
@@ -274,7 +278,7 @@ def _tap_selector(m: re.Match[str]) -> list[EffectSpec]:
     # for a mass counter effect.
     untap = m.group("verb").lower() == "untap"
     other = m.groupdict().get("other_all") or m.groupdict().get("other_each")
-    selector = "other_creatures_you_control" if other else "creatures_you_control"
+    selector = battlefield_group(OF_YOU, other=bool(other))
     return [EffectSpec("tap", {"selector": selector, "untap": untap})]
 
 
@@ -308,11 +312,16 @@ def _tap_all_player_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _ATTACKED_THIS_TURN_TAIL = " that attacked this turn"
 
 
-def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+def _tap_all_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
 
     group = m.group("group")
     if "target" in group or "that player" in group:
         return None
+    # RULE 603.2 / 608.2c: under a group-subject trigger "…that share a creature type with it" names the object the
+    # trigger fired for, not the ability's source (ENG-64): the selector carries ``reference: trigger_subject``.
+    reference_key = None
+    if reading.group_clause:
+        group, reference_key = strip_group_reference_tail(group)
     # RULE 508.1a: "untap all creatures that attacked this turn" (Own the Day) -- a declared attacker, kept on the
     # object (`GameObject.attacked_this_turn`); a creature put onto the battlefield attacking never has it (RULE 508.4).
     attacked = group.endswith(_ATTACKED_THIS_TURN_TAIL)
@@ -321,6 +330,10 @@ def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     if attacked:
         selector = {**selector, "filter": {**selector.get("filter", {}), "attacked_this_turn": True}}
+    if reference_key is not None:
+        selector = stamp_group_reference(selector, reference_key)
+        if selector is None:
+            return None
     return [EffectSpec("tap", {"selector": selector, "untap": m.group("verb").lower() == "untap"})]
 
 
@@ -331,7 +344,7 @@ def _tap_all_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: same one Motivated Pony's anthem already reads).
 def _tap_attacking_creatures(m: re.Match[str]) -> list[EffectSpec]:
     untap = m.group("verb").lower() == "untap"
-    return [EffectSpec("tap", {"selector": "attacking_creatures", "untap": untap})]
+    return [EffectSpec("tap", {"selector": battlefield_group(OF_ANY, attacking=True), "untap": untap})]
 
 
 #: "Untap it and all Samurai you control." (Godo, Bandit Warlord's own
@@ -350,7 +363,7 @@ def _tap_self_and_subtype(m: re.Match[str]) -> list[EffectSpec]:
     subtype = m.group("subtype").rstrip("s")
     return [
         EffectSpec("tap", {"target_kind": None, "untap": untap}),
-        EffectSpec("tap", {"selector": f"creatures_you_control_of_type_{subtype}", "untap": untap}),
+        EffectSpec("tap", {"selector": battlefield_group(OF_YOU, subtype=subtype), "untap": untap}),
     ]
 
 
@@ -547,7 +560,7 @@ _RETURN_ALL_NONLAND_RE = compile_clause(
 
 def _return_all_nonland(m: re.Match[str]) -> list[EffectSpec]:
     # PAR-128: RULE 109.5 "all other nonland permanents" (Kederekt Leviathan).
-    params: dict = {"selector": "all_other_nonland_permanents" if m.group("other") else "all_nonland_permanents"}
+    params: dict = {"group": battlefield_group(OF_ANY, None, other=bool(m.group("other")), without_card_type="land")}
     filt = mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt
@@ -609,6 +622,41 @@ _OWNER_PUTS_TOP_OR_BOTTOM_RE = compile_clause(
 _OWNER_PUTS_TOP_OR_BOTTOM_KINDS: frozenset[str] = frozenset(
     {"creature", "nonland_permanent", "artifact_or_creature", "spell_or_nonland_permanent", "creature_or_spacecraft"}
 )
+
+
+#: PAR-292 (RULE 701.24a): "<target>'s owner shuffles it into their library" / "the owner of <target> shuffles it into
+#: their library" / "choose <target>. Its owner shuffles it into their library" (Ominous Cemetery, Living Library,
+#: Deglamer, Unravel the Aether) and the "shuffle <target you control> into its owner's library" imperative (Rishadan
+#: Pawnshop) = `return_to_library` with ``position="shuffle"``: the target is announced as the spell or ability goes on the
+#: stack (RULE 115), and the owner's library, not the controller's, is the one shuffled.
+_SHUFFLE_TARGET_INTO_LIBRARY_RE = compile_clause(
+    rf"(?:choose {target_macro('_c')}\. its owner|{TARGET}'s owner|the owner of {_OWNER_TARGET_B}) "
+    r"shuffles it into their library(?:, then draws? (?P<tail>\d+) cards?)?"
+)
+_SHUFFLE_TARGET_INTO_LIBRARY_KINDS: frozenset[str] = _RETURN_TO_HAND_KINDS | frozenset(
+    {"artifact_or_enchantment", "artifact_or_enchantment_you_dont_control", "creature_or_planeswalker_you_dont_control"}
+)
+
+
+def _shuffle_target_into_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    for suffix in ("", "_b", "_c"):
+        phrase = m.groupdict().get(f"target{suffix}")
+        if phrase:
+            break
+    else:
+        return None
+    kind = resolve_target_kind(phrase)
+    if not target_kind_allowed(kind, _SHUFFLE_TARGET_INTO_LIBRARY_KINDS):
+        return None
+    if resolve_target_creature_state_filter(phrase):
+        return None  # a qualifier the effect's TargetSpec does not carry would be dropped silently
+    shuffle = EffectSpec("return_to_library", {
+        "target_kind": kind, "position": "shuffle", "optional": bool(m.groupdict().get(f"up_to_one{suffix}")),
+    })
+    if m.group("tail") is None:
+        return [shuffle]
+    # RULE 608.2c: the omitted subject of ", then draws N cards" is the owner who shuffled (Oblation).
+    return [shuffle, EffectSpec("draw", {"count": int(m.group("tail")), "player": "previous_target_owner"})]
 
 
 #: PAR-161: the *controller* chooses — "put target card from a graveyard on your choice of the top or bottom of its
@@ -695,15 +743,21 @@ def _return_self_to_library(m: re.Match[str]) -> list[EffectSpec]:
 #: PAR-241: "put target card from your graveyard on the bottom of your library" (Tomb Trawler, Epitaph Golem,
 #: Cybernetic Specialist) -- RULE 115: the target is limited to the controller's own graveyard (``graveyard_card``),
 #: and that graveyard's owner is the controller, so "your library" is the card's owner's library.
+#: PAR-288 (RULE 115.1a): "put up to one target card from a graveyard on the bottom of its owner's library" (Swiftgear
+#: Drake, Conjurer's Bauble) -- the same pick with zero targets legal, which `ReturnToLibraryEffect`'s ``optional`` reads.
 _GRAVEYARD_CARD_TO_LIBRARY_BOTTOM_RE = compile_clause(
-    r"put target card from (?:(?P<any>a)|(?P<own>your)) graveyard on the bottom of (?(any)its owner's|your) library"
+    rf"put (?P<up_to_one>{UP_TO_ONE})?target card from (?:(?P<any>a)|(?P<own>your)) graveyard on the bottom of "
+    r"(?(any)its owner's|your) library"
 )
 
 
 def _graveyard_card_to_library_bottom(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("return_to_library", {
+    params: dict = {
         "target_kind": "graveyard_card" if m.group("own") else "any_graveyard_card", "position": "bottom",
-    })]
+    }
+    if m.group("up_to_one"):
+        params["optional"] = True
+    return [EffectSpec("return_to_library", params)]
 
 
 #: "Return ~ to its owner's hand." (RULE 701.3, self form — no RULE 115
@@ -796,8 +850,20 @@ _GRAVEYARD_OTHER = rf"(?:{OTHER_PREFIX})?"
 #: the plain multi-target shape. Fixed counts also support the single-graveyard relation.
 _EXILE_GRAVEYARD_CARDS_MULTI_RE = compile_clause(
     r"exile (?:(?P<x_count>(?P<x_up_to>up to )?(?P<twice>twice )?x )"
-    r"|(?P<up_to>up to )?(?P<count>\d+) )target cards from (?P<graveyards>graveyards|a single graveyard)"
+    # PAR-281: a card-type word and "that player's graveyard" (Skullsnatcher) on the fixed-count form.
+    rf"|(?P<up_to>up to )?(?P<count>\d+) )target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards from "
+    # PAR-285: "exile 2 target cards from an opponent's graveyard" (Deadeye Tracker, Lochmere Serpent) / "...from your
+    # graveyard" (The Kenriths' Royal Funeral): the fixed-count pick takes the same graveyard scope word the single row does.
+    r"(?P<graveyards>graveyards|a single graveyard|that player'?s graveyard|an opponent'?s graveyard|your graveyard)"
 )
+
+
+#: PAR-285: the multi-exile row's graveyard phrase -> `graveyard_target_kind` scope word.
+_MULTI_EXILE_SCOPE_WORD: dict[str, str] = {
+    "that player's graveyard": "that players", "that players graveyard": "that players",
+    "an opponent's graveyard": "an opponent's", "an opponents graveyard": "an opponent's",
+    "your graveyard": "your",
+}
 
 
 def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -811,7 +877,12 @@ def _exile_graveyard_cards_multi(m: re.Match[str]) -> Optional[list[EffectSpec]]
     count = int(m.group("count"))
     if count < 2:
         return None
-    params: dict = {"target_kind": "any_graveyard_card", "count": count}
+    # "that player's graveyard": the PAR-130 antecedent scope (the gate checks the trigger head names the player).
+    scope = _MULTI_EXILE_SCOPE_WORD.get(m.group("graveyards"), "a")
+    kind = graveyard_target_kind(m.group("type"), scope)
+    if kind is None:
+        return None
+    params: dict = {"target_kind": kind, "count": count}
     if m.group("up_to"):
         params["optional"] = True
     if m.group("graveyards") == "a single graveyard":
@@ -885,18 +956,40 @@ def _return_from_graveyard_two_color(m: re.Match[str]) -> Optional[list[EffectSp
 #: RULE 201.5: "card **named <<creating card>>**" in a token's quoted ability (Rekindling Phoenix, Deathpact Angel) --
 #: `normalize` keeps the creating card's printed name as a literal because a bare ``~`` there is the token.
 _NAMED_LITERAL_SLOT = r"(?: named <<(?P<named>[a-z0-9' -]+)>>)?"
+#: PAR-285: RULE 205.3 -- "target <subtype> [type] card from your graveyard" (Angel of Flight Alabaster, Barrow Witches,
+#: Bladewing the Risen), or "<subtype> or <subtype> [type] card" (Bruna, Bloodline Necromancer). A word that is not a
+#: card-type / supertype / colour word (those have their own slots); `_graveyard_subtype` checks each against the
+#: subtype vocabulary so a stray word never becomes a filter.
+#: PAR-285: the graveyard pick's mana-value bound (RULE 202.3), shared by the exile and return rows: "N or less" (literal
+#: ceiling), "N" (exact), "X" / "X or less" (the announced {X}, RULE 107.3), "less than or equal to ~'s power" and the
+#: strict "less than ~'s power" (the source's power, `targeting.SOURCE_POWER_BOUND`).
+_GRAVEYARD_MANA_VALUE_SLOT = (
+    r"(?: with mana value (?:(?P<exile_mv>\d+) or less|(?P<mv_exact>\d+)|(?P<mv_x>x)(?P<mv_x_le> or less)?"
+    r"|less than or equal to (?P<mv_power>~'s power)|less than (?P<mv_power_lt>~'s power)))?"
+)
+_NOT_A_TYPE_WORD = rf"(?!(?:{GRAVEYARD_TYPE_WORD}|legendary|nonlegendary|{COLOR_WORD_ALT})\b)"
+_GRAVEYARD_SUBTYPE_SLOT = (
+    rf"(?:{_NOT_A_TYPE_WORD}(?P<subtype>[a-z-]+) (?:or {_NOT_A_TYPE_WORD}(?P<subtype2>[a-z-]+) )?)?"
+)
 _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?P<verb>return|put) (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<nonleg>nonlegendary) )?"
     # PAR-165: one leading adjective -- a colour ("black card", Xiahou Dun) or "legendary" ("legendary creature card", Loyal Retainers).
-    rf"(?:(?P<adj>legendary|{COLOR_WORD_ALT}) )?"
+    # PAR-285: "multicolored" and the union "legendary or <subtype>" (Nashi, Moon's Legacy) ride the same slot.
+    rf"(?:(?P<adj>legendary|multicolored|{COLOR_WORD_ALT})(?: or (?P<adj_sub>[a-z-]+))? )?"
+    # PAR-285: a creature/permanent subtype word ("target spirit card", "target dragon permanent card").
+    rf"{_GRAVEYARD_SUBTYPE_SLOT}"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card{_NAMED_LITERAL_SLOT}(?P<adv> that has an adventure)?"
     # PAR-143: "with power 2 or less" (Alesha) rides the same slot as the mana-value cap.
     # PAR-164: "…with mana value less than or equal to ~'s power" (Sandbender Scavengers) -- the ceiling is the
     # source's own power, `TargetSpec.max_mana_value`'s existing ``"source_power"`` sentinel.
     rf"(?: with (?:mana value (?P<mv>\d+)|power (?P<pw>\d+)) or less| with mana value (?P<emv>x)(?P<mvx> or less)?"
-    r"| with mana value less than or equal to (?P<mvp>~'s power))? from "
+    r"| with mana value less than or equal to (?P<mvp>~'s power)"
+    # PAR-285: the strict "less than ~'s power" and the exact literal "mana value N" (RULE 202.3).
+    r"| with mana value less than (?P<mvlt>~'s power)| with mana value (?P<mveq>\d+)"
+    # MEC-173: the announced X of a "sacrifice ... with mana value X" cost bounds the pick strictly / by one.
+    r"| with mana value (?P<mvxlt>less than x)| with mana value (?P<mvxp1>x plus 1))? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard (?P<prep>to|onto|into) "
-    r"(?P<dest>the battlefield|your hand|its owner'?s hand)"
+    r"(?P<dest>the battlefield|your hand|its owner'?s hand|their hand)"
     # PAR-143: "…to the battlefield tapped [and attacking]" (RULE 110.5b / 508.4).
     r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # "…to the battlefield with a -1/-1 counter on it." (Persist — RULE
@@ -908,9 +1001,65 @@ _RETURN_FROM_GRAVEYARD_RE = compile_clause(
     rf"(?: with (?P<ewc_n>a|an|\d+)(?: additional)? (?P<ewc_kind>-1/-1|\+1/\+1|corpse|finality|{'|'.join(KEYWORD_COUNTER_KINDS)}) counters? on it)?"
 )
 _PUT_FROM_GRAVEYARD_OWNER_CONTROL_RE = compile_clause(
-    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
+    # PAR-288: "...card with mana value 3 or less from a graveyard..." (Bilbo, Unexpected Adventurer), RULE 202.3.
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card"
+    rf"(?: with mana value (?P<mv>\d+) or less)? from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard onto the battlefield under its owner'?s control"
 )
+
+
+def _stamp_graveyard_subtypes(m: re.Match[str], params: dict) -> bool:
+    """PAR-285: the ``subtype`` slot -> `TargetSpec.subtype` (one word, RULE 205.3) or a ``subtype_any`` creature filter
+    ("<A> or <B> card": `combat.matches_object_filter`, applied by the graveyard target branch); ``False`` when a slot
+    word is not a legal subtype for the pick."""
+    words = [w for w in (m.groupdict().get("subtype"), m.groupdict().get("subtype2")) if w]
+    subtypes = [_graveyard_subtype(w, m.groupdict().get("type")) for w in words]
+    if None in subtypes:
+        return False
+    if len(subtypes) == 1:
+        params["subtype"] = subtypes[0]
+    elif subtypes:
+        params.setdefault("creature_filter", {})["subtype_any"] = subtypes
+    return True
+
+
+def _graveyard_subtype(word: str, type_word: Optional[str]) -> Optional[str]:
+    """PAR-285: the ``subtype`` slot word of a graveyard pick -> the capitalised subtype, or ``None`` when it is not a
+    subtype. A non-creature subtype (Equipment, Aura) is only a legal pick with no card-type word of its own:
+    "equipment creature card" names no card (RULE 205.3)."""
+    if word not in SUBTYPES or (word in NONCREATURE_SUBTYPE_WORDS and type_word):
+        return None
+    return word.capitalize()
+
+
+#: PAR-288 (P1-F "at random"), RULE 706: "return a [type] card at random from your graveyard to your hand" -- the
+#: untargeted random recursion (Charmbreaker Devils, Ghoulraiser, Haunted Fengraf). No player chooses and nothing is
+#: targeted: `ReturnFromGraveyardEffect`'s ``at_random`` mode draws ``n`` distinct matching cards with the engine RNG.
+#: Only the controller's own graveyard is drawn from (the effect's `_return_at_random` reads it), so only "your" is claimed.
+_RETURN_AT_RANDOM_RE = compile_clause(
+    rf"return {COUNT} (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? at random from your graveyard "
+    r"to (?P<dest>the battlefield|your hand)"
+)
+
+
+def _return_at_random(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = graveyard_target_kind(m.group("type"), "your")
+    if kind is None:
+        return None
+    destination = "battlefield" if m.group("dest") == "the battlefield" else "hand"
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": destination, "at_random": count_of(m.group("n")),
+    })]
+
+
+#: PAR-287 (the Advocate cycle), RULE 400.3: "...from an opponent's graveyard to **their** hand" -- a card always goes to
+#: its owner's hand, and the owner of a card in an opponent's graveyard is that opponent, so the pronoun is only
+#: unambiguous for that scope ("from a graveyard to their hand" could name the controller).
+_THEIR_HAND = "their hand"
+
+
+def _their_hand_is_the_owners(m: re.Match[str]) -> bool:
+    return m.group("scope").startswith("an opponent")
 
 
 def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -922,8 +1071,12 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if kind is None:
         return None
     dest = m.groupdict().get("dest")
+    if dest == _THEIR_HAND and not _their_hand_is_the_owners(m):
+        return None
     destination = "battlefield" if dest is None or dest == "the battlefield" else "hand"
     params: dict = {"target_kind": kind, "destination": destination}
+    if not _stamp_graveyard_subtypes(m, params):
+        return None
     if m.groupdict().get("up_to_one"):
         params["optional"] = True
     mv = m.groupdict().get("mv")
@@ -931,17 +1084,30 @@ def _return_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["max_mana_value"] = int(mv)
     if m.groupdict().get("mvp"):
         params["max_mana_value"] = "source_power"
+    if m.groupdict().get("mvlt"):
+        params["max_mana_value"] = "source_power_less_than"
+    if m.groupdict().get("mveq"):
+        params["exact_mana_value"] = int(m.group("mveq"))
+    if m.groupdict().get("mvxlt"):
+        params["max_mana_value"] = "x_less_than"  # RULE 107.3: strictly below the announced X (Scrap Welder)
+    if m.groupdict().get("mvxp1"):
+        params["exact_mana_value"] = "x_plus_one"  # RULE 107.3: one above the announced X (Sidisi)
     if m.groupdict().get("pw") is not None:
-        params["creature_filter"] = {"max_power": int(m.group("pw"))}
+        params.setdefault("creature_filter", {})["max_power"] = int(m.group("pw"))
     if m.groupdict().get("adv"):
-        params["creature_filter"] = {"has_adventure": True}  # Edgewall Inn
+        params.setdefault("creature_filter", {})["has_adventure"] = True  # Edgewall Inn
     if m.groupdict().get("named"):
         # RULE 201.2: an exact name match against the creating card's printed name, a fixed string.
         params.setdefault("creature_filter", {})["name"] = m.group("named")
     adj = m.groupdict().get("adj")
-    if adj == "legendary":
-        params.setdefault("creature_filter", {})["legendary"] = True
+    if adj in ("legendary", "multicolored"):
+        quality: dict = {}
+        if not _stamp_graveyard_quality(adj, m.groupdict().get("adj_sub"), quality):
+            return None
+        params.setdefault("creature_filter", {}).update(quality)
     elif adj:
+        if m.groupdict().get("adj_sub"):
+            return None  # "white or black card": a colour union is not this slot
         color = resolve_color_word(adj)
         if color is None:
             return None
@@ -981,7 +1147,9 @@ _RETURN_FROM_GRAVEYARD_MULTI_RE = compile_clause(
     rf"(?:(?:each )?with mana value (?P<mv>\d+) or less |with total "
     rf"(?P<measure>mana value|power) (?P<budget>\d+) or less )?from "
     rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyards? to "
-    r"(?P<dest>the battlefield|your hand|their owners'? hands)"
+    r"(?P<dest>the battlefield|your hand|their owners'? hands|their hand)"
+    # PAR-285: "...to the battlefield tapped" (Vengeful Regrowth, Pull Through the Weft): RULE 110.5b, every returned card.
+    r"(?P<tapped> tapped)?"
 )
 
 
@@ -993,10 +1161,16 @@ def _return_from_graveyard_multi_target(m: re.Match[str]) -> Optional[list[Effec
     kind = graveyard_target_kind('creature' if subtype else m.group('type'), m.group('scope'))
     if kind is None:
         return None
+    if m.group('dest') == _THEIR_HAND and not _their_hand_is_the_owners(m):
+        return None
     destination = 'battlefield' if m.group('dest') == 'the battlefield' else 'hand'
     params: dict = {'target_kind': kind, 'destination': destination}
     if destination == 'battlefield':
         params['under_your_control'] = True
+    if m.group('tapped'):
+        if destination != 'battlefield':
+            return None  # only a battlefield entry is tapped
+        params['tapped'] = True
     if m.group('any_number'):
         params.update(count=0, any_number=True, optional=True)
     elif m.group('range_min') is not None:
@@ -1056,10 +1230,11 @@ def _return_from_graveyard_x(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: — unlike the two shapes above, this one *steals* the card for the
 #: activating/casting player regardless of whose graveyard it came from.
 _REANIMATE_UNDER_YOUR_CONTROL_RE = compile_clause(
-    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
+    rf"put (?P<up_to_one>{UP_TO_ONE}){_GRAVEYARD_OTHER}target {_GRAVEYARD_SUBTYPE_SLOT}"
+    rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card from "
     # PAR-152: "…from **defending player's** graveyard" (Chorale of the Void) — the attacked player's, read off the
     # firing attack event (`defending_graveyard_*` target kinds).
-    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|defending player'?s|that player'?s) graveyard onto the battlefield under your control"
+    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|defending player'?s|that player'?s) graveyard onto the battlefield(?P<tapped_pre> tapped)? under your control"
     # PAR-152: "…under your control **tapped and attacking**" (RULE 508.4 — Chorale of the Void).
     r"(?P<tapped> tapped)?(?P<atk> and attacking)?"
     # PAR-139: "…with a corpse counter on it" (From the Catacombs) — a named enters-with counter.
@@ -1073,9 +1248,12 @@ def _reanimate_under_your_control(m: re.Match[str]) -> Optional[list[EffectSpec]
     if kind is None:
         return None
     params: dict = {"target_kind": kind, "destination": "battlefield", "under_your_control": True}
-    if m.groupdict().get("atk") and not m.groupdict().get("tapped"):
+    if not _stamp_graveyard_subtypes(m, params):
+        return None
+    if m.groupdict().get("atk") and not m.groupdict().get("tapped") and not m.group("tapped_pre"):
         return None  # "attacking" on its own isn't a printed spelling
-    if m.groupdict().get("tapped"):
+    # RULE 110.5b: "onto the battlefield tapped under your control" (Demon of Dark Schemes) enters tapped too.
+    if m.groupdict().get("tapped") or m.group("tapped_pre"):
         params["tapped"] = True
     if m.groupdict().get("atk"):
         params["attacking"] = True
@@ -1171,6 +1349,25 @@ _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE = compile_clause(
     rf"shuffle any number of target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards from "
     r"your graveyard into your library"
 )
+
+
+#: PAR-292 (RULE 701.24a, 115.1a): "[you may] shuffle up to N target `<type>` cards from your graveyard into your
+#: library" (Put Away, Wand of Vertebrae, Tamiyo Meets the Story Circle): the "up to N" sibling of the "any number" row
+#: above, a bounded optional pick put on the bottom and shuffled in.
+_RETURN_FROM_GRAVEYARD_SHUFFLE_UP_TO_RE = compile_clause(
+    rf"(?:you may )?shuffle up to (?P<n>\d+) target (?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?cards? from "
+    r"your graveyard into your library"
+)
+
+
+def _return_from_graveyard_shuffle_up_to(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    kind = graveyard_target_kind(m.groupdict().get("type"), "your")
+    if kind is None:
+        return None
+    return [EffectSpec("return_from_graveyard", {
+        "target_kind": kind, "destination": "library_bottom", "shuffle_after": True,
+        "count": int(m.group("n")), "optional": True,
+    })]
 
 
 def _return_from_graveyard_top_any(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1438,16 +1635,54 @@ def _return_pick_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: targeted") being immaterial for a graveyard-card pick this grammar models.
 _EXILE_FROM_GRAVEYARD_RE = compile_clause(
     rf"exile (?P<up_to_one>{UP_TO_ONE})(?:target |an? )"
-    rf"(?:(?P<colors>{_COLOR_WORD_LIST_INNER}) )?"
+    rf"(?:(?:(?P<colors>{_COLOR_WORD_LIST_INNER})|(?P<color1>{COLOR_WORD_ALT})) )?"
+    # PAR-285: a supertype / multicolour quality ("target legendary or Rat card", "target multicolored card"); the
+    # "legendary creature card" type word keeps its own `legendary_creature` kind.
+    rf"(?:(?!legendary creature\b)(?P<qual>legendary|multicolored)(?: or (?P<qual_sub>[a-z-]+))? )?"
     # PAR-153: a creature-subtype adjective ("target Assassin creature card", Altaïr Ibn-La'Ahad).
-    r"(?:(?P<sub>[a-z-]+) (?=creature card))?"
+    r"(?:(?!legendary\b)(?P<sub>[a-z-]+) (?=creature card))?"
     rf"(?:(?P<type>{GRAVEYARD_TYPE_WORD}) )?card(?P<cycling> with a cycling ability)?"
     # PAR-153: "…creature card **with lesser power** from your graveyard" (Gyrus) — less than the source's power.
-    r"(?P<lesser> with lesser power)?(?: with mana value (?P<exile_mv>\d+) or less)? from "
-    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}) graveyard"
+    rf"(?P<lesser> with lesser power)?{_GRAVEYARD_MANA_VALUE_SLOT} from "
+    # PAR-281: "that player's graveyard" -- the player a damage/attack trigger names (`that_player_graveyard_*`).
+    rf"(?P<scope>{GRAVEYARD_SCOPE_WORD}|that player'?s) graveyard"
     # PAR-153: "…from your graveyard **with a memory counter on it**" — the card is exiled carrying it.
     r"(?: with an? (?P<ckind>[a-z]+) counter on it)?"
 )
+
+
+def _stamp_graveyard_mana_value(m: re.Match[str], params: dict) -> None:
+    """PAR-285: `_GRAVEYARD_MANA_VALUE_SLOT` -> `TargetSpec.max_mana_value` / ``exact_mana_value`` (RULE 202.3). X is the
+    announced {X} (RULE 107.3) as the existing ``"x"`` sentinel; the source-power forms are the `targeting` sentinels."""
+    groups = m.groupdict()
+    if groups.get("exile_mv"):
+        params["max_mana_value"] = int(m.group("exile_mv"))
+    elif groups.get("mv_exact"):
+        params["exact_mana_value"] = int(m.group("mv_exact"))
+    elif groups.get("mv_x"):
+        params["max_mana_value" if groups.get("mv_x_le") else "exact_mana_value"] = "x"
+    elif groups.get("mv_power"):
+        params["max_mana_value"] = "source_power"
+    elif groups.get("mv_power_lt"):
+        params["max_mana_value"] = "source_power_less_than"
+
+
+def _stamp_graveyard_quality(qual: Optional[str], other: Optional[str], creature_filter: dict) -> bool:
+    """PAR-285: the ``qual`` slot -> a `combat.matches_object_filter` key on the graveyard pick (RULE 205.4a supertype,
+    RULE 105.2c multicolored): "legendary", "multicolored", or the union "legendary or <subtype>" (Nashi, Moon's Legacy)
+    as an ``any_of``. ``False`` when the union's second word is not a subtype."""
+    if qual is None:
+        return True
+    if qual == "multicolored":
+        creature_filter["multicolored"] = True
+        return other is None
+    if other is None:
+        creature_filter["legendary"] = True
+        return True
+    if other not in SUBTYPES:
+        return False
+    creature_filter["any_of"] = [{"legendary": True}, {"subtype": other.capitalize()}]
+    return True
 
 
 def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1468,9 +1703,12 @@ def _exile_from_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params["colors"] = colors
     elif m.groupdict().get("colors"):
         return None  # a colour list we couldn't resolve — fail closed
-    if m.groupdict().get("exile_mv"):
-        params["max_mana_value"] = int(m.group("exile_mv"))
+    elif m.groupdict().get("color1"):
+        params["colors"] = [resolve_color_word(m.group("color1"))]  # RULE 105.1: "target black card"
+    _stamp_graveyard_mana_value(m, params)
     creature_filter: dict = {}
+    if not _stamp_graveyard_quality(m.groupdict().get("qual"), m.groupdict().get("qual_sub"), creature_filter):
+        return None
     if m.groupdict().get("sub"):
 
         sub = m.group("sub").lower()
@@ -1504,13 +1742,18 @@ def _exile_own_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
 #: target player's graveyard." (Tormod's Crypt) — a whole *graveyard*
 #: targeted by player, not a single card from one (`_EXILE_FROM_GRAVEYARD_RE`
 #: above) — the two phrasings are the same effect, so one builder claims both.
+#: PAR-285: "exile all `<type>` cards from target player's graveyard" (Shadow of the Enemy, Necromancer's Covenant) narrows
+#: it to one card type (`ExileTargetGraveyardEffect.card_type`, read as `Card.is_<type>`).
 _EXILE_TARGET_GRAVEYARD_RE = compile_clause(
-    r"exile (?:all cards from )?target player'?s graveyard"
+    r"exile (?:all (?:(?P<type>creature|land|artifact|enchantment|planeswalker) )?cards from )?target player'?s graveyard"
 )
 
 
 def _exile_target_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    return [EffectSpec("exile_target_graveyard", {"target_kind": "player"})]
+    params: dict = {"target_kind": "player"}
+    if m.group("type"):
+        params["card_type"] = m.group("type")
+    return [EffectSpec("exile_target_graveyard", params)]
 
 
 def _exile_with_counters(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
@@ -1685,7 +1928,7 @@ ROWS: list[EffectHandler] = [
     # optional effects.
     EffectHandler(
         "tap_or_untap",
-        compile_clause(r"(?:you may )?tap or untap target (?P<kind>nonland permanent|permanent|creature)"),
+        compile_clause(r"(?:you may )?tap or untap (?:another )?target (?P<kind>nonland permanent|permanent|creature)"),
         lambda m: [EffectSpec("tap", {
             "target_kind": m.group("kind").replace(" ", "_"),
             "choose_tap_or_untap": True,
@@ -1769,6 +2012,7 @@ ROWS: list[EffectHandler] = [
         "tap_all_group",
         compile_clause(r"(?P<verb>tap|untap) all (?P<group>[a-z' ~-]+?)"),
         _tap_all_group,
+        reading_aware=True,
     ),
     EffectHandler("tap_all_player_group", _TAP_ALL_PLAYER_GROUP_RE, _tap_all_player_group, fallback_for=("tap_all_group",)),
     # "untap all attacking creatures" / "untap each attacking creature"
@@ -1917,6 +2161,7 @@ ROWS: list[EffectHandler] = [
         _return_to_library,
     ),
     EffectHandler("owner_puts_top_or_bottom", _OWNER_PUTS_TOP_OR_BOTTOM_RE, _owner_puts_top_or_bottom),
+    EffectHandler("shuffle_target_into_library", _SHUFFLE_TARGET_INTO_LIBRARY_RE, _shuffle_target_into_library),
     EffectHandler("controller_puts_top_or_bottom", _CONTROLLER_PUTS_TOP_OR_BOTTOM_RE, _controller_puts_top_or_bottom),
     EffectHandler(
         "controller_may_put_self_top_or_bottom", _CONTROLLER_MAY_PUT_SELF_TOP_OR_BOTTOM_RE,
@@ -1940,7 +2185,7 @@ ROWS: list[EffectHandler] = [
         _graveyard_card_to_library_bottom,
     ),
     # PAR-128: "return all creatures to their owners' hands" — after `return_all_nonland`.
-    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group),
+    EffectHandler("return_group", _RETURN_GROUP_RE, _return_group, reading_aware=True),
     # "return all nonland permanents with mana value X or less to their
     # owners' hands." (Displacement Wave).
     EffectHandler(
@@ -1974,6 +2219,8 @@ ROWS: list[EffectHandler] = [
         _RETURN_FROM_GRAVEYARD_TWO_COLOR_RE,
         _return_from_graveyard_two_color,
     ),
+    # "return a [type] card at random from your graveyard to your hand" (PAR-288, RULE 706): the engine RNG picks.
+    EffectHandler("return_from_graveyard_at_random", _RETURN_AT_RANDOM_RE, _return_at_random),
     # "return target [type] card from [scope] graveyard to the
     # battlefield/your hand/its owner's hand" / "put target [type] card
     # from [scope] graveyard onto the battlefield under its owner's
@@ -2075,6 +2322,11 @@ ROWS: list[EffectHandler] = [
         "return_from_graveyard_shuffle_any",
         _RETURN_FROM_GRAVEYARD_SHUFFLE_ANY_RE,
         _return_from_graveyard_shuffle_any,
+    ),
+    EffectHandler(
+        "return_from_graveyard_shuffle_up_to",
+        _RETURN_FROM_GRAVEYARD_SHUFFLE_UP_TO_RE,
+        _return_from_graveyard_shuffle_up_to,
     ),
     EffectHandler(
         "shuffle_target_graveyard_cards",

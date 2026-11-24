@@ -17,7 +17,7 @@ def _kotori_pilot_prodigy() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_activated_ability", {
-                "affects": "permanents_you_control", "subtype": "vehicle",
+                "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'subtype': 'vehicle'}}, 
                 "cost": {"crew_power": 2},
                 "grant_effects": [
                     {"type": "grant_until", "params": {

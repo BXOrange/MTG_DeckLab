@@ -372,10 +372,12 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "reveal_hand": "reveal",  # RULE 701.20: a whole hand becomes public (Smart Ass)
     "exile_named_from_zones": "search",
     "same_name_search": "search",  # a reference operand over the existing search continuation
+    "exiled_from_hand_follow_up": "search",  # the sweep's own "draws a card for each card exiled from their hand"
 
     "reveal_hand_discard_all": "discard",
     "complete_turn_life_loss": "lose_life",
     "reveal_opponents_hands": "reveal",
+    "reveal_top_library": "reveal",
     "creature_damage_life_floor": "deal_damage",
     "haunted_owner_damage": "deal_damage",
     "control_while_haunted": "gain_control",
@@ -390,6 +392,12 @@ _INSTRUCTION_TYPES: dict[str, str] = {
     "empower_jace": "empower_jace",
     "attach": "attach",
     "become_copy_permanent": "copy_object",
+    "exile_creature_token_copy": "copy_object",
+    "exile_chosen_graveyard_card": "exile",
+    "exile_own_and_other_creatures": "exile",
+    "court_copy": "copy_object",
+    "copy_player_creatures": "copy_object",
+    "become_copy_paid_exile": "copy_object",
     "become_monarch": "become_monarch",
     "blight": "blight",
     "bolster": "bolster",
@@ -563,6 +571,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "pump_attacker_per_other_attacker": "create_continuous_effect",
     "prevent_source_damage_until_next_turn": "create_continuous_effect",
     "return_exiled_batch_to_hand": "move_object",
+    "timed_player_prohibition": "create_continuous_effect",
     "restrict_target_player_this_turn": "create_continuous_effect",
     "bounce_own_land_from_trigger": "move_object",
     "cant_block_this_turn": "create_continuous_effect",
@@ -580,7 +589,6 @@ _ALIAS_TYPES: dict[str, str] = {
     "copy_imprinted_card": "copy_object",
     "copy_permanent": "copy_object",
     "copy_sacrificed": "copy_object",
-    "devour_token": "create",
     "target_player_tokens_then_shrink": "create",
     "target_player_copies_creature": "copy_object",
     "paradigm_exile": "exile",
@@ -654,6 +662,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "exile_specific": "exile",
     "exile_target_graveyard": "exile",
     "exile_top_of_library": "exile",
+    "exile_random_graveyard_card": "exile",
     "exile_trigger_damaged_creature": "exile",
     # ENG-37 re-derivation: exile with a "you may play/cast the exiled
     # card" rider is *one* atomic operation, not an `exile` +
@@ -687,9 +696,12 @@ _ALIAS_TYPES: dict[str, str] = {
     "search_different_room_name": "search",
     "tap_creature_strike": "deal_damage",
     "cost_tapped_power_damage": "deal_damage",
+    "exile_cost_sacrificed": "exile",
     "half_x_recoil": "deal_damage",
     "mountain_recoil": "deal_damage",
     "war_cry": "create_continuous_effect",
+    "floating_combat_tax": "create_continuous_effect",
+    "each_player_counter_then_attack_bar": "create_continuous_effect",
     "fell_beast_shriek": "goad",
     "blitzwing_life_echo": "lose_life",
     "blitzwing_random_ability": "create_continuous_effect",
@@ -721,17 +733,22 @@ _ALIAS_TYPES: dict[str, str] = {
     "gain_control_until_eot": "gain_control",
     "gain_target_activated_abilities": "create_continuous_effect",
     "grant_activated_ability": "create_continuous_effect",
+    "grant_equip_ability": "create_continuous_effect",
+    "grant_crew_ability": "create_continuous_effect",
     "grant_borrowed_activated_ability": "create_continuous_effect",
     "grant_cant_be_countered": "create_continuous_effect",
     "grant_cant_be_target_of_spell_color": "create_continuous_effect",
+    "grant_cant_be_target_of_opponents": "create_continuous_effect",
     "grant_cant_lose_this_turn": "create_continuous_effect",
     "grant_conditional_cast_from_exile": "create_continuous_effect",
     "grant_cycling_to_hand": "create_continuous_effect",
+    "grant_zone_keyword": "create_continuous_effect",  # Sedris/Dregscape Sliver: graveyard Unearth (RULE 702.84a)
     "grant_damage_multiplier_this_turn": "create_continuous_effect",
     "grant_die_to_exile_this_turn": "create_continuous_effect",
     "grant_beam_me_up": "create_continuous_effect",  # Scotty, Miracle Worker (RULE 702.196a)
     "grant_escape": "create_continuous_effect",
     "grant_evoke": "create_continuous_effect",
+    "grant_replicate": "create_continuous_effect",
     "grant_warp": "create_continuous_effect",
     "grant_next_spell_cascade": "create_continuous_effect",
     "grant_offspring": "create_continuous_effect",
@@ -796,6 +813,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "put_commander_into_hand": "move_object",
     "put_equal_or_lesser_mv_from_hand": "move_object",
     "put_from_hand_onto_battlefield": "move_object",
+    "group_put_from_hand": "move_object",
     "put_from_defending_hand": "move_object",
     "put_hand_cards_on_top": "move_object",
     "put_hand_on_bottom": "move_object",
@@ -825,6 +843,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "return_specific_to_battlefield": "move_object",
     "return_specific_to_command_zone": "move_object",
     "return_specific_to_hand": "move_object",
+    "put_library_top_on_bottom": "move_object",  # RULE 401.4: changes position within the same library
     "put_specific_on_library_bottom": "move_object",  # PAR-276: moves, then the reflexive draw (RULE 603.12)
     "return_to_hand": "move_object",
     "return_commanders_to_command_zone": "move_object",
@@ -909,6 +928,34 @@ _ALIAS_TYPES: dict[str, str] = {
     # Territorial Hellkite: a random-opponent pick that becomes a combat requirement (or, with no candidate, a
     # tap) — the requirement is the continuous effect, in goad's family.
     "force_attack_unattacked_opponent": "create_continuous_effect",
+    "archnemesis_attach": "attach",
+    "autumn_tail_attach": "attach",
+    "maddening_hex_attach": "attach",
+    "eriette_attachment_control": "gain_control",
+    "arni_put_attacking": "move_object",
+    "azula_exile": "exile",
+    "draw_then_discard_drawn": "draw",
+    "exchange_top_library_permissions": "exchange",
+    "exile_opponent_top_cast_then_bottom": "exile",
+    "exile_opponents_choose_lands": "exile",
+    "fire_penguin_return": "move_object",
+    "grant_bound_trigger_doubler": "create_continuous_effect",
+    "grant_next_undaunted": "create_continuous_effect",
+    "grant_owned_card_type": "create_continuous_effect",
+    "grant_player_hexproof_until_eot": "create_continuous_effect",
+    "grant_spell_keyword": "create_continuous_effect",
+    "homura_return_flipped": "move_object",
+    "human_torch_create_trigger": "create_delayed_trigger",
+    "maddening_hex_damage": "deal_damage",
+    "opponent_free_cast_copy_or_draw": "cast",
+    "owner_draw_then_shuffle": "draw",
+    "phase_in_prohibition": "create_continuous_effect",
+    "player_cant_attack_this_turn": "create_continuous_effect",
+    "put_latest_exiled_onto_battlefield": "move_object",
+    "sasaya_mana": "add_mana",
+    "share_creature_combat_abilities": "create_continuous_effect",
+    "shuffle_exile_grant_copy": "copy_object",
+    "skyway_robber_cast": "cast",
 }
 
 #: FUSION — type name -> (the instructions it welds, the operator that
@@ -923,6 +970,13 @@ _FUSION_TYPES: dict[str, tuple[tuple[str, ...], str]] = {
 #: backlog.** Value is the CR rule the choice comes from, so the sweep can
 #: be checked against the rules rather than against a naming convention.
 _CONTINUATION_TYPES: dict[str, str] = {
+    # PAR-320: these frames resume existing sacrifice/payment/number/object choices;
+    # they add no new rules instruction or independent choice protocol.
+    "sacrifice_with_riders": "609.3",
+    "choice_of_damnations": "107.1c",
+    "infernal_denizen_offer": "608.2d",
+    "suspended_sacrifice_offer": "118.3",
+
 
     "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
     "devour_entry": "702.82a",  # sacrifice choices before entry counters
@@ -949,6 +1003,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "measure_physical_property": "107.1",
     "miracle_cast": "702.94",
     "reveal_split_piles": "608.2d",
+    "separate_piles": "700.3",
     "sacrifice_source_then": "616",
     "reveal_creatures_give_opponents": "608.2d",
     "exile_hand_may_play_owner_draws": "603.7",
@@ -982,6 +1037,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "choose_number_on_enter": "601.2b",
     "choose_objects": "601.2b",
     "choose_player_objects": "608.2e",
+    "choose_effect_on_resolution": "608.2d",
     "choose_opponent_on_enter": "601.2b",
     "choose_permanent": "601.2b",
     "choose_source_coinflip": "705",
@@ -1025,6 +1081,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "pay_cost_then": "118.3",
     "pay_cost_then_previous_mv": "118.3",
     "pay_energy_then": "122",
+    "amount_payment": "608.2d",
     "pay_life_equal_to_opponents_combat_damaged_draw_that_many": "118.3",
     "peek_top_land_battlefield_tapped": "601.2b",
     "peek_top_land_or_hand": "601.2b",
@@ -1079,7 +1136,7 @@ _STATIC_TYPES: frozenset[str] = frozenset({
     # `StaticAbility` for it.
     "exile_discount_cost",
     "extra_land_drop", "extra_land_play", "flash_permission", "retain_mana", "unspent_mana_colorless", "grant_help_pay_to_spells",
-    "counter_placement_prohibition",
+    "counter_placement_prohibition", "sacrifice_prohibition", "land_play_prohibition",
     "enters_with_counters_count",
     "linked_exile_permission", "free_cast_permission", "goaded", "grant_any_color_for_activation",
     "grant_graveyard_to_library_replacement",
@@ -1116,8 +1173,6 @@ _REPLACEMENT_TYPES: frozenset[str] = frozenset({
 #: ISA. Value names the card (or family) each was written for. This list
 #: shrinking is a better health signal than coverage moving.
 _SPECIAL_TYPES: dict[str, str] = {
-    "arni_put_attacking": "Arni Metalbrow: put the chosen creature onto the battlefield attacking",
-    "human_torch_create_trigger": "Human Torch: create a delayed damage trigger",
     "counter_then_delayed_spent_mana": "Mana Sculpt: countered-spell payment snapshot and conditional delayed mana",
     "graveyard_cast_borrow_activated": "Havengul Lich: exact graveyard-visit permission and cast-time ability snapshots",
     "exile_self_and_grantor_until_attack": "Meandered Towershell's captured creature/Aura pair",
@@ -1134,6 +1189,9 @@ _SPECIAL_TYPES: dict[str, str] = {
     # Bookkeeping events/links with no rules action of their own: RULE 702.122e "becomes crewed" (Mobilizer Mech) and
     # RULE 607.2a's exiled-with link handed to a created token (Mechtitan Core).
     "crewed_event": "Vehicle becomes crewed (RULE 702.122e)",
+    "time_counters": "Time counters on a permanent or suspended card (RULE 122.1, 702.62b)",
+    "trained_event": "Creature trains (RULE 702.149a)",
+    "connived_event": "Permanent connives (RULE 701.50f)",
     "transfer_exiled_with_to_created": "Mechtitan Core",
     "exile_self_with_counters": "Suspended Sentence",
     "advanced_reconstruction_l1": "Advanced Reconstruction",

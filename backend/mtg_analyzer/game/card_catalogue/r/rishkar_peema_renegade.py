@@ -28,8 +28,8 @@ def _rishkar_peema_renegade() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_mana_ability", {
-                "mana": [{"G": 1}], "affects": "creatures_you_control",
-                "object_filter": {"has_counter": True},
+                "mana": [{"G": 1}], "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature', 'has_counter': True}},
+                
             })],
         ),
     ]

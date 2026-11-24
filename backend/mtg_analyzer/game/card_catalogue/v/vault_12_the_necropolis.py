@@ -42,8 +42,7 @@ def _vault_12_the_necropolis() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters", {
-                "amount": 2, "kind": "+1/+1", "selector": "each_creature_you_control",
-                "subtypes": ["Zombie", "Mutant"],
+                "amount": 2, "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype_any": ["Zombie", "Mutant"]}},
             })],
             trigger={"event": "SAGA_CHAPTER", "chapter": [3]},
         ),

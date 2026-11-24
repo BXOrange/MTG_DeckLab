@@ -20,7 +20,7 @@ def _angelic_field_marshal() -> list[AbilitySpec]:
             "affects": "self", "power": 2, "toughness": 2, "active_if": dict(commander),
         })]),
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "creatures_you_control", "keywords": ["vigilance"], "active_if": dict(commander),
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "keywords": ["vigilance"], "active_if": dict(commander),
         })]),
     ]
 

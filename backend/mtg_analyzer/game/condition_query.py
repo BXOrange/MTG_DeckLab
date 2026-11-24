@@ -28,6 +28,9 @@ def conditional_flash_holds(
     obj: "GameObject",
     state: "GameState",
     targets: Optional[list[Any]] = None,
+    announced_x: Optional[int] = None,
+    announced_teamwork: Optional[bool] = None,
+    announced_additional: Optional[bool] = None,
 ) -> bool:
     """Whether ``obj``'s `conditional_flash` condition holds right now.
 
@@ -63,7 +66,19 @@ def conditional_flash_holds(
             # vocabulary a static's own ``active_if`` uses.
             from . import static_conditions  # local: static_conditions pulls in the phase tables
 
-            if not static_conditions.condition_holds(value, state, obj, obj.controller_id):
+            subject = obj
+            if announced_x is not None or announced_teamwork is not None or announced_additional is not None:
+                from copy import copy
+                # Proposal-time choices may differ from a previous cast.
+                # A legality preview must not mutate the actual object.
+                subject = copy(obj)
+                if announced_x is not None:
+                    subject.x_paid = announced_x
+                if announced_teamwork is not None:
+                    subject.teamwork_paid = announced_teamwork
+                if announced_additional is not None:
+                    subject.additional_cost_paid = announced_additional
+            if not static_conditions.condition_holds(value, state, subject, obj.controller_id):
                 return False
         elif key == "entered_this_turn":
             if bool(value) != (obj.turn_entered == state.internal_turn.number):
@@ -136,6 +151,12 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
     an unrecognized key.
     """
     controller_id = getattr(obj, "controller_id", None)
+    if "kind" in condition:
+        # PAR-283: a shared-vocabulary condition (`static_conditions`) gates the alternative cost -- the Trap cycle's
+        # "if an opponent searched their library this turn". An unknown ``kind`` fails closed inside `condition_holds`.
+        from . import static_conditions  # function-scoped: static_conditions imports this module's neighbours
+
+        return static_conditions.condition_holds(condition, state, obj, controller_id)
     for key, value in condition.items():
         if key == "control_commander":
             player = None
@@ -277,3 +298,17 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
         else:
             return False
     return True
+
+
+def counter_placement_this_turn(state, controller_id, counter, *, creature=False, recipient=None):
+    """RULE 122.6 / 400.7: match the placing player, counter kind and exact visit."""
+    if controller_id is None:
+        return False
+    return any(
+        event.type == "COUNTER" and event.get("source_controller_id") == controller_id
+        and event.get("kind") == counter and (event.get("amount") or 0) > 0
+        and (not creature or event.get("recipient_is_creature"))
+        and (recipient is None or (event.get("target_id") == recipient.instance_id
+                                   and event.get("target_zone_incarnation") == recipient.zone_incarnation))
+        for event in state.events_this_turn()
+    )

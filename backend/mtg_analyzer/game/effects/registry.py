@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from .core import EffectRegistry, SetDayNightEffect
+from .amount_payment import AmountPaymentEffect
+from .hand_entry import GroupHandEntryEffect
+from ..targeting import SPELL_FILTER_EXTRA_KEYS
 from .random_control import RandomNonlandControlEffect
 from .reveal_spell_value import RevealMatchingSpellValueEffect
 from .repeating_coin_destruction import RepeatingCoinDestructionEffect
@@ -9,11 +12,17 @@ from .unattached_projectile import UnattachedProjectileEffect
 from .next_spell_cascade import GrantNextSpellCascadeEffect
 from .combat_prevention_tokens import CombatPreventionTokensEffect
 from .room_search import SearchDifferentRoomNameEffect
+from .edict_riders import (SacrificeWithRidersEffect,
+                           InfernalDenizenOfferEffect, ChoiceOfDamnationsEffect,
+                           SuspendedSacrificeOfferEffect)
 from .tap_creature_strike import TapCreatureStrikeEffect
 from .cost_tapped_power_damage import CostTappedPowerDamageEffect
+from .exile_cost_sacrificed import ExileCostSacrificedEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
 from .war_cry import WarCryEffect
+from .combat_rules import EachPlayerMayCounterThenAttackBarEffect, FloatingCombatTaxEffect
+from .time_counters import TimeCountersEffect
 from .fell_beast_shriek import FellBeastShriekEffect
 from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, BlitzwingConvertEffect
 from .flamewar import FlamewarUpgradeEffect, FlamewarIntelExileEffect, FlamewarRecoverIntelEffect
@@ -21,6 +30,14 @@ from .optimus_prime import OptimusAttackBolsterEffect, OptimusReturnConvertedEff
 from .megatron import MegatronConvertManaEffect, MegatronSacrificeEffect, MegatronSplitDamageEffect, MegatronExcessConvertEffect
 from .dragon_brothers import DragonBrothersMemoryEffect, DragonBrothersChooseEffect, DragonBrothersManifestHandEffect, DragonBrothersElderEffect
 from .arni_metalbrow import ArniPutAttackingEffect
+from .sasaya import SasayaManaEffect
+from .autumn_tail import AutumnTailAttachEffect
+from .homura import HomuraReturnFlippedEffect
+from .fire_penguin import FirePenguinReturnEffect
+from .skyway_robber import SkywayRobberCastEffect
+from .eriette_the_beguiler import ErietteAttachmentControlEffect
+from .archnemesis import ArchnemesisAttachEffect
+from .maddening_hex import MaddeningHexDamageEffect, MaddeningHexAttachEffect
 from .human_torch import HumanTorchCreateTriggerEffect
 from .guile import GuileShuffleEffect
 from .invasion_of_alara import AlaraExileEffect, AlaraTakeHandEffect, AlaraBottomRestEffect, MaelstromArtifactEffect, MaelstromCopyEffect, MaelstromCountersEffect
@@ -35,6 +52,10 @@ from .assimilate import EFFECT_FACTORIES as _ASSIMILATE_FACTORIES
 from .emblem_bodies import GainControlOfCastTargetsEffect, DelayReturnDyingSubjectEffect, CompleteTurnLifeLossEffect
 from .haunted import HauntedCreatureEffect
 from .loss_replacements import RecoverInsteadOfLosingEffect
+from . import become_copy_paid_exile  # noqa: F401
+from . import copy_player_creatures  # noqa: F401
+from . import exile_creature_token_copy  # noqa: F401
+from . import court_copy  # noqa: F401
 from . import singleton_batch2_registry  # noqa: F401  (registers the Batch 2 singleton effect types)
 from . import singleton_batch2_h_registry  # noqa: F401  (registers the Batch 2 worker-H singleton effect types)
 from . import counter_delayed_mana  # noqa: F401
@@ -53,9 +74,27 @@ EffectRegistry.register("combat_prevention_tokens", lambda p: CombatPreventionTo
 EffectRegistry.register("search_different_room_name", lambda p: SearchDifferentRoomNameEffect())
 EffectRegistry.register("tap_creature_strike", lambda p: TapCreatureStrikeEffect())
 EffectRegistry.register("cost_tapped_power_damage", lambda p: CostTappedPowerDamageEffect())
+EffectRegistry.register(
+    "exile_cost_sacrificed",
+    lambda p: ExileCostSacrificedEffect(card_type=p.get("card_type", "creature"), include_source=bool(p.get("include_source", True))),
+)
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("war_cry", lambda p: WarCryEffect())
+EffectRegistry.register("floating_combat_tax", lambda p: FloatingCombatTaxEffect(
+    p["verb"], p["amount"], p["payment"], p["duration"], p.get("defender_scope"),
+))
+EffectRegistry.register("each_player_counter_then_attack_bar",
+                        lambda p: EachPlayerMayCounterThenAttackBarEffect(int(p["count"])))
+EffectRegistry.register(
+    # RULE 122.1 / 702.62b: "remove/put N time counters on target permanent [with a time counter on it] or suspended
+    # card" and the "each permanent and each suspended card" mass form -- see `TimeCountersEffect`.
+    "time_counters",
+    lambda p: TimeCountersEffect(
+        mode=p.get("mode", "remove"), count=p.get("count", 1), target_kind=p.get("target_kind"),
+        mass=bool(p.get("mass", False)),
+    ),
+)
 EffectRegistry.register("fell_beast_shriek", lambda p: FellBeastShriekEffect())
 EffectRegistry.register("blitzwing_life_echo", lambda p: BlitzwingLifeEchoEffect())
 EffectRegistry.register("blitzwing_random_ability", lambda p: BlitzwingRandomAbilityEffect())
@@ -74,6 +113,15 @@ EffectRegistry.register("dragon_brothers_choose", lambda p: DragonBrothersChoose
 EffectRegistry.register("dragon_brothers_manifest_hand", lambda p: DragonBrothersManifestHandEffect())
 EffectRegistry.register("dragon_brothers_elder", lambda p: DragonBrothersElderEffect())
 EffectRegistry.register("arni_put_attacking", lambda p: ArniPutAttackingEffect())
+EffectRegistry.register("sasaya_mana", lambda p: SasayaManaEffect())
+EffectRegistry.register("autumn_tail_attach", lambda p: AutumnTailAttachEffect())
+EffectRegistry.register("homura_return_flipped", lambda p: HomuraReturnFlippedEffect())
+EffectRegistry.register("fire_penguin_return", lambda p: FirePenguinReturnEffect())
+EffectRegistry.register("skyway_robber_cast", lambda p: SkywayRobberCastEffect())
+EffectRegistry.register("eriette_attachment_control", lambda p: ErietteAttachmentControlEffect())
+EffectRegistry.register("archnemesis_attach", lambda p: ArchnemesisAttachEffect())
+EffectRegistry.register("maddening_hex_damage", lambda p: MaddeningHexDamageEffect())
+EffectRegistry.register("maddening_hex_attach", lambda p: MaddeningHexAttachEffect())
 EffectRegistry.register("human_torch_create_trigger", lambda p: HumanTorchCreateTriggerEffect())
 EffectRegistry.register("guile_shuffle", lambda p: GuileShuffleEffect())
 EffectRegistry.register("alara_exile", lambda p: AlaraExileEffect())
@@ -120,7 +168,11 @@ EffectRegistry.register('linked_exile_permission', lambda p: StaticAbility(
 EffectRegistry.register("opponent_draw_step", lambda p: StaticAbility("opponent_draw_step", affects="controller"))
 EffectRegistry.register("sideboard_cast_permission", lambda p: StaticAbility("sideboard_cast_permission", affects="controller"))
 EffectRegistry.register("loyalty_instant_timing", lambda p: StaticAbility("loyalty_instant_timing", affects="controller"))
-EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility("reveal_opponents_hands", affects="opponents"))
+EffectRegistry.register("put_library_top_on_bottom", lambda p: PutLibraryTopOnBottomEffect())
+EffectRegistry.register("reveal_top_library", lambda p: StaticAbility("reveal_top_library", affects="you"))
+EffectRegistry.register("reveal_opponents_hands", lambda p: StaticAbility(
+    "reveal_opponents_hands", affects="each_player" if p.get("all_players") else "opponents",
+))
 EffectRegistry.register("creature_damage_life_floor", lambda p: StaticAbility("creature_damage_life_floor", affects="controller"))
 
 EffectRegistry.register("measure_physical_property", lambda p: MeasurePhysicalPropertyEffect())
@@ -152,12 +204,12 @@ EffectRegistry.register(
         count_max=p.get("count_max"),
         colors=p.get("colors"),
         creature_filter=p.get("creature_filter"),
-        selector_filter=p.get("selector_filter"),
         group=p.get("group"),
         group_player=p.get("group_player"),
         group_and_players=p.get("group_and_players"),
         group_amount=p.get("group_amount"),
         division=p.get("division"), division_required=bool(p.get("division_required")), divided=bool(p.get("divided", False)),
+        announced_amount=p.get("announced_amount"),
         distinct_from_others=bool(p.get("distinct_from_others", False)),
         double_at=p.get("double_at"),
         amount_if_kicked=p.get("amount_if_kicked"),
@@ -431,6 +483,10 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    'draw_then_discard_drawn',
+    lambda p: DrawThenDiscardDrawnEffect(count=p.get('count', 2), discard_count=p.get('discard_count', 1)),
+)
+EffectRegistry.register(
     "discard",
     lambda p: DiscardEffect(
         count=p.get("count", 1), player=p.get("player"),
@@ -440,10 +496,12 @@ EffectRegistry.register(
         previous_subject=bool(p.get("previous_subject", False)),
         random=bool(p.get("random", False)),
         whole_hand=bool(p.get("whole_hand", False)),
+        then_draw_hand_size=bool(p.get("then_draw_hand_size", False)),
         count_max=p.get("count_max"),
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         filter=p.get("filter"),
         unless_discard=p.get("unless_discard"), player_id=p.get("player_id"),
+        hand_fraction=p.get("hand_fraction"),
     ),
 )
 EffectRegistry.register(
@@ -460,6 +518,7 @@ EffectRegistry.register(
         grant_suspend_cast=bool(p.get("grant_suspend_cast", False)),
         sweep_time_counters=bool(p.get("sweep_time_counters", False)),
         then_opponent=bool(p.get("then_opponent", False)), player_id=p.get("player_id"),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(
@@ -484,6 +543,7 @@ EffectRegistry.register(
     lambda p: LookAtHandEffect(
         target_kind=p.get("target_kind", "player"), previous_subject=bool(p.get("previous_subject", False)),
         defending_player=bool(p.get("defending_player", False)),
+        damaged_player=bool(p.get("damaged_player", False)),
     ),
 )
 EffectRegistry.register(
@@ -546,6 +606,8 @@ EffectRegistry.register(
         count=p.get("count", 1),
         up_to=bool(p.get("up_to", False)),
         destination=str(p.get("destination", "discard")),
+        shuffle_if_none=bool(p.get("shuffle_if_none", False)),
+        shuffle_condition=p.get("shuffle_condition"),
     ),
 )
 EffectRegistry.register(
@@ -620,6 +682,9 @@ EffectRegistry.register(
     lambda p: RegenerateEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "creature"),
         creature_filter=p.get("creature_filter"),
+        counter_on_regeneration=p.get("counter_on_regeneration"),
+        take_control_on_regeneration=bool(p.get("take_control_on_regeneration")),
+        choose_opponent_draw=bool(p.get("choose_opponent_draw")),
     ),
 )
 EffectRegistry.register(
@@ -640,6 +705,8 @@ EffectRegistry.register(
         amount=int(p.get("amount", 0) or 0),
         target_kind=p.get("target_kind", "player"),
         only_reduce=bool(p.get("only_reduce", False)),
+        optional=bool(p.get("optional", False)),
+        fraction_of_starting=p.get("fraction_of_starting"),
     ),
 )
 EffectRegistry.register(
@@ -922,6 +989,7 @@ EffectRegistry.register(
         amount=p.get("amount", 0), player=p.get("player"), selector=p.get("selector"),
         target_kind=p.get("target_kind"), player_id=p.get("player_id"),
         previous_subject=bool(p.get("previous_subject", False)),
+        measure_per_player=bool(p.get("measure_per_player", False)),
     ),
 )
 EffectRegistry.register(
@@ -951,6 +1019,7 @@ EffectRegistry.register(
         suspend_instead=p.get("suspend_instead"),
         on_pay_effect_specs=p.get("on_pay_effect_specs"),
         unless_pays_extra_selector=p.get("unless_pays_extra_selector"),
+        unless_pays_generic=p.get("unless_pays_generic"),
         target_kind=p.get("target_kind", "spell"),
         tap_lands_empty_pool_if_unpaid=bool(p.get("tap_lands_empty_pool_if_unpaid", False)),
         exile_then_cast_free=bool(p.get("exile_then_cast_free", False)),  # Transcendent Dragon
@@ -962,13 +1031,16 @@ EffectRegistry.register(
         counter_source=bool(p.get("counter_source", False)),  # PAR-208: "counter ~" from a cast trigger
         resolve_if_color=p.get("resolve_if_color"),  # BUG-37: "counter target spell if it's blue"
         max_mana_value=p.get("max_mana_value"), min_mana_value=p.get("min_mana_value"),  # PAR-215: "…with mana value N or less/greater"
+        max_power_or_toughness=p.get("max_power_or_toughness"),  # PAR-281: Stern Scolding
+        spell_filter_extra={k: p[k] for k in SPELL_FILTER_EXTRA_KEYS if k in p},  # PAR-285: colour union, non-X
     ),
 )
 EffectRegistry.register(
     # "Counter target activated or triggered ability." (RULE 701.5b —
     # Stifle/Trickbind, ENG-26) — the ability-item sibling of ``"counter"``.
     "counter_ability",
-    lambda p: CounterAbilityEffect(target=p.get("target"), target_kind=p.get("target_kind", "ability")),
+    lambda p: CounterAbilityEffect(target=p.get("target"), target_kind=p.get("target_kind", "ability"),
+                                       source_filter=p.get("source_filter")),
 )
 EffectRegistry.register(
     "copy_spell",
@@ -982,6 +1054,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "spell"),
         spell_from_trigger_event=p.get("spell_from_trigger_event"),
         controller_from_trigger_event=p.get("controller_from_trigger_event"),
+        controller_from_target=bool(p.get("controller_from_target", False)),
         count_selector=p.get("count_selector"), count_from_trigger_event=p.get("count_from_trigger_event"),
         max_mana_value=p.get("max_mana_value"),
     ),
@@ -998,7 +1071,8 @@ EffectRegistry.register(
     # "Copy target activated or triggered ability you control X times." (Gogo, Master of Mimicry)
     "copy_target_ability",
     lambda p: CopyTargetAbilityEffect(choose_new_targets=bool(p.get("choose_new_targets", False)),
-                                    count=p.get("count", "x"), target_kind=p.get("target_kind", "ability_you_control")),
+                                    count=p.get("count", "x"), target_kind=p.get("target_kind", "ability_you_control"),
+                                    source_filter=p.get("source_filter")),
 )
 EffectRegistry.register(
     "copy_self_spell",
@@ -1214,6 +1288,7 @@ EffectRegistry.register(
     "sacrifice_self",  # "Sacrifice ~." (Dress Down/Underworld Breach-shaped)
     lambda p: SacrificeSelfEffect(
         target_kind=p.get("target_kind"), trigger_event_key=p.get("trigger_event_key"),
+        require_source_incarnation=bool(p.get("require_source_incarnation", False)),
     ),
 )
 EffectRegistry.register("sacrifice_target", lambda p: SacrificeTargetEffect(controller_only=bool(p.get("controller_only", False))))
@@ -1283,6 +1358,7 @@ EffectRegistry.register(
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         max_mana_value=p.get("max_mana_value"),
         min_mana_value=p.get("min_mana_value"),
+        exact_mana_value=p.get("exact_mana_value"),
         grant_owner_play_permission=bool(p.get("grant_owner_play_permission", False)),
         owner_play_permission_tax=p.get("owner_play_permission_tax"),
         owner_play_permission_tax_all=bool(p.get("owner_play_permission_tax_all", False)),
@@ -1291,6 +1367,7 @@ EffectRegistry.register(
         trigger_event_key=p.get("trigger_event_key"),
         grant_free_cast_window=bool(p.get("grant_free_cast_window", False)),
         spell_or_permanent=bool(p.get("spell_or_permanent", False)),
+        spell_filter=p.get("spell_filter"),
         colors=p.get("colors"),
         bend_kind=p.get("bend_kind"),
         count_selector=p.get("count_selector"),
@@ -1320,6 +1397,12 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         position=p.get("position", "top"),
     ),
+)
+EffectRegistry.register(
+    # PAR-325: "Exile a card [of a type] at random from your graveyard." -- seeded random pick, exiled-card referent.
+    "exile_random_graveyard_card",
+    lambda p: ExileRandomGraveyardCardEffect(card_filter=p.get("card_filter"), count=int(p.get("count", 1) or 1),
+        track_exiled_with=bool(p.get("track_exiled_with", False))),
 )
 EffectRegistry.register(
     # "If it's a land card, the player puts it onto the battlefield.
@@ -1366,6 +1449,9 @@ EffectRegistry.register(
     lambda p: CopyImprintedCardEffect(
         from_previous=bool(p.get("from_previous", False)), cast_cost=p.get("cast_cost"),
         from_self=bool(p.get("from_self", False)), free=bool(p.get("free", True)),
+        optional_cast=bool(p.get("optional_cast", False)),
+        from_latest_exiled=bool(p.get("from_latest_exiled", False)), card_filter=p.get("card_filter"),
+        from_linked_exile=bool(p.get("from_linked_exile", False)), any_number=bool(p.get("any_number", False)),
     ),
 )
 EffectRegistry.register(
@@ -1427,7 +1513,7 @@ EffectRegistry.register(
     "exile_target_graveyard",  # Bojuka Bog/Tormod's Crypt; Crypt Incursion (card_type)
     lambda p: ExileTargetGraveyardEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "player"),
-        card_type=p.get("card_type"),
+        card_type=p.get("card_type"), any_number=bool(p.get("any_number", False)),
         player_from_trigger_event=bool(p.get("player_from_trigger_event", False)),
         track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
@@ -1529,7 +1615,8 @@ EffectRegistry.register(
     lambda p: ReturnAllExiledWithEffect(counter_if_creature=p.get("counter_if_creature"), tapped=bool(p.get("tapped", False)),
                                       sacrifice_source=bool(p.get("sacrifice_source", False)),
                                       under_your_control=bool(p.get("under_your_control", False)),
-                                      card_types=p.get("card_types"), destination=p.get("destination", "battlefield")),
+                                      card_types=p.get("card_types"), destination=p.get("destination", "battlefield"),
+                                      own_only=bool(p.get("own_only", False))),
 )
 EffectRegistry.register("transfer_exiled_with_to_created", lambda p: TransferExiledWithToCreatedEffect())  # Mechtitan Core
 EffectRegistry.register(  # "Exile ~ with three time counters on it." (Suspended Sentence)
@@ -1557,6 +1644,7 @@ EffectRegistry.register(
     lambda p: ChooseVoidCounterCardEffect(),
 )
 EffectRegistry.register("exile_library", lambda p: ExileLibraryEffect())
+EffectRegistry.register("owner_draw_then_shuffle", lambda p: OwnerDrawThenShuffleEffect())
 EffectRegistry.register(
     "shuffle_target_into_library_reveal_top",  # Chaos Warp
     lambda p: ShuffleTargetIntoLibraryRevealTopEffect(
@@ -1596,7 +1684,11 @@ EffectRegistry.register(
     # Borne Upon a Wind (unrestricted) / Complete the Circuit ("sorcery
     # spells", PAR-124's ``card_types`` narrowing).
     "grant_flash_until_eot",
-    lambda p: GrantFlashUntilEndOfTurnEffect(card_types=p.get("card_types"), next_only=bool(p.get("next_only", False))),
+    lambda p: GrantFlashUntilEndOfTurnEffect(
+        card_types=p.get("card_types"), next_only=bool(p.get("next_only", False)),
+        entry_counters=p.get("entry_counters"), cant_be_countered=bool(p.get("cant_be_countered", False)),
+        of_chosen_type=bool(p.get("of_chosen_type", False)), spell_filter=p.get("spell_filter"),
+    ),
 )
 EffectRegistry.register(
     "become_saddled", lambda p: BecomeSaddledEffect(),  # Guardian Sunmare's own "Saddle N"
@@ -1676,7 +1768,8 @@ EffectRegistry.register(
     "look_top_cast_free",
     lambda p: LookTopCastFreeEffect(
         count=p.get("count", 7), criteria=p.get("criteria"), max_mana_value_from=p.get("max_mana_value_from"),
-        prompt=p.get("prompt"),
+        prompt=p.get("prompt"), max_mana_value=p.get("max_mana_value"),
+        mana_value_below=bool(p.get("mana_value_below", False)),
     ),
 )
 EffectRegistry.register(
@@ -1717,6 +1810,8 @@ EffectRegistry.register(
     "exile_controller_searches_basic_land",  # Winds of Abandon
     lambda p: ExileControllerSearchesBasicLandEffect(
         target=p.get("target"), target_kind=p.get("target_kind", "creature"),
+        destination=p.get("destination", "battlefield_tapped"),
+        optional=bool(p.get("optional", False)), reveal=bool(p.get("reveal", False)),
     ),
 )
 EffectRegistry.register(
@@ -2045,6 +2140,13 @@ EffectRegistry.register(
         bake_previous_objects=bool(p.get("bake_previous_objects", False)),
         bake_source_object=bool(p.get("bake_source_object", False)),
         grant_zone=p.get("grant_zone"),
+        damaged_this_way=bool(p.get("damaged_this_way", False)),
+    ),
+)
+EffectRegistry.register(
+    "amount_payment",
+    lambda p: AmountPaymentEffect(
+        resource=p["resource"], scope=p["scope"], repeat=p.get("repeat", False), effects=p.get("effects"),
     ),
 )
 EffectRegistry.register(
@@ -2062,10 +2164,11 @@ EffectRegistry.register(
 EffectRegistry.register(
     # "You may exile this card. If you do, ..." while the source is already
     # in a graveyard (Greenwarden of Murasa). The `then_trigger` gets fresh
-    # targets only after the optional exile actually happened.
+    # targets only after the optional exile actually happened. ``required`` drops the choice: "Exile it. When you do,
+    # ..." (Glissa's Retriever).
     "may_exile_source_then",
     lambda p: MayExileSourceThenEffect(
-        then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"),
+        then_trigger=list(p.get("then_trigger", [])), prompt=p.get("prompt"), required=bool(p.get("required", False)),
     ),
 )
 EffectRegistry.register(
@@ -2074,6 +2177,7 @@ EffectRegistry.register(
     "reflexive_trigger",
     lambda p: ReflexiveTriggerEffect(
         then_trigger=list(p.get("then_trigger", [])), then_trigger_condition=p.get("then_trigger_condition"),
+        then_trigger_modes=p.get("then_trigger_modes"), carry_referent=p.get("carry_referent"),
     ),
 )
 EffectRegistry.register(
@@ -2127,6 +2231,7 @@ EffectRegistry.register(
     "counter_unless_pay",
     lambda p: CounterUnlessPayEffect(
         cost=p.get("cost", ""), target_kind=p.get("target_kind"),
+        unless_pays_generic=p.get("unless_pays_generic"),
     ),
 )
 EffectRegistry.register(
@@ -2174,6 +2279,8 @@ EffectRegistry.register(
         tap_fighters=bool(p.get("tap_fighters", False)),
         excess_then_trigger=p.get("excess_then_trigger"),
         fighter_filter=p.get("fighter_filter"), other_filter=p.get("other_filter"),
+        fighter_exclude_source=bool(p.get("fighter_exclude_source", False)),
+        dies_this_turn_effects=p.get("dies_this_turn_effects"),
     ),
 )
 EffectRegistry.register(
@@ -2238,8 +2345,12 @@ EffectRegistry.register(
     # registry.
     "sacrifice",
     lambda p: SacrificeEffect(
-        count=p.get("count", 1) if str(p.get("count")).startswith("all_but_") or p.get("count") == "all"
-        else int(p.get("count", 1) or 1),
+        # "x" is the announced X ("each player sacrifices X lands", PAR-320): `RulesEngine._substitute_x` binds it.
+        # PAR-284 milestone 23: a ``bind`` sentinel ("$n", "sacrifice a permanent for each 1 life lost", Lich's Tomb)
+        # stays raw while `target_specs` builds the composed effect once to enumerate targets; the bind substitutes the
+        # measured number before the effect runs.
+        count=p.get("count", 1) if str(p.get("count")).startswith(("all_but_", "$")) or p.get("count") in ("all", "x")
+        else int(p.get("count", 1)),
         what=p.get("what", "permanent"),
         player=p.get("player"),
         selector=p.get("selector"),
@@ -2248,6 +2359,12 @@ EffectRegistry.register(
         greatest=p.get("greatest"),
         action=p.get("action", "sacrifice"),
         chooser=p.get("chooser"),
+        object_filter=p.get("object_filter"),
+        least=p.get("least"),
+        pool_fraction=p.get("pool_fraction"),
+        unable_effects=p.get("unable_effects"),
+        exclude_source=bool(p.get("exclude_source", False)),
+        shares_type_with=p.get("shares_type_with"),
     ),
 )
 EffectRegistry.register(
@@ -2367,6 +2484,8 @@ EffectRegistry.register(
     lambda p: PutSpecificOnLibraryBottomEffect(objects=[], then_draw=int(p.get("then_draw", 0) or 0)),
 )
 EffectRegistry.register("crewed_event", lambda p: CrewedEventEffect())  # RULE 702.122e — a Vehicle becomes crewed
+EffectRegistry.register("trained_event", lambda p: TrainedEventEffect())  # RULE 702.149a — a creature trains
+EffectRegistry.register("connived_event", lambda p: ConnivedEventEffect())  # RULE 701.50f — a permanent connives
 EffectRegistry.register(
     # "…exile any number of cards from your graveyard with four or more card types among them. If you do, put a
     # permanent card from among them onto the battlefield with a finality counter on it." (Winter, Cynical Opportunist)
@@ -2543,6 +2662,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         hit_rider=p.get("hit_rider"),
         uncast_hit=str(p.get("uncast_hit", "library_bottom")),
+        reveal=bool(p.get("reveal", False)),
     ),
 )
 EffectRegistry.register(
@@ -2660,6 +2780,14 @@ EffectRegistry.register(
     lambda p: ExileTriggerDamagedCreatureEffect(),
 )
 EffectRegistry.register(
+    "group_put_from_hand",
+    lambda p: GroupHandEntryEffect(
+        p.get("criteria", ""), p.get("scope"),
+        any_number=bool(p.get("any_number")), repeat=bool(p.get("repeat")),
+        draw_if_missed=bool(p.get("draw_if_missed")), before=p.get("before"), after=p.get("after"),
+    ),
+)
+EffectRegistry.register(
     # "Put up to N <criteria> cards from your hand onto the battlefield."
     # (Tooth and Nail's second mode) — a pick from *hand*, unlike every
     # other "put onto the battlefield" (library/graveyard).
@@ -2679,6 +2807,7 @@ EffectRegistry.register(
         max_mana_value_from_trigger=p.get("max_mana_value_from_trigger"),
         then_effects=p.get("then_effects"),
         placed_effects=p.get("placed_effects"),
+        entry_counters_by_type=p.get("entry_counters_by_type"),
     ),
 )
 EffectRegistry.register(
@@ -2711,6 +2840,8 @@ EffectRegistry.register(
         main_phase_too=bool(p.get("main_phase_too", False)),
         after_current_phase=bool(p.get("after_current_phase", False)),
         untap_at_beginning=bool(p.get("untap_at_beginning", False)),
+        after_second_main=bool(p.get("after_second_main", False)),
+        untap_attacked_this_turn=bool(p.get("untap_attacked_this_turn", False)),
     ),
 )
 EffectRegistry.register(
@@ -2795,7 +2926,8 @@ EffectRegistry.register(
         keep_types=p.get("keep_types"), keep_state=p.get("keep_state"),
         keep_count=p.get("keep_count"), keep_up_to=bool(p.get("keep_up_to", False)),
         rest_action=p.get("rest_action", "sacrifice"), victim_filter=p.get("victim_filter"),
-        act_on_chosen=bool(p.get("act_on_chosen", False)),
+        act_on_chosen=bool(p.get("act_on_chosen", False)), sacrifice_what=p.get("sacrifice_what"),
+        sacrifice_count=p.get("sacrifice_count", 1), sacrifice_fraction=p.get("sacrifice_fraction"),
     ),
 )
 EffectRegistry.register(
@@ -3008,18 +3140,25 @@ EffectRegistry.register(
         allow_colorless=bool(p.get("allow_colorless", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         group=p.get("group") if isinstance(p.get("group"), dict) else None,
+        selector=p.get("selector"),
     ),
 )
 EffectRegistry.register(
     "grant_fixed_protection_group",
     lambda p: GrantFixedProtectionGroupEffect(
-        color=str(p.get("color", "W")), selector=str(p.get("selector", "creatures_you_control")),
+        color=str(p.get("color", "W")), selector=p.get("selector", _group("you")),
     ),
 )
 EffectRegistry.register(
     "grant_cant_be_target_of_spell_color",
     lambda p: GrantCantBeTargetOfSpellColorEffect(
-        colors=p.get("colors"), selector=p.get("selector", "creatures_you_control"),
+        colors=p.get("colors"), selector=p.get("selector", _group("you")),
+    ),
+)
+EffectRegistry.register(
+    "grant_cant_be_target_of_opponents",
+    lambda p: GrantCantBeTargetOfOpponentsEffect(
+        target_kind=p.get("target_kind", "creature"), previous_subject=bool(p.get("previous_subject", False)),
     ),
 )
 EffectRegistry.register(
@@ -3147,6 +3286,7 @@ EffectRegistry.register(
         count=int(p.get("count", 1)),
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
+        creature_filter=p.get("creature_filter"),
     ),
 )
 EffectRegistry.register(
@@ -3249,6 +3389,7 @@ EffectRegistry.register(
         max_mana_value_from_mana_spent=bool(p.get("max_mana_value_from_mana_spent", False)),
         not_legendary=bool(p.get("not_legendary", False)),
         set_name=p.get("set_name"),
+        name_first_letter=p.get("name_first_letter"),
         until_end_of_turn=bool(p.get("until_end_of_turn", False)),
         creature_filter=p.get("creature_filter"),
         token_add_subtypes=p.get("token_add_subtypes"),
@@ -3301,13 +3442,13 @@ EffectRegistry.register(
     # "~ enters with your choice of a flying counter or a first strike counter
     # on it." (RULE 614.1/122.1b, MEC-108) — `RulesEngine._offer_enter_choices`.
     "choose_enter_counter",
-    lambda p: ChooseEnterCounterReplacement(options=list(p.get("options", []))),
+    lambda p: ChooseEnterCounterReplacement(options=list(p.get("options", [])), escape_only=bool(p.get("escape_only", False))),
 )
 EffectRegistry.register(
     # "As this creature enters, choose a number." (Sanctum Prelate, MEC-43)
     # — hand-authored only, no oracle-text grammar yet.
     "choose_number_on_enter",
-    lambda p: ChooseNumberReplacement(),
+    lambda p: ChooseNumberReplacement(minimum=p.get("minimum", 0), maximum=p.get("maximum")),
 )
 EffectRegistry.register(
     "become_copy_until_eot",  # "~ becomes a copy of target creature until end of turn" (Cursed Mirror)
@@ -3322,6 +3463,7 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         add_ability_lines=p.get("add_ability_lines"),
         copy_of_sacrificed=bool(p.get("copy_of_sacrificed", False)),
+        copy_of_revealed=bool(p.get("copy_of_revealed", False)),
     ),
 )
 EffectRegistry.register(
@@ -3332,6 +3474,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind", "artifact_you_control"),
         copy_target_kind=p.get("copy_target_kind", "artifact_or_creature_you_control"),
         add_types=p.get("add_types"),
+        group_word=p.get("group_word"),
     ),
 )
 EffectRegistry.register(
@@ -3408,6 +3551,7 @@ EffectRegistry.register(
         previous_selector=bool(p.get("previous_selector", False)),
         group=p.get("group"),
         kind_options=p.get("kind_options"),
+        choose_existing_kind=bool(p.get("choose_existing_kind", False)),
         choose_one=bool(p.get("choose_one", False)),
         group_other=bool(p.get("group_other", False)),
         per_recipient_stat=p.get("per_recipient_stat"),
@@ -3571,6 +3715,7 @@ EffectRegistry.register(
         arrived_not_from_battlefield_this_turn=bool(p.get("arrived_not_from_battlefield_this_turn", False)),  # Banon
         enters_tapped=bool(p.get("enters_tapped", False)),  # Edgar
         enters_with_counter=p.get("enters_with_counter"),  # Overflow Submatrix
+        outside_game=bool(p.get("outside_game", False)),
     ),
 )
 EffectRegistry.register(
@@ -3582,6 +3727,8 @@ EffectRegistry.register(
 EffectRegistry.register(
     "create_token",
     lambda p: CreateTokenEffect(
+        counts_by_player=p.get("counts_by_player"),
+        simultaneous_creators=bool(p.get("simultaneous_creators")),
         count=p.get("count", 1),
         token_name=p.get("token_name"),
         power=p.get("power"),
@@ -3594,6 +3741,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         tapped=bool(p.get("tapped", False)),
         attacking=bool(p.get("attacking", False)),
+        attacks_event_player=bool(p.get("attacks_event_player", False)),
         legendary=bool(p.get("legendary", False)),
         pt_amount=p.get("pt_amount"),
         extra_counters=p.get("extra_counters"),
@@ -3667,6 +3815,8 @@ EffectRegistry.register(
         max_mana_value=p.get("max_mana_value"),
         other_opponents=bool(p.get("other_opponents", False)),
         attack_iteration_player=bool(p.get("attack_iteration_player", False)),
+        add_ability_lines=p.get("add_ability_lines"),
+        remove_keywords=p.get("remove_keywords"), only_types=p.get("only_types"),
     ),
 )
 EffectRegistry.register(
@@ -3706,7 +3856,14 @@ EffectRegistry.register(
         track_exiled_with=bool(p.get("track_exiled_with", False)),
         untap_if_lands_at_least=p.get("untap_if_lands_at_least"),
         then_specs=p.get("then_specs"),
+        then_specs_if_none=p.get("then_specs_if_none"),
+        target_searches=bool(p.get("target_searches", False)),
         reveal=bool(p.get("reveal", False)),
+        criteria_each=p.get("criteria_each"),
+        distinct_keys=p.get("distinct_keys"),
+        opponent_split=p.get("opponent_split"),
+        exact_count=bool(p.get("exact_count", False)),
+        searched_by_controller=bool(p.get("searched_by_controller", False)),
     ),
 )
 EffectRegistry.register(
@@ -3743,7 +3900,7 @@ EffectRegistry.register(
         duration=p.get("duration"), condition=p.get("condition"),
         same_turn_only=bool(p.get("same_turn_only", False)),
         only_spells=bool(p.get("only_spells", False)),
-        mana_wildcard=p.get("mana_wildcard"),
+        mana_wildcard=p.get("mana_wildcard"), exile_instead=bool(p.get("exile_instead", False)),
     ),
 )
 EffectRegistry.register(
@@ -3758,6 +3915,8 @@ EffectRegistry.register(
         linked=bool(p.get('linked', False)), own_only=bool(p.get('own_only', False)),
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
+        exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
+        max_casts=p.get("max_casts"), rest_to_bottom=bool(p.get("rest_to_bottom", False)),
     ),
 )
 EffectRegistry.register(
@@ -3768,14 +3927,16 @@ EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
     lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
-EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id")))
 EffectRegistry.register(
     # RULE 701.20 — "shuffle your hand and graveyard into your library". The
     # wheel family's first sentence; the "then draws N cards" tail is a
     # sibling `draw` with ``selector="each_player"`` (ENG-37 retired the
     # fused `wheel`/`wheel_of_fortune`/`windfall` types onto `seq`/`bind`).
     "shuffle_hand_and_graveyard_into_library",
-    lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(scope=p.get("scope")),
+    lambda p: ShuffleHandAndGraveyardIntoLibraryEffect(
+        scope=p.get("scope"), graveyard=bool(p.get("graveyard", True)), draw_that_many=bool(p.get("draw_that_many", False)),
+    ),
 )
 EffectRegistry.register(
     "transform", lambda p: TransformEffect(target_kind=p.get("target_kind"), object_filter=p.get("object_filter"))
@@ -3962,9 +4123,19 @@ EffectRegistry.register(
         optional=bool(p.get("optional", False)),
         previous_subject=bool(p.get("previous_subject", False)),
         self_target=bool(p.get("self_target", False)),
+        trigger_subject=bool(p.get("trigger_subject", False)),
         count=int(p.get("count", 1)),
         count_selector=p.get("count_selector"),
+        selector=p.get("selector"),
+        until_source_leaves=bool(p.get("until_source_leaves")),
+        tap_on_return=bool(p.get("tap_on_return")),
+        untap_first=bool(p.get("untap_first")),
+        counter_for_phased=p.get("counter_for_phased"),
     ),
+)
+EffectRegistry.register(
+    "phase_in_prohibition",
+    lambda p: StaticAbility("phase_in_prohibition", affects="all", params={}),
 )
 EffectRegistry.register("cascade", lambda p: CascadeEffect(mana_value=p.get("mana_value")))
 EffectRegistry.register("proliferate", lambda p: ProliferateEffect(times=p.get("times", 1)))
@@ -4170,6 +4341,9 @@ _SELECTOR_KEYS: tuple[str, ...] = (
     # creatures …", "Commanders …", "Ninja and Rogue creatures …"); see
     # `continuous.group_selector_objects`.
     "object_filter",
+    # ENG-68 / RULE 613.6: a later-layer part of a multi-layer effect applies to the set its layer-4 part fixed
+    # (`granted_equip.locked_group_objects`); consumed by `continuous.affected_objects`.
+    "locked_group_tag",
 )
 
 
@@ -4177,11 +4351,17 @@ def _selectors(p: dict[str, Any]) -> dict[str, Any]:
     return {k: p[k] for k in _SELECTOR_KEYS if p.get(k) is not None}
 
 
+def _group(of: str, card_type: "str | None" = "creature", **filt: Any) -> dict[str, Any]:
+    """The structured battlefield group (`continuous.group_selector_objects`) a registered static falls back to when
+    its spec names no ``affects``: ``of`` is ``"you"``/``"opponents"``/``"any"``, ``card_type`` ``None`` for any permanent."""
+    return {"zone": "battlefield", "of": of, "filter": ({} if card_type is None else {"card_type": card_type}) | filt}
+
+
 EffectRegistry.register(
     "anthem",  # "Creatures you control get +N/+N" (layer 7c); tribal/colour-scoped
     lambda p: StaticAbility(
         "pt_mod",
-        affects=p.get("affects", "other_creatures_you_control"),
+        affects=p.get("affects", _group("you", not_reference=True)),
         params={
             "power": p.get("power", 0), "toughness": p.get("toughness", 0),
             # A per-count anthem ("+1/+1 for each land you control") — see
@@ -4201,7 +4381,7 @@ EffectRegistry.register(
     "pt_set",  # "Each creature is 1/1" (layer 7b)
     lambda p: StaticAbility(
         "pt_set",
-        affects=p.get("affects", "all_creatures"),
+        affects=p.get("affects", _group("any")),
         params={"power": p.get("power", 0), "toughness": p.get("toughness", 0),
                 "power_count": p.get("power_count"), "toughness_count": p.get("toughness_count"),
                 # "...base power and toughness each equal to its mana value": read per affected object (RULE 613.4b)
@@ -4226,7 +4406,7 @@ EffectRegistry.register(
     "grant_keyword",  # "Creatures you control have flying" (layer 6); tribal too
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "keywords": list(p.get("keywords", [])),
             **({"mana_source_kind": p["mana_source_kind"]} if p.get("mana_source_kind") else {}),
@@ -4245,6 +4425,7 @@ EffectRegistry.register(
             # `ward_cost` consumer for why this rides `grant_keyword`
             # rather than a dedicated static kind.
             **({"ward_cost": p["ward_cost"]} if p.get("ward_cost") else {}),
+            **({"outlast_cost": p["outlast_cost"]} if p.get("outlast_cost") else {}),
             **({"cumulative_upkeep_cost": p["cumulative_upkeep_cost"]}
                if p.get("cumulative_upkeep_cost") else {}),
             **_selectors(p),
@@ -4272,7 +4453,7 @@ EffectRegistry.register(
     "remove_all_abilities",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "all_creatures"),
+        affects=p.get("affects", _group("any")),
         params={"lose_all_abilities": True, **_selectors(p)},
     ),
 )
@@ -4361,13 +4542,15 @@ EffectRegistry.register(
     "grant_mana_ability",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "mana": list(p.get("mana", [])),
+            **({"mana_amount_selector": dict(p["amount_selector"])} if p.get("amount_selector") else {}),
             **({"mana_restriction": dict(p["mana_restriction"])} if p.get("mana_restriction") else {}),
             **({"mana_any_combination": True} if p.get("mana_any_combination") else {}),
             **({"granted_mana_cost": str(p["granted_mana_cost"])} if p.get("granted_mana_cost") else {}),
             **({"mana_ability_cost": dict(p["cost"])} if p.get("cost") else {}),
+            **({"mana_color_selector": str(p["color_selector"])} if p.get("color_selector") else {}),
             **_selectors(p),
         },
     ),
@@ -4466,12 +4649,12 @@ EffectRegistry.register(
     "grant_borrowed_activated_ability",
     lambda p: StaticAbility(
         "borrowed_activated_ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             **({"has_counter_kind": str(p["has_counter_kind"])} if p.get("has_counter_kind") else {}),
             "creature_only": bool(p.get("creature_only", True)),
             "source_mode": p.get("source_mode", "exiled_with"),
-            **({"source_affects": str(p["source_affects"])} if p.get("source_affects") else {}),
+            **({"source_affects": p["source_affects"]} if p.get("source_affects") else {}),
             # "…that is a **Goblin** card…" (MEC-43, Conspicuous Snoop) —
             # ``source_mode="top_of_library"``'s own subtype filter.
             **({"donor_subtype": str(p["donor_subtype"])} if p.get("donor_subtype") else {}),
@@ -4506,6 +4689,23 @@ EffectRegistry.register(
     ),
 )
 EffectRegistry.register(
+    # ENG-67: "Each [<filter>] card in your graveyard has unearth `<cost>`." (Sedris, Dregscape Sliver, Mishra,
+    # Solemn Doomguide) -- layer 6, but its targets are *graveyard* cards, a zone no battlefield `affects` selector
+    # reaches. `continuous._apply_zone_keyword_grants` reads ``keyword``/``cost``/``card_types``/``subtypes`` straight
+    # off the ability and stamps a real activated ability (the printed keyword's own builder) onto each matching card.
+    "grant_zone_keyword",
+    lambda p: StaticAbility(
+        "ability",
+        params={
+            "grant_zone_keyword": str(p["keyword"]),
+            "grant_zone_keyword_cost": str(p["cost"]),
+            **{key: p[key] for key in ("all_players", "artifact_creature", "color_count", "cycling_type") if key in p},
+            "card_types": list(p.get("card_types", []) or []),
+            "subtypes": list(p.get("subtypes", []) or []),
+        },
+    ),
+)
+EffectRegistry.register(
     # "Elves you control have '<triggered ability text>'" (Dionus, Elvish
     # Archdruid) — layer 6, ability-adding, granting a full triggered ability
     # rather than a keyword or a mana ability. ``effects`` is a list of
@@ -4516,9 +4716,10 @@ EffectRegistry.register(
     "grant_triggered_ability",
     lambda p: StaticAbility(
         "ability",
-        affects=p.get("affects", "creatures_you_control"),
+        affects=p.get("affects", _group("you")),
         params={
             "trigger_event": p.get("trigger_event"),
+            "related_to_source": bool(p.get("related_to_source", False)),
             "grant_effects": list(p.get("grant_effects", [])),
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "optional": bool(p.get("optional", False)),
@@ -4606,6 +4807,33 @@ EffectRegistry.register(
             "grant_effects": list(p.get("grant_effects", [])),
             "once_per_turn": bool(p.get("once_per_turn", False)),
             "sorcery_speed_only": bool(p.get("sorcery_speed_only", False)),
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # ENG-68 / RULE 702.6a, 113.6: "<group> ... have equip {N}" -- layer 6, one real Equip activated ability per receiving
+    # object (`granted_equip.grant_equip_abilities`). ``entries``: ``{"cost": "{2}"}`` or ``{"cost_from":
+    # "source_mana_value"}`` with an optional ``"qualifier"`` creature subtype ("Equip Pirate {1}").
+    "grant_equip_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "grant_equip": [dict(e) for e in p.get("entries", [])],
+            **_selectors(p),
+        },
+    ),
+)
+EffectRegistry.register(
+    # ENG-68 / RULE 702.122, 113.2c: "Vehicles you control have crew N" -- layer 6, one real Crew ability per receiving
+    # object (`granted_equip.grant_crew_abilities`), separate from any printed Crew. ``entries``: ``{"n": 1}``.
+    "grant_crew_ability",
+    lambda p: StaticAbility(
+        "ability",
+        affects=p.get("affects", "attached_permanent"),
+        params={
+            "grant_crew": [dict(e) for e in p.get("entries", [])],
             **_selectors(p),
         },
     ),
@@ -4764,6 +4992,7 @@ EffectRegistry.register(
             # "…and loses all other card types…" (Vraska, Betrayal's
             # Sting's -2) — the removal-side mirror of `add_types`.
             "remove_types": list(p.get("remove_types", [])),
+            **({"printing_override": dict(p["printing_override"])} if p.get("printing_override") else {}),
             # RULE 601.2b/613.4a "~ is the chosen type in addition to its
             # other types" (Adaptive Automaton/A-Thran Portal-shaped) — a
             # literal `add_subtypes` list and/or the dynamic
@@ -4786,6 +5015,9 @@ EffectRegistry.register(
             **({"set_types": list(p["set_types"])} if p.get("set_types") else {}),
             # RULE 205.3i / 305.7: the land types the land has instead of its own ("becomes an Island").
             **({"set_land_types": list(p["set_land_types"])} if p.get("set_land_types") else {}),
+            # RULE 305.7: "Enchanted land is the chosen type." -- the land types are the source's own chosen basic land
+            # type (`chosen_type`, stamped by its "choose a basic land type" enter choice), read fresh every recompute.
+            **({"set_land_types_from_source": True} if p.get("set_land_types_from_source") else {}),
             # RULE 205.1a / 205.3m: the creature types the object has instead of its own ("becomes a Dragon").
             **({"set_creature_types": list(p["set_creature_types"])} if p.get("set_creature_types") else {}),
             "power": p.get("power"),
@@ -4813,6 +5045,8 @@ EffectRegistry.register(
             # (its battlefield half *and* this), Ashes of the Fallen only
             # this. See `continuous._apply_off_battlefield_types`.
             **({"off_battlefield": str(p["off_battlefield"])} if p.get("off_battlefield") else {}),
+            # ENG-68 / RULE 613.6: tags this type change so the layer-6 grants of the same clause reach the same objects.
+            **({"locks_group_tag": str(p["locks_group_tag"])} if p.get("locks_group_tag") else {}),
             **_selectors(p),
         },
     ),
@@ -4859,6 +5093,7 @@ EffectRegistry.register(
     "spend_mana_as_any_color",
     lambda p: StaticAbility("mana_wildcard", affects="self", params={"wildcard": "color"}),
 )
+EffectRegistry.register("grant_player_hexproof_until_eot", lambda p: GrantPlayerHexproofEffect())
 EffectRegistry.register(
     # "You have hexproof." (Shalai, Voice of Plenty) — a static read by
     # `continuous.player_has_hexproof`; see its docstring.
@@ -4891,9 +5126,9 @@ EffectRegistry.register(
         affects="all",
         params={
             # ``"opponents"`` (Erebos, God of the Dead) narrows the ban to
-            # the static's controller's opponents; anything else = unscoped
-            # (Forsaken Wastes et al., stops everyone).
-            **({"scope": "opponents"} if p.get("scope") == "opponents" else {}),
+            # the static's controller's opponents; "enchanted" reads its
+            # Aura host. Omitted scope stops everyone (Forsaken Wastes).
+            **({"scope": p["scope"]} if p.get("scope") in ("opponents", "enchanted") else {}),
             **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         },
     ),
@@ -4975,11 +5210,21 @@ EffectRegistry.register(
     # two marker statics read live by `RulesEngine._loss_prevented`/`_player_loses` and `player_wins`
     # (`continuous.player_cant_lose` / `player_cant_win`); the Platinum Angel family.
     "cant_lose_game",
-    lambda p: StaticAbility("cant_lose_game", affects="self", params={**_selectors(p)}),
+    lambda p: StaticAbility("cant_lose_game", affects="self", params={
+        **_selectors(p), **({"reason": p["reason"]} if p.get("reason") else {}),
+    }),
 )
 EffectRegistry.register(
     "opponents_cant_win",
     lambda p: StaticAbility("opponents_cant_win", affects="self", params={**_selectors(p)}),
+)
+EffectRegistry.register(
+    # RULE 701.17 / 101.2: "You can't sacrifice Treasure tokens." (Quark, Humble Proprietor) — a standing prohibition
+    # over the selected permanents, stamped by `continuous.recompute` and read through
+    # `GameObject.cant_be_sacrificed_this_turn`, the flag every sacrifice cost/effect already consults.
+    "sacrifice_prohibition",
+    lambda p: StaticAbility("sacrifice_prohibition", affects=p.get("affects", _group("you", None)),
+        params={**_selectors(p)}),
 )
 EffectRegistry.register(
     "counter_placement_prohibition",
@@ -4997,11 +5242,18 @@ EffectRegistry.register(
     # ``attacker_filter`` (empty = every creature) narrows which attackers it
     # bites — ``subtype`` / ``has_counter_kind`` / ``has_any_counter`` /
     # ``enchanted_by_controller_aura``.
+    #
+    # PAR-290: ``attacker_filter`` also carries ``attached_to_source`` (the Aura/Equipment's own host — Vow of Flight's
+    # "enchanted creature can't attack you or planeswalkers you control") and ``object_filter`` (a
+    # `combat.matches_object_filter` dict — Reverence's "creatures with power 2 or less"); ``active_if`` is the
+    # RULE 613.6 gate ("as long as you're the monarch, …").
     "cant_attack_defender",
     lambda p: StaticAbility(
         "cant_attack_defender", affects="self", params={
             "defender_scope": p.get("defender_scope", "player_or_planeswalker"),
+            **({"unless_previous_turn_activity": True} if p.get("unless_previous_turn_activity") else {}),
             "attacker_filter": dict(p.get("attacker_filter") or {}),
+            **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         }
     ),
 )
@@ -5101,7 +5353,7 @@ EffectRegistry.register(
     "mana_type_override",
     lambda p: StaticAbility(
         "mana_type_override",
-        affects="all_lands",
+        affects=_group("any", "land"),
         params={
             "min_amount": int(p.get("min_amount", 2) or 2),
             "to": p.get("to", "C"),
@@ -5146,6 +5398,7 @@ EffectRegistry.register(
         affects=p.get("affects", "your_spells"),
         params={
             "generic": p.get("generic", 1),
+            **({"set_codes": list(p["set_codes"])} if p.get("set_codes") else {}),
             **({"card_name_from_source": True} if p.get("card_name_from_source") else {}),
             **({"colored": p["colored"]} if p.get("colored") else {}),
             "increase": bool(p.get("increase", False)),
@@ -5234,6 +5487,8 @@ EffectRegistry.register(
             **({"spell_subtype_from_source": True} if p.get("spell_subtype_from_source") else {}),
             # "Legendary spells you cast cost {1} less to cast." (Kethis, the Hidden Hand)
             **({"spell_legendary": True} if p.get("spell_legendary") else {}),
+            # "Commander spells you cast cost {1} less to cast." (Sagrada Familiar), RULE 903.3
+            **({"spell_is_commander": True} if p.get("spell_is_commander") else {}),
             # "Creature spells you cast with power 4 or greater cost {2} less to cast." (Goreclaw)
             **({"spell_min_power": int(p["spell_min_power"])} if p.get("spell_min_power") is not None else {}),
             # "Spells you cast with mana value 5 or greater cost {1} less to cast." (Spectacle Mage)
@@ -5328,7 +5583,7 @@ EffectRegistry.register(
     "activation_prohibition",
     lambda p: StaticAbility(
         "activation_prohibition",
-        affects=p.get("affects", "all_permanents"),
+        affects=p.get("affects", _group("any", None)),
         params={
             # RULE 605.1a's carve-out ("…and its activated abilities can't be
             # activated **unless they're mana abilities**" — Kasmina's
@@ -5336,6 +5591,7 @@ EffectRegistry.register(
             # prohibition covers mana abilities too, which is what makes Null
             # Rod stop an artifact's "{T}: Add {C}".
             "except_mana_abilities": bool(p.get("except_mana_abilities", False)),
+            "loyalty_only": bool(p.get("loyalty_only", False)),
             **({"player_id": p["player_id"]} if p.get("player_id") else {}),
             **_selectors(p),
         },
@@ -5365,6 +5621,13 @@ EffectRegistry.register(
             **({"filter": dict(p["filter"])} if p.get("filter") else {}),
             **({"condition": dict(p["condition"])} if p.get("condition") else {}),
             **({"count": int(p["count"])} if p.get("count") is not None else {}),
+            # PAR-290: the attacker/blocker cost kinds and the controller-scoped blocker bar.
+            **({"amount": int(p["amount"])} if p.get("amount") is not None else {}),
+            **({"amount_per_counter": str(p["amount_per_counter"])} if p.get("amount_per_counter") else {}),
+            **({"amount_count_selector": str(p["amount_count_selector"])} if p.get("amount_count_selector") else {}),
+            **({"attacker_you_control": True} if p.get("attacker_you_control") else {}),
+            **({"payment": p["payment"]} if p.get("payment") in {"life", "sacrifice", "return", "tap"} else {}),
+            **({"payment_filter": dict(p["payment_filter"])} if p.get("payment_filter") else {}),
             **_selectors(p),
         },
     ),
@@ -5454,10 +5717,25 @@ EffectRegistry.register(
             # cast_prohibited`'s own ``type_from_source_mode`` gate).
             "type_from_source_mode": bool(p.get("type_from_source_mode", False)),
             **({"player_id": p["player_id"]} if p.get("player_id") else {}),
+            # "defending player can't cast spells" (Wardscale Dragon, PAR-315): `continuous.cast_prohibited` reads the
+            # player the source attacks.
+            "defending_player_of_source": bool(p.get("defending_player_of_source", False)),
             **({"spell_types": list(p["spell_types"])} if p.get("spell_types") else {}),
             **_selectors(p),
         },
     ),
+)
+EffectRegistry.register(
+    # PAR-290 / RULE 305.1: "Players can't play lands." (Territorial Dispute) / "You can't play lands." (Aggressive
+    # Mining) — `continuous.land_play_prohibited`, consulted first by `GameEngine.can_play_land`. ``scope`` is
+    # ``"all"`` (default), ``"you"`` (the controller) or ``"opponents"``; ``player_id`` names the one player a floating
+    # "target player can't play lands this turn" binds.
+    "land_play_prohibition",
+    lambda p: StaticAbility("land_play_prohibition", affects="all", params={
+        "scope": p.get("scope", "all"),
+        **({"player_id": p["player_id"]} if p.get("player_id") else {}),
+        **_selectors(p),
+    }),
 )
 EffectRegistry.register(
     # "Players can't pay life or sacrifice nonland permanents to cast
@@ -5502,7 +5780,7 @@ EffectRegistry.register(
     # "You may activate abilities of creatures you control as though those creatures had haste." (PAR-109 —
     # Thousand-Year Elixir, Shang-Chi, Tyvar); consulted by `continuous.activates_as_though_haste`.
     "activate_as_though_haste",
-    lambda p: StaticAbility("activate_as_though_haste", affects=p.get("affects", "creatures_you_control"),
+    lambda p: StaticAbility("activate_as_though_haste", affects=p.get("affects", _group("you")),
                             params={**_selectors(p)}),
 )
 EffectRegistry.register(
@@ -5598,6 +5876,10 @@ EffectRegistry.register(
     lambda p: StaticAbility("ignore_legend_rule", affects=p.get("affects", "you"), params={}),
 )
 EffectRegistry.register(
+    "grant_replicate",
+    lambda p: StaticAbility("grant_replicate", affects="self", params={"cost": str(p["cost"])}),
+)
+EffectRegistry.register(
     # "Elemental permanent spells you cast from your hand gain evoke {4} as
     # you cast them." (Ashling, the Limitless, MEC-42) — consulted by
     # `continuous.granted_evoke_cost_for` (`GameEngine.can_cast`/
@@ -5633,6 +5915,8 @@ EffectRegistry.register(
         "flash_permission",
         affects="self",
         params={
+            **({"enchant_quality": str(p["enchant_quality"]).lower()} if p.get("enchant_quality") else {}),
+            **({"set_codes": list(p["set_codes"])} if p.get("set_codes") else {}),
             "noncreature_only": bool(p.get("noncreature_only", False)),
             "creature_only": bool(p.get("creature_only", False)),
             # "You may cast **legendary spells and artifact spells** as
@@ -5728,7 +6012,14 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "grant_miracle",
         affects="self",
-        params={"card_type": str(p.get("card_type", "")), "reduce_generic": int(p.get("reduce_generic", 0) or 0)},
+        params={
+            "card_type": str(p.get("card_type", "")),
+            "reduce_generic": int(p.get("reduce_generic", 0) or 0),
+            # ENG-67: "Each instant and sorcery card in your hand has miracle {2}." (Lorehold, the Historian) -- a fixed
+            # miracle cost and an ORed card-type list; `continuous.granted_miracle_cost_for` reads both.
+            "card_types": list(p.get("card_types", []) or []),
+            "cost": p.get("cost"),
+        },
     ),
 )
 EffectRegistry.register(
@@ -5847,7 +6138,7 @@ EffectRegistry.register(
     "enters_tapped_static",
     lambda p: StaticAbility(
         "enters_tapped",
-        affects=p.get("affects", "opponents_permanents"),
+        affects=p.get("affects", _group("opponents", None)),
         params={**_selectors(p)},
     ),
 )
@@ -6141,3 +6432,39 @@ EffectRegistry.register("grant_warp", lambda p: StaticAbility(
 ))
 
 EffectRegistry.register("grant_next_spell_cascade", lambda p: GrantNextSpellCascadeEffect())
+
+EffectRegistry.register(
+    "grant_spell_keyword",
+    lambda p: StaticAbility("spell_keyword", affects="spells_you_cast", params={
+        "keywords": list(p.get("keywords", [])),
+        "artifact_mana_spent": bool(p.get("artifact_mana_spent", False)),
+        "spell_filter": dict(p.get("spell_filter") or {}),
+    }),
+)
+
+EffectRegistry.register(
+    "grant_owned_card_type",
+    lambda p: StaticAbility("owned_card_type", affects="cards_you_own", params={
+        "add_types": list(p.get("add_types", [])), "filter": dict(p.get("filter", {})),
+    }),
+)
+
+EffectRegistry.register("azula_exile", lambda p: AzulaExileEffect())
+
+EffectRegistry.register("sacrifice_with_riders", lambda p: SacrificeWithRidersEffect(
+    count=p.get("count", 1), what=p.get("what", "creature"), success=p.get("success"), failure=p.get("failure"),
+    exclude_source=bool(p.get("exclude_source")), from_damage=bool(p.get("from_damage"))))
+EffectRegistry.register("infernal_denizen_offer", lambda p: InfernalDenizenOfferEffect(
+    beneficiary=p.get("beneficiary"), object_ids=p.get("object_ids")))
+EffectRegistry.register("choice_of_damnations", lambda p: ChoiceOfDamnationsEffect(
+    number=p.get("number"), player_id=p.get("player_id"), sacrifice=bool(p.get("sacrifice"))))
+
+EffectRegistry.register("suspended_sacrifice_offer", lambda p: SuspendedSacrificeOfferEffect(
+    add_counters=bool(p.get("add_counters"))))
+
+
+EffectRegistry.register(
+    # RULE 608.2d: "<A> or <B>" chosen as the ability resolves (Faces of the Past) -- `ChooseEffectOnResolutionEffect`.
+    "choose_effect_on_resolution",
+    lambda p: ChooseEffectOnResolutionEffect(options=p.get("options"), descriptions=p.get("descriptions")),
+)

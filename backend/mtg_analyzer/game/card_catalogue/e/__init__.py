@@ -94,3 +94,8 @@ from . import eternal_flame  # noqa: F401
 from . import eunuchs_intrigues  # noqa: F401
 from . import evolved_sleeper  # noqa: F401
 from . import emergent_woodwurm  # noqa: F401
+
+from . import eriette_the_beguiler  # noqa: F401
+
+from . import extraction_integrant  # noqa: F401
+from . import ensign_pavel_chekov  # noqa: F401

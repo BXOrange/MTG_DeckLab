@@ -421,3 +421,22 @@ def test_a_planar_deck_holds_at_most_two_phenomena_and_starts_on_a_plane():
         deck_objs = variants.build_planar_deck("p1")
         assert len([o for o in deck_objs if variants.is_phenomenon(o)]) <= variants.MAX_PHENOMENA
         assert not variants.is_phenomenon(deck_objs[-1])
+
+
+# --- BUG-69: joke cards never enter a variant deck -------------------------
+
+def test_variant_catalogue_holds_only_real_rules_cards():
+    from mtg_analyzer.services.variant_card_database import (
+        CARD_TYPES_BY_KIND,
+        default_variant_card_database,
+        has_rules_card_type,
+    )
+
+    db = default_variant_card_database()
+    for kind in CARD_TYPES_BY_KIND:
+        entries = db.of_kind(kind)
+        assert entries
+        assert all(has_rules_card_type(kind, e["type_line"]) for e in entries)
+    planar_names = {e["name"] for e in db.of_kind("plane")}
+    assert not planar_names & {"That's Enough Slices", "sAnS mERcY"}
+    assert db.get("That's Enough Slices") is None

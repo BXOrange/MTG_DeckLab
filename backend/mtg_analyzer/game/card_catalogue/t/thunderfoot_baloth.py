@@ -21,10 +21,10 @@ def _thunderfoot_baloth() -> list[AbilitySpec]:
             "affects": "self", "power": 2, "toughness": 2, "active_if": dict(commander),
         })]),
         AbilitySpec("static", [EffectSpec("anthem", {
-            "affects": "other_creatures_you_control", "power": 2, "toughness": 2, "active_if": dict(commander),
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "power": 2, "toughness": 2, "active_if": dict(commander),
         })]),
         AbilitySpec("static", [EffectSpec("grant_keyword", {
-            "affects": "other_creatures_you_control", "keywords": ["trample"], "active_if": dict(commander),
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, "keywords": ["trample"], "active_if": dict(commander),
         })]),
     ]
 

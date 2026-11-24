@@ -27,8 +27,8 @@ def _dismantling_wave() -> list[AbilitySpec]:
         AbilitySpec(
             "activated",
             [
-                EffectSpec("destroy", {"selector": "all_artifacts"}),
-                EffectSpec("destroy", {"selector": "all_enchantments"}),
+                EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "artifact"}}}),
+                EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "enchantment"}}}),
             ],
             cost={"text": "{6}{W}{W}, Discard this card"},
         ),

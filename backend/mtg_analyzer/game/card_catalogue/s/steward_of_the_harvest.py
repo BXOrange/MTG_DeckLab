@@ -26,7 +26,7 @@ def _steward_of_the_harvest() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_borrowed_activated_ability", {
-                "affects": "creatures_you_control", "creature_only": False,
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "creature_only": False,
             })],
         ),
     ]

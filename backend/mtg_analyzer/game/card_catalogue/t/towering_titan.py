@@ -17,7 +17,7 @@ def _towering_titan() -> list[AbilitySpec]:
         })]),
         AbilitySpec(
             "activated",
-            [EffectSpec("pump", {"keywords": ["trample"], "selector": "all_creatures"})],
+            [EffectSpec("pump", {"keywords": ["trample"], "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}})],
             cost={"text": "Sacrifice a creature with defender"},
         ),
     ]

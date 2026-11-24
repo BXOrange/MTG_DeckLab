@@ -38,7 +38,7 @@ def _earthshape() -> list[AbilitySpec]:
             [
                 EffectSpec("earthbend", {"amount": 3}),
                 EffectSpec("pump", {
-                    "selector": "creatures_you_control",
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                     "creature_filter": {"max_power": 3},
                     "keywords": ["hexproof", "indestructible"],
                 }),

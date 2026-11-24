@@ -196,7 +196,9 @@ _PRONOUN_FOLLOW_UP = re.compile(r"\b(?:it|its|them|they|that card|those cards|th
 
 #: "equal to its / that card's mana value" after a lone "reveal the top card of your library" measures that revealed
 #: card (RULE 701.20), which `InspectCardsEffect` leaves as `GameContext.revealed_card`; it is not a dangling pronoun.
-_REVEALED_AMOUNT_FOLLOW_UP = re.compile(r"\bequal to (?:its|that card's) (?:mana value|power|toughness)\b", re.I)
+_REVEALED_AMOUNT_FOLLOW_UP = re.compile(
+    r"\b(?:equal to|where x is) (?:its|that card's|the revealed card's) (?:mana value|power|toughness)\b", re.I,
+)
 
 
 def leaves_dangling_reference(specs: list, follow_up: str) -> bool:
@@ -214,3 +216,16 @@ def leaves_dangling_reference(specs: list, follow_up: str) -> bool:
     if _REVEALED_AMOUNT_FOLLOW_UP.search(follow_up):
         return False
     return bool(specs) and bare_lead([e.to_dict() for e in specs[-1:]]) and _PRONOUN_FOLLOW_UP.search(follow_up) is not None
+
+
+def reads_revealed_amount(body: str) -> bool:
+    """A lone "reveal the top card of your library" lead whose later sentence measures that card ("where X is that
+    card's mana value"): the whole-block inspection grammar declines it (its tail may not use pronouns), but the clause
+    sequencer reads it as lead + referent amount (RULE 701.20), so the sequencer's result must survive."""
+    parts = re.split(r"\.\s+", body.strip().rstrip("."))
+    lead = _LEAD.fullmatch(parts[0])
+    # Exactly lead + one measuring sentence: a conditional or a move of the card ("If it's a creature card, ... put it
+    # into your hand", Sapling of Colfenor) is the inspection grammar's own business and must not be half-read.
+    return (lead is not None and lead["verb"] == "reveal" and not lead["target"] and not lead["count"]
+            and len(parts) == 2 and _REVEALED_AMOUNT_FOLLOW_UP.search(parts[1]) is not None
+            and not re.search(r"\b(?:if|put|then|exile|return)\b", parts[1]))

@@ -23,7 +23,7 @@ from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.effects.core import DrawCardEffect, TriggeredAbility
 from mtg_analyzer.game.game_engine import GameEngine
 from mtg_analyzer.parser.oracle import MODELED, UNMODELED, parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import _trigger_condition
+from mtg_analyzer.parser.oracle.segmenter.keyword_and_trigger_conditions import trigger_condition as _trigger_condition
 
 
 # ---------------------------------------------------------------------------

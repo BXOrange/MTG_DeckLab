@@ -23,8 +23,7 @@ def _pithing_needle() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("activation_prohibition", {
-                "affects": "all_permanents",
-                "card_name_from_source": True,
+                "affects": {"zone": "battlefield", "of": "any", "filter": {"name_from_source": True}},
                 "except_mana_abilities": True,
             })],
         ),

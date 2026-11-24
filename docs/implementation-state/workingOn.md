@@ -37,35 +37,34 @@ Block template (do not change this, copy below the line, fill in there):
 
 - **Started / last update:** <YYYY-MM-DD> / <YYYY-MM-DD HH:MM>
 - **Goal of this run:** <which part of the ticket this run closes>
-- **Done (built + tested, 23 new tests in test_par249_token_names_creating_card.py):** <bullets — what is finished, with file/test names>
+- **Done:** <bullets — what is finished, with file/test names>
 - **In progress:** <current unfinished implementation>
-- **Next step:** <concrete next action>
+- **Next step:** <the exact next action a fresh session takes>
 - **Decisions:** <choices made and why, so they aren't re-litigated>
 - **Baselines / artefacts:** <snapshot paths, measured numbers, PARSER_VERSION>
-- **Known failures (corrected; final full-cache recheck pending):** <red tests and whether they are ours or pre-existing>
+- **Known failures:** <red tests and whether they are ours or pre-existing>
 - **Residue:** <what is still open once a run ends part-done — clusters, blockers, cards>
 ```
 
+---
 
+## PAR-292 · Library inspection and search
 
-
-
-
-
-
-
-
-## Singletons · Star Trek (TRK + TRC) one-offs
-
-- **Started / last update:** 2026-11-10 / 2026-11-10
-- **Goal of this run:** hand-author self-contained cards from the 73-row Star Trek section of `singletons.md`, in batches; remove each from the queue only after a real-engine run.
-- **Done (batches A-C, 22 cards, real-engine verified via focused tests, rows removed):** Ensign Harry Kim (PAR-260 residue, `power_vs_reference` trigger filter), Khan Despot by Design, Year of Hell, Geordi La Forge Innovator, K'Vort-Class Raider, Red Alert!, Glory to the Empire!, De-evolve, Dahar Master, U.S.S. Enterprise-C, Beckett Mariner, Kes, Jadzia Dax, Merciful Mandate, Fevered Visions, Live Long and Prosper, Temporal Conqueror, Vash, Hologram Stalker, Targ Wrangler, Miles O'Brien, Guinan. Tests: `backend/tests/game/catalogue/cards/test_star_trek_one_offs_{a,b,c}.py`; helpers `backend/tests/support/star_trek.py`.
-- **Done (batch D, 9 more, rows removed):** Khaaaaaaaaaaaannn!, U.S.S. Prometheus (prototype), Door of Destinies, U.S.S. Defiant (Mirror Migrant), I'm a Doctor, Not a..., Captain Kirk Boldly Going, The Inner Light, Gul Dukat, Andromedan Automatons. Tests: `test_star_trek_one_offs_d.py` (12).
-- **Done (batch E, 2 cards, rows removed):** B'Elanna Torres Scrapper (surveil, optional reveal via ask_player, artifact branch), Euroakus (PAR-258 residue; differently-named-lands token count, Wizard draw + hand-size pump). Tests: `test_star_trek_one_offs_e.py` (6). Triaged and annotated as blocked in singletons.md Notes: Spock, Chekov, Lt. Uhura, Scott, Species 8472, Needs of the Many, Queen's Diamond, Deep Space 9, Peace in Our Time, Concerted Effort, T'Pring, Unification, Brazen Bluff, Chronomantic Escape, Dathon, Extraction Integrant, Immortal Sun, World at War, Ambulatory Reactor, H.M.S. Bounty.
-- **In progress:** none.
-- **Done (batch F, triage only, 0 authored):** all 13 previously unexamined rows examined and annotated as blocked in singletons.md Notes (All Good Things..., Gwyndala, Hugh, La Forge, Lwaxana, Nog, Q, S.S. Botany Bay, Sulu, City on the Edge of Forever, The Holodeck, Vulcan Mind-Meld, Voex), each with the exact missing primitive. No test_star_trek_one_offs_f.py written (nothing authored).
-- **Next step:** 47 Star Trek rows remain, every one now carries a Notes blocker. Re-check after the named primitives land; promotion candidates (recurring blockers): `track_exiled_with` on exile_hand_card, spell keyword grants (replicate/undaunted), abilities functioning from graveyard/exile, multi-target graveyard exile.
-- **Decisions:** runs in parallel with PAR-260 in the same tree: catalogue files, their tests, `singletons.md` and status locales only; no edits under `parser/oracle/`, no PARSER_VERSION bump.
-- **Baselines / artefacts:** PARSER_VERSION 870; 73 rows queued.
-- **Known failures:** none. Verification scope per orchestrator: focused tests + engine_bench per card only (no --full-cache, no full suite).
-- **Residue:** Rite of Oblivion skipped (spec.py `_ADDITIONAL_COST_SACRIFICE_TYPES` lacks `nonland_permanent`; parser dir off-limits while PAR-260 ran). Quark, Georgiou, Sylvia Tilly, Daniels, Stonespeaker Crystal, Holo-Engineer skipped with the exact primitive in each singletons.md Notes cell.
+- **Started / last update:** 2026-11-23 / 2026-11-24 10:00
+- **Goal:** close the generic library pieces of `P2 Bibliothek` (614 / 483 / 181 at v1054). Build a piece only when one generic part serves several cards; single cards go to `singletons.md`. Close when no such shape is left.
+- **Done (M1–M24, v1027–1054, +185 library cards, +18 pile cards; detail in `Done_Backend.md` "Library inspection and search (PAR-292 ...)" / "Two-pile splits", per-milestone notes in git history of this block):**
+  - M1–M10 search: dynamic bounds, hand-reveal-named searches, subtype unions, conditional replacement searches, found-card riders, other searchers, slot searches, exile searches, distinct keys, shuffle-then-top.
+  - M11–M15 inspection: look/reveal-top digs with bounds and ordered bottoms, exile-and-cast picks, shuffle-into-library, reveal-until by another player, hits under the ability controller.
+  - M16–M20: same-name sweeps from an earlier pick, opponent splits, "that many" digs, free-cast digs, exile-until with a free cast.
+  - M21–M23: piles (library, public zones), cast pools with a cap, Aura searches attached on entry. M22 (piles over permanents) was outside the family.
+  - M24: target opponent's library searches with "Then that player shuffles".
+- **In progress:** -
+- **Next step:** pick the largest generic shape from the backlog scope, size it with `parser_probe` / `find_fragments --axes`, build it once: (1) hand cards put on top / bottom of the library after a draw ("draw 3, then put 2 cards from your hand on top of your library in any order", 16 cards, 10 only that sentence); (2) peeking at the top card of a player's library (21, 7); (3) revealing any number of <quality> cards from hand plus its "for each card revealed this way" consumer (11, 10: the Seer cycle); (4) bare "shuffle your library" (5, 3); then the owner-scoped multi-object moves (6 + 5 + 5). Before each, check whether the blocker is really library-specific or a shared axis (back-reference, whose library, amount, condition, object filter); a shared-axis gap is fixed in the shared grammar for every family, not per card.
+- **Decisions:** worktree `.claude/worktrees/par-grind-2026-11-23`, branch `ticket-grind/2026-11-23-par`; `--full-cache` every 5 iterations (last green: c876ecc2, parser 1054, 27,360 passed, 4 skipped). Generalise an existing primitive, never a parallel one. Re-scoped 2026-11-24 after the v1054 measurement: every split-off tail ("then shuffle", "put the rest on the bottom", 81 sentences) is open only through its front sentence, and about 60% of the open fronts carry a shared-axis marker.
+- **Baselines / artefacts:** v1054 `find_fragments --axes --slots` (Commander-legal): pool 32,643, covered 26,418, open 6,057 cards / 9,081 sentences; `P2 Bibliothek` 614 / 483 / 181 (9th by solo cards). Library fronts by marker: back-reference 150 cards, whose library 97, amount 79, condition 70, object filter 51, none 180. Scan files in the scratchpad (`frag1054/`), not kept.
+- **Known failures:** -
+- **Residue (multi-card mechanisms in scope; single cards are in `singletons.md`, piles on PAR-298, outside-the-game on MEC-144, prowl on PAR-299):**
+  - Owner-scoped moves: "~ and <object> into / on top of their owners' libraries" (Elixir of Immortality, Serene Remembrance, Floodpits Drowner, Void Stalker, Gomazoa, Vortex Elemental); "shuffle all permanents you own" (Lich's Mirror, Sway of the Stars, Warp World, Glimpse of Tomorrow, Collision of Realms); a target player's / each owner's graveyard shuffled (Repopulate, Loaming Shaman, Witness the Future, Turn the Earth, The Three Seasons); owner shuffles, then a follow-up in the owner's name (Zoyowa's Justice, Audacious Swap, Chaos Wrap, This Is How It Ends).
+  - Loops: "for each <permanent>, search ... same name" and per-permanent search loops (Doubling Chant, Clarion Ultimatum, Dire-Strain Rampage, Krenko's Buzzcrusher, From the Ashes, Wave of Vitriol).
+  - Dig shapes: reveal-then-bottom-all with no pick (Stomping Slabs, Sanity Grinding, Petals of Insight); one card per subtype slot (Harper Recruiter, Kaalia Zenith Seeker, Eivor); hits relative to a spell (Jodah, Possibility Storm, Tibalt's Trickery, Unpredictable Cyclone, Guff Rewrites History); "shuffle N <name> cards into their library" (Fludge, The Gunky Runner and the other gunk cards).
+  - Known simplifications (documented, not open work): a split search with fewer finds than "chooses N" makes every find chosen; declining an exact-count may-search still shuffles; filed as bugs: BUG-81 (look-at / reveal-until cards staged in exile), BUG-82 (an Aura that can't enchant ~ enters anyway), BUG-83 (an empty same-name sweep skips the shuffle).

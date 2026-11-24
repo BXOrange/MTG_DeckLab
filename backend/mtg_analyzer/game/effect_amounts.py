@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: ``power``/``toughness`` are the layer engine's *derived* values, so a pump
 #: that already resolved counts; ``mana_value`` is read off the printed card
 #: (RULE 202.3), which is what every "equal to its mana value" card means.
-CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness", "mana_value"})
+CHARACTERISTICS: frozenset[str] = frozenset({"power", "toughness", "mana_value", "base_power"})
 
 #: Player resources a ``resource`` amount may read.
 RESOURCES: frozenset[str] = frozenset(
@@ -66,6 +66,10 @@ RESOURCES: frozenset[str] = frozenset(
 #: ``aggregate="max"`` over ``hand_size`` measured before the discard.
 _RESOURCE_AGGREGATES: dict[str, Any] = {"max": max, "min": min, "sum": sum}
 
+#: A `counters` amount's ``counter`` that counts every kind ("for each counter on it"); the parser spells the same string
+#: (`overrides_and_amounts.ANY_COUNTER_KIND`, which may not import `game/`).
+ANY_COUNTER_KIND = "*"
+
 #: `GameContext`'s within-one-resolution tallies — "…for each creature
 #: destroyed **this way**", "…equal to the life lost **this way**" (RULE
 #: 608.2). Maintained by `_apply_effects_partitioned` and reset per
@@ -74,6 +78,10 @@ THIS_WAY_TALLIES: frozenset[str] = frozenset(
     {"life_lost_this_way", "excess_damage_this_way", "damage_dealt_this_way", "counters_removed_this_way",
      "permanents_destroyed_this_way", "objects_exiled_this_way"}
 )
+
+#: ``color_count``'s ``of`` for the spell a "whenever you cast ..." trigger fired for: the object the firing
+#: `SPELL_CAST` event names (RULE 601.2i), not a referent `effect_conditions.subject_of` knows.
+TRIGGER_SPELL_REFERENT = "trigger_spell"
 
 #: Every recognized ``kind``. An amount naming anything else is 0.
 AMOUNT_KINDS: frozenset[str] = frozenset(
@@ -87,6 +95,9 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # `_characteristic_of_subject` introduced, with the referent axis now
         # shared with `effect_conditions`.
         "characteristic",  # + ``characteristic``, ``of``
+        # RULE 105.1: how many of the five colors a referent is ("for each of its colors", "the number of colors that
+        # spell is"); + ``of`` (a referent, or ``TRIGGER_SPELL_REFERENT``).
+        "color_count",
         # A board count, deferring to the one selector vocabulary rather than
         # restating any of it here.
         "count_selector",  # + ``selector``
@@ -111,7 +122,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         # MEC-83: a named counter on a permanent — "for each +1/+1 counter on
         # it", "…for each charge counter on ~". Reads `GameObject.counters`
         # directly (counters aren't a continuous effect), scoped by ``of``.
-        "counters",  # + ``counter`` (the counter's name), ``of``
+        "counters",  # + ``counter`` (the counter's name, or `ANY_COUNTER_KIND` for every kind), ``of``
         # "…for each kind of counter on it" (Blitzball Stadium): how many distinct counter kinds the referent has.
         "counter_kinds",  # + ``of``
         # Every kind of counter among creatures controlled by a player.
@@ -170,6 +181,7 @@ AMOUNT_KINDS: frozenset[str] = frozenset(
         "moved_count",  # + optional ``card_type``
         "created_count",  # actual preceding creations/exiles in this resolution
         "damaged_creatures_since_mark",  # actual damage after mark_event_log
+        "counter_recipients_since_mark",  # PAR-287: creatures that actually received counters after mark_event_log
         # PAR-132: cards discarded since `mark_event_log` -- "for each nonland card discarded this way" (Seasoned
         # Pyromancer, Gerrard's Verdict); optional ``card_type`` (+ ``negate``) narrows by card type.
         "discarded_this_way",
@@ -222,6 +234,14 @@ _MODIFIER_KEYS = ("power_of", "multiply", "divide", "round_up", "plus", "minus",
 #: than the library holds and a runaway X must not build a huge integer; 30
 #: keeps 2^30 (~1.07 billion) far above any library while staying cheap.
 MAX_POWER_OF_EXPONENT = 30
+
+
+def pool_fraction(size: int, divisor: int, round_up: bool) -> int:
+    """"Half / a third of the `size` permanents they control" (PAR-320): RULE 107.1a rounds down unless the card says
+    "rounded up". A non-positive size or divisor measures 0."""
+    if size <= 0 or divisor <= 0:
+        return 0
+    return -(-size // divisor) if round_up else size // divisor
 
 
 def _players(context: "GameContext", controller_id: Optional[str], scope: str) -> list[Any]:
@@ -294,6 +314,16 @@ def _base(
         selector = amount.get("selector")
         if not selector:
             return 0
+        if amount.get("each_target"):
+            # PAR-284 milestone 23 / RULE 109.5: "the total number of creatures **those players** control" -- the
+            # count taken as each distinct chosen player in turn, added up.
+            players = {}
+            for chosen in targets or []:
+                player = _as_player(context, chosen, controller_id) if chosen is not None else None
+                if player is not None and getattr(player, "id", None) is not None:
+                    players[player.id] = player
+            single = {k: v for k, v in amount.items() if k != "each_target"}
+            return sum(_base(single, context, source, [player]) for player in players.values())
         if amount.get("of"):
             # "…the number of Islands **target opponent** controls" — the count is taken as
             # that player, not as the ability's controller.
@@ -385,6 +415,12 @@ def _base(
         from .static_conditions import _events_this_turn_matching
 
         trigger = amount.get("trigger")
+        if amount.get("of"):
+            # PAR-284 milestone 23 / RULE 109.5: "cards put into **target player's** graveyard ... this turn" -- the
+            # trigger's "you" is the named player, not the ability's controller.
+            named = _as_player(
+                context, effect_conditions.subject_of(str(amount["of"]), context, source, targets), controller_id)
+            controller_id = getattr(named, "id", None)
         if not isinstance(trigger, dict) or not trigger.get("event") or controller_id is None:
             return 0
         reference = source
@@ -394,7 +430,10 @@ def _base(
             # RULE 109.5: "you" is the resolving ability's controller, even after its source changes control.
             reference = copy(source)
             reference.controller_id = controller_id
-        return _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"))
+        tally = _events_this_turn_matching(context.state, trigger, reference, controller_id, amount.get("scope"),
+                                          sum_field="amount" if amount.get("sum_amount") is True else None)
+        # RULE 601.2i: "... other than the first" -- the first matching event is not counted, and no tally goes below 0.
+        return max(0, tally - 1) if amount.get("exclude_first") is True else tally
 
     if kind == "chosen_colors_shared_with_trigger_spell":
         event = getattr(context, "trigger_event", None) or {}
@@ -427,8 +466,7 @@ def _base(
         if characteristic not in CHARACTERISTICS:
             return 0
         if kind == "this_way_max":
-            return max((int(getattr(o, characteristic, 0) or 0)
-                        for o in this_way_matching(context, source, amount)), default=0)
+            return this_way_greatest(context, source, amount, characteristic)
         return this_way_sum(context, source, amount, characteristic)
 
     if kind in ("discarded_this_way", "sacrificed_this_way"):
@@ -441,6 +479,14 @@ def _base(
                     if e.type == "DAMAGE" and e.get("target_is_creature")
                     and e.get("source_id") == getattr(source, "instance_id", None)
                     and e.get("amount", 0) > 0})
+    if kind == "counter_recipients_since_mark":
+        # RULE 608.2c: "those creatures" are exactly the creatures the preceding instruction put counters on -- one per
+        # distinct recipient, so a replaced or prohibited placement (RULE 101.2) leaves its creature out, and a
+        # recipient that left the battlefield still counts (the placement happened).
+        start = getattr(source, "window_event_mark", len(context.state.event_log))
+        return len({e.get("target_id") for e in context.state.event_log[start:]
+                    if e.type == "COUNTER" and not e.get("is_player") and e.get("recipient_is_creature")
+                    and int(e.get("amount", 0) or 0) > 0})
     if kind == "created_count":
         return len(context.created_objects)
     if kind == "moved_count":
@@ -488,9 +534,29 @@ def _base(
         result = getattr(context, "random_result", None)
         return int(result) if isinstance(result, int) else 0
 
+    if kind == "color_count" and amount.get("of") == TRIGGER_SPELL_REFERENT:
+        event = getattr(context, "trigger_event", None) or {}
+        spell = context.state.find_object(event.get("instance_id")) if event.get("instance_id") is not None else None
+        return len(getattr(spell, "colors", None) or ())
+
     subject = effect_conditions.subject_of(
         str(amount.get("of") or "source"), context, source, targets
     )
+
+    if kind == "color_count":
+        # RULE 105.1 / 608.2h: the colors of the referent as it is (a target) or as it last was (an earlier clause's
+        # pick, now in another zone: `colors` falls back to the card's printed colors).
+        if getattr(subject, "kind", None) == "spell":
+            subject = getattr(subject, "obj", None)  # a targeted spell is its `StackItem`
+        if (subject is not None and getattr(subject, "zone", None) is not None
+                and subject.zone.value != "battlefield"):
+            # RULE 608.2h / 400.7: a permanent an earlier clause moved ("destroy target creature. You gain 1 life for
+            # each of its colors") counts the colors its battlefield visit had, colour-changing effects included, not
+            # the printed colors the card has in its new zone.
+            last_visit = context.state.zone_visit_sources.get((subject.instance_id, subject.zone_incarnation - 1))
+            if last_visit is not None:
+                subject = last_visit
+        return len(getattr(subject, "colors", None) or ()) if subject is not None else 0
 
     if kind == "counters":  # MEC-83
         counter = str(amount.get("counter", ""))
@@ -508,6 +574,15 @@ def _base(
             and event.get("instance_id") == getattr(subject, "instance_id", None)
         ):
             counters = event.get("counters")
+        if (amount.get("of") == "previous_target" and not counters
+                and getattr(subject, "zone", None) is not None and subject.zone.value != "battlefield"):
+            # RULE 608.2h / 400.7: "exile target creature. You gain life equal to the number of counters on it" -- the
+            # earlier clause moved the target, so its counters are the ones the battlefield visit just before it had.
+            counters = context.state.zone_visit_counters.get(
+                (subject.instance_id, subject.zone_incarnation - 1), counters)
+        if counter == ANY_COUNTER_KIND:
+            # RULE 122.1: "for each counter on it" -- counters of every kind (the sum of the positive tallies).
+            return sum(int(v) for v in counters.values() if v and v > 0)
         return int(counters.get(counter, 0) or 0)
 
     if kind == "counter_kinds":
@@ -569,6 +644,16 @@ def _base(
 
     if kind == "characteristic":
         # RULE 608.2h: measure a particular member of the prior selection now.
+        if amount.get("of") == "amassed_army":
+            # RULE 701.47a (MEC-145): "the amassed Army" is the Army the earlier amass instruction of this resolution
+            # put counters on (`AmassEffect` lists it in `created_objects`), measured now with those counters.
+            from .continuous import has_subtype  # function-scoped: continuous imports this module
+
+            army = next((o for o in reversed(context.created_objects or []) if has_subtype(o, "army")), None)
+            if army is None or amount.get("characteristic") not in ("power", "toughness"):
+                return 0
+            context.recompute()
+            return max(0, int(getattr(army, str(amount["characteristic"]), 0) or 0))
         if amount.get("of") == "previous_subject" and "index" in amount:
             index = amount["index"]
             previous = list(context.previous_targets or [])
@@ -738,8 +823,9 @@ THIS_WAY_EVENT_ZONES: dict[str, str] = {"returned": "hand"}
 #: The "<verb>ed this way" pools by name (RULE 608.2c: "this way" is exactly what the instruction before it did).
 #: Three live on `GameContext` and are reset per resolution; discard and sacrifice are read from the `mark_event_log`
 #: window (`THIS_WAY_EVENTS`) because their instruction can pause for the affected player's answer.
-THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned", "revealed"})
-_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects", "revealed": "revealed_objects"}
+THIS_WAY_POOLS: frozenset[str] = frozenset({"exiled", "destroyed", "milled", "discarded", "sacrificed", "returned", "revealed", "returned_card"})
+_CONTEXT_POOL_FIELDS: dict[str, str] = {"exiled": "exiled_objects", "destroyed": "destroyed_objects", "milled": "milled_objects", "revealed": "revealed_objects",
+                                         "returned_card": "returned_card_objects"}
 
 
 def this_way_objects(context: "GameContext", source: Any, pool: str) -> list[Any]:
@@ -780,6 +866,19 @@ def this_way_sum(context: "GameContext", source: Any, spec: dict[str, Any], char
         events = [e for e in events
                   if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
     return sum(int(e.get(characteristic, 0) or 0) for e in events)
+
+
+def this_way_greatest(context: "GameContext", source: Any, spec: dict[str, Any], characteristic: str) -> int:
+    """Largest ``characteristic`` over the members of ``spec["pool"]`` (0 when empty). Like `this_way_sum`, a discarded /
+    sacrificed member is read from the characteristics its event snapshot recorded (RULE 608.2h), not the moved object."""
+    pool = str(spec.get("pool", ""))
+    if pool not in THIS_WAY_EVENTS:
+        return max((int(getattr(o, characteristic, 0) or 0) for o in this_way_matching(context, source, spec)), default=0)
+    events = discarded_this_way(context, source, spec.get("card_type"), bool(spec.get("negate")), pool)
+    if spec.get("subtype") or spec.get("color"):
+        events = [e for e in events
+                  if (obj := context.state.find_object(e.get("instance_id"))) is not None and this_way_matches(obj, spec)]
+    return max((int(e.get(characteristic, 0) or 0) for e in events), default=0)
 
 
 def type_marker_matches(types: Any, wanted: str) -> bool:

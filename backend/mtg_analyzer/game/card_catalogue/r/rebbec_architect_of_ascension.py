@@ -15,7 +15,7 @@ def _rebbec_architect_of_ascension() -> list[AbilitySpec]:
     """
     return [
         AbilitySpec("static", [EffectSpec("grant_protection_static", {
-            "affects": "artifacts_you_control", "protection_from_mana_values_among_artifacts": True,
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}, "protection_from_mana_values_among_artifacts": True,
         })]),
     ]
 

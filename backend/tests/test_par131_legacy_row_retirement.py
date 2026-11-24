@@ -246,7 +246,7 @@ def test_kediss_is_parser_modeled_per_commander_hit():
 # battlefield", "<phrase> or a <phrase>" unions, "~ or another …" damage.
 # ---------------------------------------------------------------------------
 
-from mtg_analyzer.parser.oracle.segmenter import _compound_trigger_heads  # noqa: E402
+from mtg_analyzer.parser.oracle.segmenter.keyword_and_trigger_conditions import _compound_trigger_heads
 
 
 def test_compound_heads_split_only_when_disjoint():

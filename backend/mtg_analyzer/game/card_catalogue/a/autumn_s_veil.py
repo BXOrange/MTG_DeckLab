@@ -31,7 +31,7 @@ def _autumns_veil() -> list[AbilitySpec]:
             [
                 EffectSpec("cant_be_countered_this_turn", {}),
                 EffectSpec("grant_cant_be_target_of_spell_color", {
-                    "colors": ["U", "B"], "selector": "creatures_you_control",
+                    "colors": ["U", "B"], "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }),
             ],
         ),

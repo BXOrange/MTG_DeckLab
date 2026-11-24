@@ -6,10 +6,11 @@ import re
 
 from ..clause_reading import ClauseReading
 from ..name_atoms import CARD_NAME
-from ..clause_hooks import match_clause
+from ..clause_hooks import match_clause, parse_effect_body
 from typing import Any, Optional
 from ..characteristic_phrase import PERMANENT_CARD_TYPES
 from ..clause_primitives import split_keywords_with_parametric
+from ..count_phrase import parse_amount_phrase
 from ..subgrammars import (
     SPELL_TARGET,
     resolve_spell_filter,
@@ -24,6 +25,7 @@ from ..subgrammars import (
 )
 from ..subtype_vocabulary import SUBTYPES
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, battlefield_group
 from ...spec import EffectSpec
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -165,21 +167,31 @@ _SEARCH_SUBTYPE_WORD = '|'.join(
 #: printed Aura enchants two different permanent types at once), so the
 #: dropped qualifier can never cause a wrong pick in practice.
 _SEARCH_AURA_ENCHANT_CREATURE_TAIL = r"(?:\s+with enchant creature)?"
-_SEARCH_CRITERIA = (
+#: PAR-285: the supertype / negated-type qualifier words ahead of the colour and type list -- "a **legendary** creature
+#: card" (RULE 205.4 supertype), "a **nonland** card", "a **nonlegendary** green creature card". Each maps onto an
+#: existing `card_query` key (`all_types` / `nonlegendary` / `without_type`), so the search pool is narrowed by the
+#: engine's own predicate. "Nonbasic" is left out: `card_query.not_basic` also needs the land type, a distinct shape.
+_SEARCH_QUALIFIER_NEGATED_TYPES = "land|creature|artifact|enchantment"
+#: PAR-292 M9: "snow" is a RULE 205.4 supertype like "legendary" ("a snow land card": Into the North, Spirit of the Aldergard).
+_SEARCH_QUALIFIER_WORD = rf"legendary|nonlegendary|snow|non(?:{_SEARCH_QUALIFIER_NEGATED_TYPES})"
+_SEARCH_CRITERIA_BASE = (
     # RULE 701.19: an unrevealed zone, so "N cards" finds up to N — "for 2 basic land cards" is "for up to 2"; X is
     # the announced {X} or a measured amount bound by a "where X is" / die-result clause.
-    r"(?:(?:up to )?(?P<count>\d+|x)|an?)\s+"
+    r"(?:(?:up to )?(?P<count>\d+|x)|(?P<any_number>any number of)|an?)\s+"
+    rf"(?P<quals>(?:(?:{_SEARCH_QUALIFIER_WORD})(?:,\s*|\s+))+)?"
     rf"(?:(?P<color>(?:{_SEARCH_COLOR_WORD})(?: or (?:{_SEARCH_COLOR_WORD}))*)\s+)?"
     r"(?:(?P<basic>basic)\s+)?"
-    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype_permanent>permanent)\s+)?)?"
+    # PAR-292 M9: a second subtype word narrows the same card ("a spider hero card": both words on the type line).
+    rf"(?:(?P<subtype>{_SEARCH_SUBTYPE_WORD})\s+(?:(?P<subtype2>{_SEARCH_SUBTYPE_WORD})\s+)?(?:(?P<subtype_permanent>permanent)\s+)?)?"
     rf"(?:(?P<aura>aura)\s+)?"
     r"(?P<permanent>permanent )?"
-    rf"(?P<types>{_SEARCH_TYPE_LIST})?\s*"
+    # PAR-292 M9: a second type word is an intersection, not a list ("an artifact creature card": both types).
+    rf"(?P<types>{_SEARCH_TYPE_LIST})?(?:\s+(?P<types2>{_SEARCH_TYPE_WORD}))?\s*"
     r"cards?"
     rf"(?: named (?P<name>{CARD_NAME}))?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
-    + _SEARCH_MV_QUALIFIER
 )
+_SEARCH_CRITERIA = _SEARCH_CRITERIA_BASE + _SEARCH_MV_QUALIFIER
 #: Whichever pronoun/noun-phrase a card's "reveal ~"/"put ~ <dest>" clause
 #: uses for the found card — every variant found in the popular-tutor cache
 #: scan (Wishclaw Talisman's "it", most tutors' "that card", Buried Alive's
@@ -201,6 +213,9 @@ _SEARCH_DESTINATION_ROWS: list[tuple[str, str]] = [
     (r"into your graveyard", "graveyard"),
 ]
 _SEARCH_DESTINATION_ALT = "|".join(f"(?:{frag})" for frag, _ in _SEARCH_DESTINATION_ROWS)
+#: RULE 701.19e: the destination of a found card that rejoins the library and is shuffled with it (engine
+#: `_put_searched_card`'s ``library_shuffled``), only reachable through a split's "shuffle the chosen cards into your library".
+SEARCH_SHUFFLED_INTO_LIBRARY = "library_shuffled"
 
 
 def _search_destination_kind(phrase: str) -> Optional[str]:
@@ -253,7 +268,8 @@ _SEARCH_ENTER_COUNTERS = (
 _SEARCH_PUT_THEN_SHUFFLE_RE = compile_clause(
     rf"search your library for {_SEARCH_CRITERIA}"
     rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?"
-    r"(?P<distinct_names> with different names)?,?\s*"
+    r"(?P<distinct_names> with different names)?"
+    r"(?: that each have mana value (?P<each_mv>x))?,?\s*"
     rf"{_SEARCH_REVEAL}"
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}){_SEARCH_ENTER_COUNTERS},?\s*"
     r"then shuffle"
@@ -279,6 +295,164 @@ _SEARCH_NAMED_CRITERIA_RE = compile_clause(
     rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
     r"then shuffle"
 )
+
+
+#: RULE 205.3i / 305.6 / 701.19: "search your library for a basic land card or a <subtype> card, <tail>" (Outcaster
+#: Greenblade's Desert, Compass Gnome's Cave, District Guide's Gate, ...) -- the union of "a basic land" and a card of one
+#: land subtype. Every tail the plain "a card" search already reads (reveal, into your hand, onto the battlefield
+#: [tapped], then shuffle and put it on top) is reused: the tail is parsed as the unqualified search and only its criteria
+#: are replaced by the union (`card_query`'s ``or`` list, each branch its own filter, as the Planet row above does).
+_SEARCH_BASIC_OR_SUBTYPE_RE = compile_clause(
+    rf"search your library for a basic land card or (?:an? )?(?P<sub>{_SEARCH_SUBTYPE_WORD}) card(?P<tail>,.+)"
+)
+
+
+def _search_basic_or_subtype(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for a card{m.group('tail')}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].params.get("criteria"):
+        return None
+    params = {**plain[0].params, "criteria": {"or": [{"basic": True}, {"type": m.group("sub").lower()}]}}
+    return [EffectSpec("search", params, condition=plain[0].condition)]
+
+
+#: PAR-292 M8, RULE 205.3 / 700.6: "search your library for an Aura or Shrine card" / "a creature or basic land card" / "a
+#: Mountain or Cave card": two alternative one-word qualities (card type, subtype, Aura, or "basic land"), either of which
+#: qualifies the card (`card_query`'s ``or`` list). Like the basic-land-or-subtype row above, the tail is parsed as the plain
+#: unqualified "a card" search and only its criteria are replaced, so every tail the plain row reads (reveal, into your hand,
+#: onto the battlefield [tapped], then shuffle and put it on top) is shared and an unread tail stays unclaimed.
+_SEARCH_UNION_WORD = rf"basic land|aura|{_SEARCH_TYPE_WORD}|{_SEARCH_SUBTYPE_WORD}"
+_SEARCH_UNION_RE = compile_clause(
+    rf"search your library for an? (?P<a>{_SEARCH_UNION_WORD}) or (?P<b>{_SEARCH_UNION_WORD}) card(?P<tail>,.+)"
+)
+
+
+def _search_union(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for a card{m.group('tail')}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].params.get("criteria"):
+        return None
+    words = (m.group("a"), m.group("b"))
+    if all(re.fullmatch(_SEARCH_TYPE_WORD, word) for word in words):
+        # Two card types / land names are the plain row's own type list (the same reading "a creature or artifact card"
+        # has everywhere else); only a subtype, Aura or "basic land" needs the explicit union.
+        criteria: dict = {"type": list(words)}
+    else:
+        criteria = {"or": [{"basic": True} if word == "basic land" else {"type": word} for word in words]}
+    params = {**plain[0].params, "criteria": criteria}
+    return [EffectSpec("search", params, condition=plain[0].condition)]
+
+
+#: PAR-292 M9, RULE 701.19 / 406: "search your library for <criteria>, [reveal it,] exile it, then shuffle." (Foresight and
+#: Manipulate Fate "three cards", Mana Severance "any number of land cards", Selective Memory "any number of nonland cards",
+#: Strata Scythe's imprint land) -- the plain search whose found cards go to exile instead of a put-clause. The exile clause
+#: is respelled as the plain "put it into your hand" tail and the sentence read by the plain row, so every criteria / count
+#: shape that row reads is shared and only the destination is swapped to exile. The linked-exile bookkeeping (Strata
+#: Scythe's "the exiled card") is stamped by the gate, which already marks a `search` to exile beside a linked-name reader.
+_SEARCH_EXILE_RE = compile_clause(
+    r"search your library for (?P<crit>[^.]+?),\s*(?P<reveal>reveal {pronoun},?\s*)?"
+    r"exile {pronoun},?\s*(?:and )?then shuffle".format(pronoun=_SEARCH_PRONOUN)
+)
+
+
+def _search_exile(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"search your library for {m.group('crit')}, put it into your hand, then shuffle")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].condition is not None:
+        return None
+    params = {**plain[0].params, "destination": "exile"}
+    if m.group("reveal"):
+        params["reveal"] = True
+    return [EffectSpec("search", params)]
+
+
+#: PAR-292 M8, RULE 701.19b: one search for several differently-qualified cards, "search your library for a white card, a
+#: blue card, a black card, a red card, and a green card. Reveal those cards, put them into your hand, then shuffle."
+#: (Conflux), "... a Forest card and a Plains card, put them onto the battlefield tapped, then shuffle." (Krosan Verge),
+#: "... an Aura card and/or an Equipment card, ..." (Axgard Armory), "... a basic land card and a Shrine card" (Aang's
+#: Journey's kicked branch). Each "a/an <criteria> card" is its own slot (`criteria_each`): the engine asks slot by slot
+#: for at most one card per slot (a search for a quality may find nothing, so each slot may fail), a card fills one
+#: slot only, and the library is shuffled once. Every slot is read by the plain criteria grammar; a slot it does not read
+#: (a name containing "and", an X bound) leaves the clause unclaimed.
+_SEARCH_SLOT_SPLIT_RE = re.compile(r",?\s*(?:and/or|and)\s+(?=an?\s)|,\s*(?=an?\s)|\s+and/or\s+(?=an?\s)|\s+and\s+(?=an?\s)")
+_SEARCH_MULTI_CRITERIA_RE = compile_clause(
+    r"search your library(?P<graveyard> and graveyard)? for (?P<slots>an? .+? cards?(?: named [^,.]+?)?)[,.]?\s*"
+    rf"(?P<reveal>(?:and )?reveal (?:them|those cards)[,.]?\s*)?(?:and )?put (?:them|those cards) "
+    rf"(?P<dest>{_SEARCH_DESTINATION_ALT}),? (?:and )?then shuffle"
+)
+
+
+def _search_multi_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    destination = _search_destination_kind(m.group("dest"))
+    parts = _SEARCH_SLOT_SPLIT_RE.split(m.group("slots"))
+    if destination is None or len(parts) < 2:
+        return None
+    slots: list[Any] = []
+    for part in parts:
+        slot = re.fullmatch(_SEARCH_CRITERIA, part.strip())
+        if slot is None or slot.group("mv") == "x":
+            return None
+        criteria = _search_criteria_from_match(slot)
+        if criteria is None:
+            return None
+        slots.append(criteria)
+    params: dict = {"criteria": {}, "criteria_each": slots, "destination": destination, "count": len(slots)}
+    if m.group("graveyard"):
+        params["zones"] = ["library", "graveyard"]  # Journey for the Elixir: the library shuffles (RULE 701.19e)
+    if m.group("reveal"):
+        params["reveal"] = True
+    return [EffectSpec("search", params)]
+
+
+#: PAR-292 M7, RULE 701.19a / 101.4: "<player> [may] search[es] their library for <criteria>, [reveal it,] put[s] it <dest>,
+#: then shuffle[s]." where the searcher is not the ability's controller (Jungle Wayfinder "each player", Old-Growth Dryads
+#: "each opponent", Hired Giant "each other player", Fertilid "target player", Magmatic Hellkite / Volatile Fault "its /
+#: that player" after a destroyed permanent). The sentence is read as the controller's own search (every criterion, tail
+#: and count the plain rows already understand) and only the acting player changes: a `for_each` over the players hands
+#: each one in as the searcher (they answer, search and shuffle their own library), "target player" is a real target who
+#: answers (`target_searches`), and "that player / its controller" is the controller of the previous clause's permanent.
+#: Boldwyr Heavyweights' trailing "Then each player who searched their library this way shuffles." is the shuffle the
+#: engine's search already performs for exactly those players.
+_SEARCH_PLAYER_SCOPES = {"each player": "each_player", "each opponent": "each_opponent", "each other player": "each_opponent"}
+_SEARCH_PLAYER_RE = compile_clause(
+    r"(?P<who>each player|each opponent|each other player|target player|that player|its controller)(?P<may> may)? "
+    r"search(?:es)? (?:their|its) library for (?P<rest>[^.]+?)"
+    r"(?P<shuffle_sentence>\. then each player who searched their library this way shuffles)?"
+)
+#: Pronoun fixes that turn the other player's wording into the controller's own ("puts it into their hand").
+_SEARCH_PLAYER_REWORDINGS = (
+    (r"\bputs\b", "put"), (r"\bshuffles\b", "shuffle"), (r"\binto their (hand|graveyard)\b", r"into your \1"),
+    (r"(onto the battlefield(?: tapped)?) under their control", r"\1"), (r" and put ", ", put "),
+)
+
+
+def _search_player(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    who = m.group("who")
+    rest = m.group("rest")
+    for pattern, replacement in _SEARCH_PLAYER_REWORDINGS:
+        rest = re.sub(pattern, replacement, rest)
+    if re.search(r"\b(?:their|you|its|that player)\b|\byour(?! (?:hand|graveyard)\b)", rest):
+        return None  # a pronoun the rewording did not account for: not this shape
+    has_shuffle = bool(re.search(r"then shuffle$", rest))
+    if has_shuffle == bool(m.group("shuffle_sentence")):
+        return None  # exactly one shuffle instruction, in its own sentence or the tail
+    if m.group("shuffle_sentence"):
+        rest += ", then shuffle"
+    plain = match_clause(f"search your library for {rest}")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or plain[0].condition is not None:
+        return None
+    params = dict(plain[0].params)
+    if who in _SEARCH_PLAYER_SCOPES:
+        # RULE 101.4: each player in APNAP order searches in turn; the iterated player is the searcher.
+        params["player"] = {"of": "iteration", "as": "self"}
+        return [EffectSpec("for_each", {
+            "over": {"players": _SEARCH_PLAYER_SCOPES[who]}, "effects": [{"type": "search", "params": params}],
+        })]
+    if who == "target player":
+        params.update({"player_from_target": True, "target_any_player": True, "target_searches": True})
+        return [EffectSpec("search", params)]
+    if not reading.previous_subject:
+        return None  # "that player" / "its controller" names the previous clause's permanent's controller
+    params["player"] = "previous_target_controller"
+    return [EffectSpec("search", params)]
+
 
 
 def _search_named_criteria(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -314,7 +488,7 @@ _SEARCH_SHUFFLE_THEN_PUT_TOP_RE = compile_clause(
     rf"{_SEARCH_REVEAL}"
     rf"then shuffle and put {_SEARCH_PRONOUN} "
     # Long-Term Plans' "third from the top" (RULE 401.7) — the same shuffle-then-place order.
-    r"(?:on top(?: of your library)?|(?P<third>third from the top))"
+    r"(?:on top(?: of your library)?(?: in any order)?|(?P<third>third from the top))"
 )
 
 
@@ -341,6 +515,20 @@ def _search_color_from_match(m: re.Match[str]) -> Optional[str]:
     if word == "colorless":
         return "colorless"
     return resolve_color_word(word)
+
+
+def _search_qualifiers_from_match(m: re.Match[str]) -> dict:
+    """The ``quals`` group -> `card_query` keys. "legendary" is an ``all_types`` word (type-line supertype, ANDed with
+    the type list and any subtype word), "nonlegendary" its own key, and each negated card type a ``without_type`` word."""
+    out: dict = {}
+    for word in re.findall(_SEARCH_QUALIFIER_WORD, m.groupdict().get("quals") or ""):
+        if word in ("legendary", "snow"):
+            out.setdefault("all_types", []).append(word)
+        elif word == "nonlegendary":
+            out["nonlegendary"] = True
+        else:
+            out.setdefault("without_type", []).append(word[len("non"):])
+    return out
 
 
 def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
@@ -377,6 +565,16 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     color = _search_color_from_match(m)
     if color:
         crit["color"] = color
+    qualifiers = _search_qualifiers_from_match(m)
+    if "all_types" in qualifiers:  # keep the subtype word the type list already required (RULE 205.4)
+        qualifiers["all_types"] = qualifiers["all_types"] + crit.get("all_types", [])
+    crit.update(qualifiers)
+    # PAR-292 M9, RULE 205.2 / 205.3: the second type or subtype word is ANDed with the first (`all_types`), never ORed.
+    second = [w.lower() for w in (m.groupdict().get("types2"), m.groupdict().get("subtype2")) if w]
+    if second:
+        if m.groupdict().get("types2") and (not types or len(words) != 1):
+            return None  # an intersection needs exactly one first type word
+        crit["all_types"] = crit.get("all_types", []) + second
     crit.update(_search_mv_qualifier_from_match(m))
     alternative = m.groupdict().get("alternative_subtype")
     if alternative:
@@ -398,7 +596,16 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     return crit
 
 
+#: RULE 701.19b / 107.1: "any number of" cards from a library is a free count bounded only by what the library
+#: holds. `search` takes an integer ceiling, so this is a cap no library can exceed (a Commander deck is 100 cards,
+#: and only the part below that is ever in the library); the search stops early when the pool runs out or the
+#: player declines, exactly as with "up to N".
+ANY_NUMBER_SEARCH_CAP = 250
+
+
 def _search_count_from_match(m: re.Match[str]) -> "Optional[int | str]":
+    if m.groupdict().get("any_number"):
+        return ANY_NUMBER_SEARCH_CAP
     count = m.groupdict().get("count")
     if count == "x":
         return "x"
@@ -415,6 +622,12 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     params: dict = {"criteria": criteria, "destination": destination}
     if m.groupdict().get("distinct_names"):
         params["distinct_names"] = True
+    if m.groupdict().get("each_mv"):
+        # RULE 202.3 / 107.3a: every found card has mana value X (the announced {X}, substituted into the criteria
+        # when the spell resolves -- `RulesEngine._substitute_x`).
+        if {"min_mana_value", "max_mana_value"} & set(criteria):
+            return None
+        criteria.update({"min_mana_value": "x", "max_mana_value": "x"})
     enter_kind = m.groupdict().get("enter_kind")
     if enter_kind:
         # RULE 122.1 / 614.1c: the card enters carrying these counters (only on a battlefield destination).
@@ -438,14 +651,31 @@ def _search_put_then_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: searcher is the controller, the library and its shuffle are the target's: `SearchLibraryEffect.player_from_target`
 #: (Praetor's Grasp). The put-clause may share the search's sentence ("... and exile it") or follow it ("... card.
 #: Put that card onto the battlefield ..."); the trailing shuffle belongs to the engine's search, so it is consumed.
+#: The `bind` variable the X count of a measured search reads (the same `$n` idiom `where_x` binds).
+SEARCH_X_BIND_NAME = "n"
 _SEARCH_OTHER_LIBRARY_PUT = (
     r"(?P<exile>exile (?:it|them|that card|those cards))"
     rf"|put {_SEARCH_PRONOUN} (?:(?P<field>onto the battlefield under your control)|(?P<grave>into (?:their|that player's) graveyard))"
 )
+#: PAR-292 M24: the count may be an amount-bound X ("for x cards, where x is the number of cards in your hand, and exile
+#: them", Neverending Torment; "for up to x cards, where x is the number of Swamps you control", Nightmare Incursion).
+#: The measurement is the searcher's (the controller's own board) and is bound to the count (RULE 107.3 / 608.2h).
+_SEARCH_OTHER_LIBRARY_X = r"(?:,\s*where x is (?P<xphrase>the number of [^,.]+?))?"
 _SEARCH_OTHER_LIBRARY_RE = compile_clause(
-    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + r",?\s*"
+    r"search target (?P<who>opponent|player)'s library for " + _SEARCH_CRITERIA + _SEARCH_OTHER_LIBRARY_X + r",?\s*"
     rf"(?:(?:\.\s*|and\s+|,\s*)(?:{_SEARCH_OTHER_LIBRARY_PUT}))"
     r"(?:\.\s*|,\s*)(?:then )?(?:that|the) player shuffles(?: their library)?"
+)
+
+
+#: PAR-292 M24: the same search behind a lead instruction in one sentence, "destroy all creatures, then search target
+#: opponent's library for up to 3 creature cards and put them into their graveyard. Then that player shuffles." (Life's
+#: Finale). The sentence splitter would cut the shuffle sentence from its search, so `segmenter.effect_body` peels the
+#: lead and hands the search (with its shuffle sentence) back whole to the row above.
+SEARCH_OTHER_LIBRARY_LEAD_RE = re.compile(
+    r"(?P<lead>(?!(?:if|when|whenever|unless)\b)[^.]+?),\s+then\s+"
+    r"(?P<search>search target (?:opponent|player)'s library for [^.]+\.\s+then that player shuffles)\.?",
+    re.IGNORECASE,
 )
 
 
@@ -453,8 +683,9 @@ def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     criteria = _search_criteria_from_match(m)
     if criteria is None:
         return None
-    if m.group("mv") is not None or m.group("count") == "x":
-        return None  # a dynamic amount / mana-value bound needs its own binding; fail closed
+    x_phrase = m.group("xphrase")
+    if m.group("mv") is not None or (m.group("count") == "x") != (x_phrase is not None):
+        return None  # a mana-value bound, or an X count without (or a "where x" without) its measurement: fail closed
     params: dict = {
         "criteria": criteria,
         "destination": "battlefield" if m.group("field") else "graveyard" if m.group("grave") else "exile",
@@ -465,6 +696,15 @@ def _search_other_library(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
+    if x_phrase is not None:
+        selector = parse_amount_phrase(x_phrase)
+        if not isinstance(selector, dict):
+            return None
+        params["count"] = f"${SEARCH_X_BIND_NAME}"
+        return [EffectSpec("bind", {
+            "name": SEARCH_X_BIND_NAME, "amount": {"kind": "count_selector", "selector": selector},
+            "effects": [{"type": "search", "params": params}],
+        })]
     return [EffectSpec("search", params)]
 
 
@@ -536,6 +776,52 @@ def _search_mv_lands_qualifier(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             },
         )
     ]
+
+
+#: PAR-285: "search your library for <criteria> **with mana value less than or equal to / equal to <a measured amount>**,
+#: [reveal it,] put it <destination>, then shuffle." -- the bound is a count of the searcher's own things ("the number
+#: of creature cards in your graveyard", Mausoleum Secrets; "your devotion to black", Grim Servant; "the number of age
+#: counters on ~", Hibernation's End, Instrument of the Bards). Maps onto `search`'s ``mana_value_from`` with the
+#: ``count_selector`` source, evaluated when the search opens (`SearchLibraryEffect._resolved_criteria`, RULE 701.19a).
+#: Only amounts that are plain live counts of the controller's board / zones / the source's counters are claimed: a
+#: cost-recorded referent (the sacrificed / discarded card, MEC-145) or a payment record is not.
+_SEARCH_MV_MEASURED_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA_BASE} with mana value (?P<mv_cmp>less than or equal to|equal to) "
+    r"(?P<amount>[^,.]+?),?\s*"
+    rf"{_SEARCH_REVEAL}"
+    rf"put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+#: The string selectors a measured search bound may name; every other string selector is a cost / event record.
+_MEASURED_SEARCH_SELECTOR_PREFIXES = ("devotion_to_", "your_life_total")
+
+
+def _search_mv_measured(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    destination = _search_destination_kind(m.group("dest"))
+    selector = parse_amount_phrase(m.group("amount"))
+    if criteria is None or destination is None or selector is None:
+        return None
+    if isinstance(selector, str) and not selector.startswith(_MEASURED_SEARCH_SELECTOR_PREFIXES):
+        return None
+    if isinstance(selector, dict) and ("terms" in selector or "distinct" in selector or "aggregate" in selector):
+        return None
+    if "name" in criteria or "or" in criteria:
+        return None  # a named / union find keeps its own rows
+    if _SEARCH_MV_LANDS_QUALIFIER_RE.fullmatch(m.string):
+        return None  # the unqualified lands bound (Beseech the Queen) is owned by `search_mv_lands_qualifier`
+    params: dict = {
+        "criteria": criteria,
+        "mana_value_from": {
+            "source": "count_selector", "count_selector": selector,
+            "cmp": "eq" if m.group("mv_cmp") == "equal to" else "le",
+        },
+        "destination": destination,
+    }
+    count = _search_count_from_match(m)
+    if count is not None:
+        params["count"] = count
+    return [EffectSpec("search", params)]
 
 
 #: "return a creature card from its owner's graveyard to the battlefield under the control of that creature's owner"
@@ -700,12 +986,14 @@ def _search_shuffle_then_put_top(m: re.Match[str]) -> list[EffectSpec]:
 #: shared `destination`; maps onto `"search"`'s `destinations` param,
 #: positional against the picks).
 _SEARCH_SPLIT_DESTINATION_RE = compile_clause(
-    rf"search your library for {_SEARCH_CRITERIA},?\s*"
+    rf"search your library for {_SEARCH_CRITERIA}"
+    # "basic land cards and/or Gate cards" (Navigation Orb): the same union the plain row reads.
+    rf"(?: and/or (?P<alternative_subtype>{_SEARCH_SUBTYPE_WORD}) cards?)?,?\s*"
     rf"{_SEARCH_REVEAL}"
     # "one" is folded to "1" by `normalize`'s spelled-number pass (it can't
     # tell this "one" is a pronoun, not a count) — match the folded form.
-    rf"put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
-    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT}),?\s*"
+    rf"(?:and )?put 1 (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the (?P<which>other|rest) "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT})[.,]?\s*"
     r"then shuffle"
 )
 
@@ -723,10 +1011,358 @@ def _search_split_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": dest1,
         "destinations": [dest1, dest2],
     }
+    if m.group("which") == "rest":
+        # "the rest" is every pick after the first (Nissa's Pilgrimage, count 2 or 3), so the second destination is the
+        # fallback for any pick past the one positional entry.
+        params["destination"], params["destinations"] = dest2, [dest1]
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
     return [EffectSpec("search", params)]
+
+
+#: RULE 701.19 / 701.20: the reveal ends the search sentence and the split is a sentence of its own -- "search your
+#: library for up to 2 basic land cards and reveal them. Put 1 into your hand and the other into your graveyard. Then
+#: shuffle." (Fork in the Road, Jarad's Orders), "... put 2 of them onto the battlefield tapped and the other into your
+#: hand, then shuffle." (Viewpoint Synchronization), "... and the other into your hand. Shuffle, then scry 1."
+#: (Peregrination). The same positional ``destinations`` as the one-sentence split above; N picks to the first
+#: destination need N + 1 cards in all, so a count that does not add up stays unclaimed.
+_SEARCH_REVEAL_SPLIT_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*(?:and )?reveal (?:it|them|those cards)[.,]?\s*(?:and )?"
+    rf"put (?P<first>\d+) (?:of them )?(?P<dest1>{_SEARCH_DESTINATION_ALT}) and the other "
+    rf"(?P<dest2>{_SEARCH_DESTINATION_ALT})(?:\.\s*then shuffle|,\s*then shuffle|\.\s*shuffle, then (?P<scry>scry \d+))"
+)
+
+
+def _search_reveal_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    count = _search_count_from_match(m)
+    if criteria is None or dest1 is None or dest2 is None or not isinstance(count, int):
+        return None
+    first = int(m.group("first"))
+    if first + 1 != count:
+        return None
+    params: dict = {
+        "criteria": criteria, "destination": dest1, "destinations": [dest1] * first + [dest2], "count": count,
+    }
+    if m.group("scry"):
+        # RULE 701.22: the scry follows the shuffle, so it rides the search's own follow-up (`then_specs`).
+        scry = match_clause(m.group("scry"))
+        if not scry or len(scry) != 1:
+            return None
+        params["then_specs"] = [scry[0].to_dict()]
+    return [EffectSpec("search", params)]
+
+
+#: RULE 701.19 / 701.20 / 608.2d: "search your library [and graveyard] for up to N <criteria> with different names
+#: [that each have mana value X or less] and reveal them. An opponent chooses M of those cards. Put the chosen cards
+#: <destA> and the rest <destB>. Then shuffle." (Elemental Teachings, Realms Uncharted, Ecological Appreciation) and its
+#: "Shuffle the chosen cards into your library and put the rest <destB>." form (Threats Undetected): the Intuition
+#: split run over a criteria search, `search`'s ``opponent_split`` ("Target opponent chooses" is the same with a target). A search that shuffles the chosen cards in shuffles
+#: once, so only the put-the-chosen form needs its own "then shuffle".
+_SEARCH_DISTINCT_WORDS = {"names": "name", "powers": "power"}
+#: "...cards that don't share a mana value, power, toughness, or card type with each other" (The Karst): pairwise
+#: distinct on all four characteristics (RULE 202.3, 208.1, 205.2).
+_SEARCH_SHARE_PHRASE = "mana value, power, toughness, or card type"
+_SEARCH_SHARE_KEYS = ["mana_value", "power", "toughness", "card_type"]
+_SEARCH_OPPONENT_SPLIT_RE = compile_clause(
+    rf"search your (?P<zones>library(?: and graveyard)?) for {_SEARCH_CRITERIA}"
+    r"(?: with different (?P<distinct>names|powers)| that don't share a (?P<share>" + _SEARCH_SHARE_PHRASE + r") with each other)?"
+    r"(?: that each have mana value (?P<each_mv>x) or less)?"
+    r"(?:,?\s*(?:and )?(?P<reveal>reveal them))?\.\s*"
+    r"(?P<chooser>an|target) opponent chooses (?P<chosen>\d+) of those cards\.\s*"
+    rf"(?:put the chosen cards (?P<dest1>{_SEARCH_DESTINATION_ALT})|(?P<shuffled>shuffle the chosen cards into your library)) "
+    rf"and (?:put )?the (?:rest|other) (?P<dest2>{_SEARCH_DESTINATION_ALT})(?P<then_shuffle>(?:[.,]\s*then shuffle)?)"
+)
+
+
+def _search_opponent_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    count = _search_count_from_match(m)
+    rest = _search_destination_kind(m.group("dest2"))
+    if criteria is None or rest is None or not isinstance(count, int):
+        return None
+    if m.group("shuffled"):
+        chosen = SEARCH_SHUFFLED_INTO_LIBRARY
+    else:
+        chosen = _search_destination_kind(m.group("dest1"))
+        if chosen is None or not m.group("then_shuffle"):
+            return None  # a put-only split would shuffle when the card never says so
+    if m.group("each_mv"):
+        if {"min_mana_value", "max_mana_value"} & set(criteria):
+            return None
+        criteria["max_mana_value"] = "x"  # RULE 107.3a: the announced {X}, substituted when the spell resolves
+    chosen_count = int(m.group("chosen"))
+    if chosen_count >= count:
+        return None  # the opponent must be choosing from among more cards than are chosen
+    split = {"chosen_count": chosen_count, "chosen_destination": chosen, "rest_destination": rest}
+    if m.group("chooser") == "target":
+        split["chooser"] = "target"  # RULE 115: `SearchLibraryEffect` then carries the opponent target
+    params: dict = {"criteria": criteria, "count": count, "reveal": bool(m.group("reveal")), "opponent_split": split}
+    if m.group("distinct"):
+        params["distinct_keys"] = [_SEARCH_DISTINCT_WORDS[m.group("distinct")]]
+    elif m.group("share"):
+        params["distinct_keys"] = list(_SEARCH_SHARE_KEYS)
+    if "graveyard" in m.group("zones"):
+        params["zones"] = ["library", "graveyard"]
+    return [EffectSpec("search", params)]
+
+
+#: "you may search your library for exactly N cards not named ~ that have different names. If you do, reveal those
+#: cards. An opponent chooses M of them. Put the chosen card <A> and the other <B>, then shuffle." (Burning-Rune Demon):
+#: the split above over an *exact* count that the player may decline as a whole (`search`'s ``exact_count``), with the
+#: source's own name excluded (``not_name_reference``).
+_SEARCH_EXACT_SPLIT_RE = compile_clause(
+    r"you may search your library for exactly (?P<count>\d+) cards not named ~ that have different names\.\s*"
+    r"if you do, reveal those cards\.\s*"
+    r"an opponent chooses (?P<chosen>\d+) of them\.\s*"
+    rf"put the chosen cards? (?P<dest1>{_SEARCH_DESTINATION_ALT}) and the (?:rest|other) (?P<dest2>{_SEARCH_DESTINATION_ALT}),?\s*"
+    r"then shuffle"
+)
+
+
+def _search_exact_split(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    chosen = _search_destination_kind(m.group("dest1"))
+    rest = _search_destination_kind(m.group("dest2"))
+    count, chosen_count = int(m.group("count")), int(m.group("chosen"))
+    if chosen is None or rest is None or chosen_count >= count:
+        return None
+    return [EffectSpec("search", {
+        "criteria": {"not_name_reference": {"kind": "source"}}, "count": count, "reveal": True, "exact_count": True,
+        "distinct_keys": ["name"],
+        "opponent_split": {"chosen_count": chosen_count, "chosen_destination": chosen, "rest_destination": rest},
+    })]
+
+
+#: "search your library for <criteria> and reveal it. Put it <destA> if its mana value is N or less. Otherwise, put it
+#: <destB>. [If you search your library this way, shuffle.]" (Guidelight Pathmaker): which destination applies depends on
+#: the card found, so it is the search's per-find ``destination_if`` (RULE 701.19c), first match winning.
+_SEARCH_REVEAL_MV_DESTINATION_RE = compile_clause(
+    rf"search your library for {_SEARCH_CRITERIA},?\s*(?:and )?reveal it\.\s*"
+    rf"put it (?P<dest1>{_SEARCH_DESTINATION_ALT}) if its mana value is (?P<dmv>\d+) or less\.\s*"
+    rf"otherwise,\s*put (?:it|that card) (?P<dest2>{_SEARCH_DESTINATION_ALT})\.\s*"
+    r"(?:if you search your library this way, shuffle|then shuffle)"
+)
+
+
+def _search_reveal_mv_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _search_criteria_from_match(m)
+    dest1 = _search_destination_kind(m.group("dest1"))
+    dest2 = _search_destination_kind(m.group("dest2"))
+    if criteria is None or dest1 is None or dest2 is None or m.group("dmv") is None or _search_count_from_match(m) is not None:
+        return None
+    params = {
+        "criteria": criteria, "destination": dest2,
+        "destination_if": [{"criteria": {"max_mana_value": int(m.group("dmv"))}, "destination": dest1}],
+    }
+    return [EffectSpec("search", params)]
+
+
+#: "search your library for <criteria> and reveal it. If <condition>, put it <destA>. Otherwise, put it <destB>. Then
+#: shuffle." (Stoic Farmer): the condition is about the game, not the found card, and nothing changes between the search
+#: and the put, so it is read as the two-branch conditional the grammar already owns -- each branch the same search
+#: with its own destination. A condition that grammar does not read leaves the clause unclaimed.
+_SEARCH_REVEAL_CONDITION_RE = compile_clause(
+    r"search your library for (?P<crit>[^,.]+?),?\s*(?:and )?reveal it\.\s*"
+    rf"if (?P<cond>[^,.]+), put (?:it|that card) (?P<dest1>{_SEARCH_DESTINATION_ALT})\.\s*"
+    rf"otherwise,\s*put (?:it|that card) (?P<dest2>{_SEARCH_DESTINATION_ALT})\.\s*then shuffle"
+)
+
+
+def _search_reveal_condition(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    def branch(dest: str) -> str:
+        return f"search your library for {m.group('crit')}, put it {dest}, then shuffle"
+
+    return parse_effect_body(
+        f"if {m.group('cond')}, {branch(m.group('dest1'))}. otherwise, {branch(m.group('dest2'))}.",
+        reading=ClauseReading(self_subject=True),
+    )
+
+
+#: A search followed by a conditional *replacement* search: "search your library for <A>[, <tail>]. If <condition>,
+#: [instead] search your library for <B>[, <tail>]" (Nissa's Triumph, Analyze the Pollen, Entish Restoration) and
+#: "... search your library for 2 basic land cards instead of 1" (Reclaim the Wastes). RULE 608.2c: "instead" replaces the
+#: original instruction, so the whole pair is one two-branch conditional decided once, each branch a complete plain
+#: search; a branch printed without its own reveal/put/shuffle tail shares the other branch's. The condition must be one
+#: the shared grammar reads ("this spell was kicked" is built here: its prefix peel cannot see an "otherwise").
+_SEARCH_REPLACEMENT_TAIL = r"(?:,[^.]*)"
+_SEARCH_CONDITIONAL_REPLACEMENT_RE = compile_clause(
+    rf"search your library for (?P<a>[^,.]+?)(?P<t1>{_SEARCH_REPLACEMENT_TAIL})?\.\s*(?P<s1>then shuffle\.\s*)?"
+    r"if (?P<cond>[^,]+), (?P<instead>instead )?search your library for (?P<b>[^,.]+?)(?P<instead_of> instead of \d+)?"
+    rf"(?P<t2>{_SEARCH_REPLACEMENT_TAIL}|\.\s*reveal [^.]*)?\.?"
+)
+_SEARCH_KICKED_CONDITION = "this spell was kicked"
+_SEARCH_KICKED_GATE = {"kind": "kicked", "min": 1}
+
+
+def _search_replacement_gate(cond: str, then_text: str, else_text: str) -> Optional[list[EffectSpec]]:
+    """The ``if_else`` of ``cond`` over two already-complete branch clauses, or None."""
+    reading = ClauseReading(self_subject=True)
+    if cond == _SEARCH_KICKED_CONDITION:
+        then_specs, else_specs = match_clause(then_text), match_clause(else_text)
+        if not then_specs or not else_specs:
+            return None
+        return [EffectSpec("if_else", {
+            "condition": dict(_SEARCH_KICKED_GATE),
+            "then": [s.to_dict() for s in then_specs], "else": [s.to_dict() for s in else_specs],
+        })]
+    specs = parse_effect_body(f"if {cond}, {then_text}. otherwise, {else_text}.", reading=reading)
+    if not specs or len(specs) != 1 or specs[0].type != "if_else":
+        return None
+    return specs
+
+
+def _search_conditional_replacement(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    t1, t2 = m.group("t1"), m.group("t2")
+    if t1 is None and t2 is None:
+        return None
+    # Without "instead" the second search is additional, not a replacement (RULE 608.2c), so it is not this row.
+    if m.group("instead") is None and m.group("instead_of") is None:
+        return None
+    t2 = (", " + t2.lstrip(". ")) if t2 and t2.startswith(".") else t2
+    tail_a, tail_b = t1 or t2, t2 or t1
+    if m.group("s1"):
+        # "... into your hand. Then shuffle. If <cond>, search ... instead": the shuffle sentence ends both branches
+        # (Nissa's Pilgrimage), which the tails above stop short of.
+        tail_a, tail_b = (f"{tail}, then shuffle" if tail else tail for tail in (tail_a, tail_b))
+    return _search_replacement_gate(
+        m.group("cond"),
+        f"search your library for {m.group('b')}{tail_b}",
+        f"search your library for {m.group('a')}{tail_a}",
+    )
+
+
+#: "search your library for <criteria>, reveal it, then shuffle and put that card on top. If <condition>, put that card
+#: <destination> instead." (Embermouth Sentinel): the condition swaps where the found card goes, so it is the same
+#: two-branch conditional with the second branch the plain search to that destination.
+_SEARCH_CONDITIONAL_DESTINATION_RE = compile_clause(
+    r"(?P<search>search your library for (?P<crit>[^,.]+?),\s*reveal it, then shuffle and put that card on top)\.\s*"
+    rf"if (?P<cond>[^,]+), put (?:it|that card) (?P<dest>{_SEARCH_DESTINATION_ALT}) instead"
+)
+
+
+def _search_conditional_destination(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return _search_replacement_gate(
+        m.group("cond"),
+        f"search your library for {m.group('crit')}, put it {m.group('dest')}, then shuffle",
+        m.group("search"),
+    )
+
+
+#: PAR-292 M6: a complete plain search followed by sentences about the card it found: "Search your library for a basic
+#: land card, put it onto the battlefield tapped, then shuffle. That land becomes a 0/0 ... creature that's still a land.
+#: Put a +1/+1 counter on it for each land you had enter the battlefield under your control this turn." (Emergent
+#: Sequence). RULE 608.2c: "that land" / "it" is the card the search just found, so the rider rides the search's own
+#: follow-up (`then_specs`, which seats the found cards as the referent), read with the previous-subject pronoun. Only
+#: rider effects that provably act on that referent are accepted; anything else keeps the whole clause unclaimed.
+_SEARCH_FOUND_RIDER_RE = compile_clause(
+    r"(?P<search>search your library for [^.]+)\.\s*(?P<rider>(?:that (?:land|card|creature|permanent)|it) [^.]+(?:\.[^.]+)*)\.?"
+)
+#: Rider effect types whose ``previous_subject`` flag names the found card, and the wrappers that only repeat/size them.
+_FOUND_CARD_RIDER_TYPES = frozenset({"grant_until", "pump", "tap", "add_counters"})
+_FOUND_CARD_RIDER_WRAPPERS = frozenset({"bind", "for_each"})
+#: ``add_counters`` params that already name who gets the counters; such a placement is not about the found card.
+_COUNTER_RECIPIENT_KEYS = ("group", "group_other", "selector", "target_kind")
+
+
+def _found_card_rider(spec: dict) -> Optional[dict]:
+    """``spec`` (a serialized effect) with every counter placement pointed at the found card, or None when some
+    effect in it does not provably act on that card."""
+    kind, params = spec.get("type"), dict(spec.get("params") or {})
+    if kind in _FOUND_CARD_RIDER_WRAPPERS:
+        inner = [_found_card_rider(effect) for effect in params.get("effects") or []]
+        if not inner or any(effect is None for effect in inner):
+            return None
+        return {**spec, "params": {**params, "effects": inner}}
+    if kind == "create_delayed_trigger":
+        # RULE 603.7c: "return it to your hand at the beginning of the next end step" fixes the found card now; it is
+        # captured while the rider runs, when the found card is the referent (outside it would capture the source).
+        return {**spec, "params": params} if params.get("capture") == "previous_or_self" else None
+    if kind not in _FOUND_CARD_RIDER_TYPES or params.get("target_kind"):
+        return None
+    if kind == "add_counters":
+        # "put a +1/+1 counter on it": the bare "it" of a rider sentence is the found card, not the ability's source. A
+        # placement on a group ("on each other creature you control") has its own recipients and is not stamped.
+        if any(params.get(key) for key in _COUNTER_RECIPIENT_KEYS):
+            return None
+        params["previous_subject"] = True
+    elif not params.get("previous_subject"):
+        return None
+    return {**spec, "params": params}
+
+
+def _search_found_rider(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    search = match_clause(m.group("search"))
+    if not search or len(search) != 1 or search[0].type != "search" or search[0].params.get("then_specs"):
+        return None
+    if SELF in m.group("rider"):
+        # "put a +1/+1 counter on ~" parses exactly like "on it", so a rider naming the source cannot be told apart from
+        # one about the found card once parsed; refuse it rather than move the source's counters onto the found card.
+        return None
+    rider = parse_effect_body(m.group("rider"), reading=ClauseReading(previous_subject=True))
+    if not rider:
+        return None
+    riders = [_found_card_rider(effect.to_dict()) for effect in rider]
+    if any(effect is None for effect in riders):
+        return None
+    return [EffectSpec("search", {**search[0].params, "then_specs": riders})]
+
+
+
+#: PAR-292 M6: "[You may] search your library for <criteria> and put it <dest>. If you search your library this way, put
+#: ~ on the bottom of its owner's library, then shuffle." (Unlucky Cabbage Merchant). RULE 701.19b: the search happened
+#: whether or not it found anything, so the follow-up rides both the found and the nothing-found path of the search
+#: (`then_specs` and `then_specs_if_none`); and since the source goes to the bottom and the library is then shuffled, it
+#: ends in a shuffled library like "shuffle ~ into its owner's library" (RULE 701.20).
+_SEARCH_THIS_WAY_SELF_SHUFFLE_RE = compile_clause(
+    rf"(?P<may>you may )?search your library for (?P<crit>[^,.]+?) and put it (?P<dest>{_SEARCH_DESTINATION_ALT})\.\s*"
+    rf"if you search your library this way, put {SELF} on the bottom of its owner'?s library, then shuffle"
+)
+_SELF_SHUFFLED_INTO_LIBRARY = {"type": "shuffle_self_into_library", "params": {}}
+
+
+def _search_this_way_self_shuffle(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = parse_effect_body(
+        f"{m.group('may') or ''}search your library for {m.group('crit')}, put it {m.group('dest')}, then shuffle",
+        reading=ClauseReading(self_subject=True),
+    )
+    if not plain or len(plain) != 1:
+        return None
+    outer = plain[0]
+    inner = outer.params["effects"][0] if outer.type == "optional" else None
+    holder = inner if inner is not None else outer.to_dict()
+    if holder.get("type") != "search":
+        return None
+    holder["params"] = {**holder["params"], "then_specs": [dict(_SELF_SHUFFLED_INTO_LIBRARY)],
+                        "then_specs_if_none": [dict(_SELF_SHUFFLED_INTO_LIBRARY)]}
+    if inner is not None:
+        return [outer]
+    return [EffectSpec("search", holder["params"])]
+
+
+
+#: PAR-292 M10, RULE 701.19 / 701.8: "search your library for <criteria>, [reveal it,] put it into your hand, shuffle, then
+#: discard a card at random." (Curse-Marred Demon, Reckless Handling) and "... and reveal that card. Put it into your
+#: hand, then discard a card at random. Then shuffle." (Wild Research): the plain tutor to hand, then the random discard
+#: as the search's own follow-up. The discard is a later instruction of the same resolution, so it happens whether or not
+#: the search found a card (RULE 701.19b: the search happened) -- `then_specs_if_none` carries it too. Wild Research
+#: discards before it shuffles; a shuffle moves no card in hand, so the order is not observable.
+_SEARCH_DISCARD_RANDOM_RE = compile_clause(
+    r"(?P<search>search your library for [^.]+?)(?: and reveal (?:it|that card)\.\s*|,\s*(?:reveal (?:it|that card),\s*)?)"
+    r"put it into your hand"
+    r"(?:,\s*shuffle,\s*then discard a card at random|,\s*then discard a card at random\.\s*then shuffle)"
+)
+
+
+def _search_discard_random(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    plain = match_clause(f"{m.group('search')}, put it into your hand, then shuffle")
+    discard = match_clause("discard a card at random")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or not discard or len(discard) != 1:
+        return None
+    follow = [discard[0].to_dict()]
+    return [EffectSpec("search", {**plain[0].params, "then_specs": follow, "then_specs_if_none": follow})]
 
 
 #: "search your library for N cards. Put 1 <destA> and the other <destB>.
@@ -779,7 +1415,10 @@ _SEARCH_ZONE_CRITERIA = _SEARCH_CRITERIA
 _SEARCH_ZONE_PUT_RE = compile_clause(
     rf"search your (?P<zones>(?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){{1,2}}) for {_SEARCH_ZONE_CRITERIA},?\s*"
     rf"{_SEARCH_REVEAL}(?:then )?"
-    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?:\.\s*"
+    # PAR-292 M23 (Boonweaver Giant, Runed Crown): "... onto the battlefield attached to ~" -- the found Aura enters
+    # attached to this ability's source (RULE 303.4f), which `AttachEffect(target_kind="source", mover="created")`
+    # does with the found card as the follow-up's referent.
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?P<attach> attached to ~)?(?:\.\s*"
     r"if you search(?:ed)? your library this way,?\s*shuffle|, then shuffle)"
 )
 
@@ -803,6 +1442,10 @@ def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": destination,
         "zones": zones,
     }
+    if m.group("attach"):
+        if destination != "battlefield":
+            return None  # only a permanent that enters can be attached on entry
+        params["then_specs"] = [EffectSpec("attach", {"target_kind": "source", "mover": "created"}).to_dict()]
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
@@ -851,6 +1494,20 @@ def _gain_control_by_opponent(m: re.Match[str], reading: ClauseReading) -> Optio
         return None
     recipient = "target_opponent" if m.group("recipient") == "target" else "opponent"
     return [EffectSpec("gain_control_by_source", {"recipient": recipient})]
+
+
+#: PAR-287 (RULE 608.2c + 608.2h): "You may exile target artifact or enchantment. If you do, **its controller** gains
+#: control of ~." (Act of Authority) -- the controller the exiled permanent had when it left, read as the previous
+#: clause's pick. Only a reading that names the antecedent's object (``previous_subject``) can mean that.
+_GAIN_CONTROL_BY_PREVIOUS_CONTROLLER_RE = compile_clause(
+    rf"its controller gains control of (?P<subject>~)"
+)
+
+
+def _gain_control_by_previous_controller(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if not reading.previous_subject:
+        return None
+    return [EffectSpec("gain_control_by_source", {"recipient": "previous_subject_controller"})]
 
 
 #: PAR-277, RULE 110.2 / 611.2: "Target player gains control of target permanent you control." (Donate, Harmless
@@ -1135,7 +1792,7 @@ def _gain_control_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _gain_control_all(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("gain_control_until_eot", {"selector": "all_creatures"})]
+    return [EffectSpec("gain_control_until_eot", {"group": battlefield_group(OF_ANY)})]
 
 
 #: "For each opponent, gain control of up to 1 target creature that player
@@ -1193,10 +1850,7 @@ _GAIN_CONTROL_MASS_EOT_RE = compile_clause(
     r"(?P<riders>(?:\.\s*you can'?t [^.]+)*)\.?"
 )
 
-_MASS_OPPONENT_SELECTORS: dict[str, str] = {
-    "creatures": "opponents_creatures",
-    "artifacts": "opponents_artifacts",
-}
+_MASS_OPPONENT_TYPES: dict[str, str] = {"creatures": "creature", "artifacts": "artifact"}
 _MASS_NO_SAC_RE = re.compile(
     r"you can'?t sacrifice (?:those creatures|them) this turn", re.IGNORECASE
 )
@@ -1232,10 +1886,10 @@ def _gain_control_mass_eot(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
     if no_sac or no_attack:
         return None  # the riders name "that player" — only the targeted form
-    sel = _MASS_OPPONENT_SELECTORS.get(mtype)
-    if sel is None:
-        return None  # "permanents" — no `opponents_permanents` selector, fail closed
-    return [EffectSpec("gain_control_until_eot", {"selector": sel})]
+    card_type = _MASS_OPPONENT_TYPES.get(mtype)
+    if card_type is None:
+        return None  # "permanents": no opponents'-permanents mass form is modelled, fail closed
+    return [EffectSpec("gain_control_until_eot", {"group": battlefield_group(OF_OPPONENTS, card_type)})]
 
 
 #: "Whenever a player casts an instant or sorcery spell, that player
@@ -1445,17 +2099,27 @@ def _trigger_copy_spell(m: re.Match[str]) -> list[EffectSpec]:
 #: own trailing sentence, overriding the spell's default RULE 608.2m
 #: "goes to the graveyard as it resolves" routing; `game/effects/core.py`'s
 #: `ShuffleSelfIntoLibraryEffect`).
+#: PAR-292 (RULE 701.24a): "~'s owner shuffles it into their library" (Blitz Hellion, Cerulean Sphinx, Fblthp) and the
+#: "you may shuffle ~ into your library" self-from-graveyard form (Guan Yu): the same effect, acting on its own source.
 _SHUFFLE_SELF_INTO_LIBRARY_RE = compile_clause(
     rf"shuffle {SELF_SUBJECT} into its owner'?s library"
+    r"|shuffle ~ into your library"
+    rf"|(?:~|it|this creature|this permanent)'?s owner shuffles (?:~|it) into their library(?: and draws (?P<draw>\d+) cards?)?"
 )
 #: ENG-32 (Watery Grasp) — the Aura-host form: "Enchanted creature's owner
 #: shuffles it into their library."
 _SHUFFLE_ENCHANTED_INTO_LIBRARY_RE = compile_clause(
     r"enchanted creature'?s owner shuffles it into (?:their|its owner'?s) library"
+    # PAR-292: the activated imperative "shuffle enchanted creature into its owner's library" (Dramatic Accusation).
+    r"|shuffle enchanted creature into its owner'?s library"
 )
 
 
 def _shuffle_self_into_library(m: re.Match[str]) -> list[EffectSpec]:
+    if m.groupdict().get("draw"):
+        # RULE 608.2c: the omitted subject of "and draws N cards" is the owner who shuffled (Gandalf, Wandering Wizard).
+        return [EffectSpec("shuffle_self_into_library", {}),
+                EffectSpec("draw", {"count": int(m.group("draw")), "player": "source_owner"})]
     return [EffectSpec("shuffle_self_into_library", {})]
 
 
@@ -1889,6 +2553,17 @@ def _kw_grant_unblockable_except_x(m: re.Match[str]) -> Optional[list[EffectSpec
 
 
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "exile_dying_card_copy_enchantment",
+        compile_clause(r"exile it\. if you do, create a token that'?s a copy of (?:that card|it), "
+                       r"except it'?s an enchantment and loses all other card types"),
+        lambda m: [EffectSpec("exile", {"target_kind": "trigger_subject"}),
+                   EffectSpec("copy_permanent", {
+                       "target_kind": None, "referent": "previous",
+                       "require_exiled_trigger_subject": True, "only_types": ["Enchantment"],
+                   })],
+        requires=ClauseReading(group_subject=True),
+    ),
     # "Its controller may search their library for a basic land card, put
     # it onto the battlefield, then shuffle." (Assassin's Trophy/
     # Geomancer's Gambit/Ghost Quarter — the destroyed permanent's
@@ -1913,6 +2588,9 @@ ROWS: list[EffectHandler] = [
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par38_residue.py (a card-specific upkeep body kept for its residue test).
     EffectHandler("elfhame_sanctuary", _ELFHAME_SANCTUARY_RE, _elfhame_sanctuary),
     EffectHandler("search_named_criteria", _SEARCH_NAMED_CRITERIA_RE, _search_named_criteria),
+    EffectHandler("search_basic_or_subtype", _SEARCH_BASIC_OR_SUBTYPE_RE, _search_basic_or_subtype),
+    EffectHandler("search_multi_criteria", _SEARCH_MULTI_CRITERIA_RE, _search_multi_criteria),
+    EffectHandler("search_player", _SEARCH_PLAYER_RE, _search_player, reading_aware=True),
     # PAR-208: "search target opponent's library for <criteria> and exile it. Then that player shuffles."
     EffectHandler("search_other_library", _SEARCH_OTHER_LIBRARY_RE, _search_other_library),
     EffectHandler(
@@ -1920,6 +2598,9 @@ ROWS: list[EffectHandler] = [
         _SEARCH_PUT_THEN_SHUFFLE_RE,
         _search_put_then_shuffle,
     ),
+    # Kept after the plain row: a pure type list ("a Mountain or Plains card", the fetch lands) keeps its list reading.
+    EffectHandler("search_union", _SEARCH_UNION_RE, _search_union),
+    EffectHandler("search_exile", _SEARCH_EXILE_RE, _search_exile),
     # "search your library for <criteria>, put it onto the battlefield,
     # attach it to a creature you control, then shuffle." (Stonehewer
     # Giant/Quest for the Holy Relic-shaped combined search-then-attach) —
@@ -1938,6 +2619,7 @@ ROWS: list[EffectHandler] = [
         _search_mv_lands_qualifier,
     ),
     # "search your library for a creature card with lesser mana value, ..." (Rushed Rebirth).
+    EffectHandler("search_mv_measured", _SEARCH_MV_MEASURED_RE, _search_mv_measured),
     EffectHandler("search_lesser_mv", _SEARCH_LESSER_MV_RE, _search_lesser_mv),
     EffectHandler("search_mv_sacrificed", _SEARCH_MV_SACRIFICED_RE, _search_mv_sacrificed),
     # "return a creature card from its owner's graveyard to the battlefield under the control of that creature's
@@ -1977,6 +2659,16 @@ ROWS: list[EffectHandler] = [
         _SEARCH_SPLIT_DESTINATION_RE,
         _search_split_destination,
     ),
+    EffectHandler("search_reveal_split", _SEARCH_REVEAL_SPLIT_RE, _search_reveal_split),
+    EffectHandler("search_opponent_split", _SEARCH_OPPONENT_SPLIT_RE, _search_opponent_split),
+    EffectHandler("search_exact_split", _SEARCH_EXACT_SPLIT_RE, _search_exact_split),
+    EffectHandler("search_discard_random", _SEARCH_DISCARD_RANDOM_RE, _search_discard_random),
+    EffectHandler("search_reveal_mv_destination", _SEARCH_REVEAL_MV_DESTINATION_RE, _search_reveal_mv_destination),
+    EffectHandler("search_reveal_condition", _SEARCH_REVEAL_CONDITION_RE, _search_reveal_condition),
+    EffectHandler("search_conditional_replacement", _SEARCH_CONDITIONAL_REPLACEMENT_RE, _search_conditional_replacement),
+    EffectHandler("search_conditional_destination", _SEARCH_CONDITIONAL_DESTINATION_RE, _search_conditional_destination),
+    EffectHandler("search_found_rider", _SEARCH_FOUND_RIDER_RE, _search_found_rider),
+    EffectHandler("search_this_way_self_shuffle", _SEARCH_THIS_WAY_SELF_SHUFFLE_RE, _search_this_way_self_shuffle),
     # "search your library for N cards. Put 1 <destA> and the other
     # <destB>. Then shuffle." (Final Parting-shaped three-sentence split
     # destination, no criteria).
@@ -2022,6 +2714,12 @@ ROWS: list[EffectHandler] = [
         "gain_control_by_opponent",
         _GAIN_CONTROL_BY_OPPONENT_RE,
         _gain_control_by_opponent,
+        reading_aware=True,
+    ),
+    EffectHandler(
+        "gain_control_by_previous_controller",
+        _GAIN_CONTROL_BY_PREVIOUS_CONTROLLER_RE,
+        _gain_control_by_previous_controller,
         reading_aware=True,
     ),
     # PAR-277: "target player gains control of target permanent you control." (the Donate family).
@@ -2190,7 +2888,32 @@ ROWS: list[EffectHandler] = [
     # (Vanishing) / a genuine RULE 115 target (Reality Ripple/Divine Smite,
     # including an opponent-controlled one) — tried in "most specific
     # subject first" order like every other family here.
+    EffectHandler(
+        "phase_out_target_until_source_leaves",
+        compile_clause(r"target creature phases out until ~ leaves the battlefield(?:\. tap that creature as it phases in this way)?"),
+        lambda m: [EffectSpec("phase_out", {"target_kind": "creature", "until_source_leaves": True,
+                                           "tap_on_return": "tap that creature" in m[0]})],
+    ),
+    EffectHandler(
+        "phase_out_previous_until_source_leaves",
+        compile_clause(r"it phases out until ~ leaves the battlefield"),
+        lambda m: [EffectSpec("phase_out", {"previous_subject": True, "until_source_leaves": True})],
+        requires=ClauseReading(previous_subject=True),
+    ),
+    EffectHandler(
+        "phase_out_all_until_source_leaves",
+        compile_clause(r"untap all creatures, then those creatures phase out until ~ leaves the battlefield\. "
+                       r"put a time counter on ~ for each creature that phased out this way"),
+        lambda m: [EffectSpec("phase_out", {
+            "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}},
+            "until_source_leaves": True, "untap_first": True, "counter_for_phased": "time",
+        })],
+    ),
     EffectHandler("phase_out_self", _PHASE_OUT_SELF_RE, _phase_out_self),
+    EffectHandler(
+        "put_library_top_on_bottom", compile_clause(r"put the top card of your library on the bottom of your library"),
+        lambda m: [EffectSpec("put_library_top_on_bottom", {})],
+    ),
     EffectHandler("phase_out_attached", _PHASE_OUT_ATTACHED_RE, _phase_out_attached),
     EffectHandler("phase_out_target", _PHASE_OUT_TARGET_RE, _phase_out_target),
     # RULE 500.4-adjacent "after this [main] phase, there is an additional

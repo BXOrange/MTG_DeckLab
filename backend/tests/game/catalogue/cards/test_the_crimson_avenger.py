@@ -77,8 +77,8 @@ def test_matching_land_cannot_be_cast_and_remains_in_shuffled_library():
     engine = game(library=0)
     land = filler(engine, "Land", type_line="Land", mv=0, zone=Zone.LIBRARY)
     _trigger(engine, mana_value=0)
-    assert engine.state.pending_choice["kind"] == "play_during_resolution"
-    engine.resolve_pending_choice("decline")  # a mandatory cast is impossible
+    # RULE 608.2g: a land cannot be cast, so no decline-only window is opened for it.
+    assert engine.state.pending_choice is None
     engine.resolve_until_stable()
     assert land.zone == Zone.LIBRARY and land in engine.state.player_by_id("p1").library
 

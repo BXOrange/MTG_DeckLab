@@ -102,7 +102,7 @@ def test_damaged_this_way_arms_exile_on_every_hit_creature():
 
     ctx = GameContext(state, eng.rules)
     dmg, grant = build_effects([
-        EffectSpec("damage", {"amount": 3, "selector": "each_creature"}),
+        EffectSpec("damage", {"amount": 3, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
         EffectSpec("grant_die_to_exile_this_turn", {"damaged_this_way": True}),
     ], src)
     dmg.apply(ctx, None)

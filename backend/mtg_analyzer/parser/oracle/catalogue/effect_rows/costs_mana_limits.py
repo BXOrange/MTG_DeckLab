@@ -24,6 +24,7 @@ from ..clause_primitives import (
 from ..count_phrase import parse_count_phrase
 from ..counters import KEYWORD_COUNTER_KINDS
 from ..static_handlers import activation_attached_condition, static_condition
+from ..static_rows.static_conditions import defending_player_condition
 from ..subgrammars import (
     count_of,
     NUMBER,
@@ -35,6 +36,7 @@ from ..subgrammars import (
     target_kind_allowed,
 )
 from ...normalize import SELF
+from ..named_groups import OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL, if_you_do_antecedent_ok
 from .shared import (
     ATTACHED_SUBJECT,
@@ -241,8 +243,10 @@ _CHOOSE_TARGETS_GROUP_RE = compile_clause(
     rf"choose {MULTI_TARGET_QUANTIFIER}(?P<target>{MULTI_TARGET_ALT})"
     rf"{MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
+#: A bare "choose target player/opponent" belongs to `draw_discard_cast.choose_target_players` (RULE 109.5: it keeps
+#: the `opponent` kind, which a plain `target` row would collapse to `player`), so this row declines it.
 _CHOOSE_TARGET_SINGLE_RE = compile_clause(
-    rf"choose {TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
+    rf"choose (?!target (?:player|opponent)$){TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
 )
 
 
@@ -258,7 +262,7 @@ _CHOOSE_TARGET_SINGLE_RE = compile_clause(
 #: land or an enchantment in this engine.
 _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "creature_you_control", "creature_you_dont_control", "player",
+        "any", "creature", "creature_you_control", "creature_you_dont_control", "player", "opponent",  # BUG-72: RULE 102.3
         "player_or_planeswalker",
         # Sinstriker's Will: the combat-qualified creature is still a
         # creature recipient, with its legality supplied by TargetFrame.
@@ -842,6 +846,10 @@ MAY_COST_THEN_CLAUSE = (
     r"|discard an? (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
+    # PAR-285: a qualified pool -- "sacrifice a nontoken creature" (Feed the Pack), "a nonartifact creature" (Ravenous
+    # Vampire), "a noncreature artifact" (Iron Man), "a legendary creature". `costs.parse_activation_cost` joins the
+    # words into one permanent phrase that `continuous.matches_permanent_word` reads (every part must hold, RULE 701.17a).
+    r"|sacrifice an? (?:non[a-z]+|legendary|snow|tapped|untapped) [a-z]+"
     r"|sacrifice another \w+(?: or (?:an? )?\w+)?"
     # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
     r"|sacrifice \d+ \w+(?: tokens)?"
@@ -1078,6 +1086,87 @@ def _sacrifice_chosen_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "trigger": [_bind_that_many(s.to_dict()) for s in sub],
     }
     return [EffectSpec("sacrifice_chosen_then", params)]
+
+
+#: PAR-286 (RULE 603.12 + 608.2c): "[you may] <tap/sacrifice/discard/exile> any number of / one or more `<pool>`. When
+#: you do, `<payoff>`" whose payoff measures how many the first instruction actually handled ("that many", "that
+#: much", "-X/-X, where X is the number of cards exiled this way"): Yotia Declares War, Miasma Demon, Swashbuckler
+#: Extraordinaire, Specter of Mortality. The pick is a `choose_objects` whose ``then_that_many.trigger`` is the
+#: reflexive payoff with the picked count bound in (the MEC-103 mechanism, `_apply_choose_objects_tail`), so a count
+#: of 0 creates no trigger and a "up to that many target" payoff announces its targets as the trigger is put on the stack.
+_ANY_NUMBER_WHEN_YOU_DO_RE = compile_clause(
+    r"(?:you may )?(?P<verb>tap|sacrifice|discard|exile) (?:any number of|(?:1|one) or more) (?P<what>[a-z ]+?)"
+    r"(?P<zone> from your graveyard)?\.\s*when you do,?\s*(?P<effect>[^.]+\.?)"
+)
+#: The tail that names the handled count in words: "-X/-X, where X is the number of cards exiled this way".
+_WHERE_X_THIS_WAY_RE = re.compile(r",? where x is the number of [a-z ]+? (?:tapped|sacrificed|discarded|exiled) this way")
+_THAT_MANY_WORDS_RE = re.compile(r"\bthat (?:many|much)\b")
+_X_WORD_RE = re.compile(r"(?<![a-z{])x(?![a-z}])")
+#: Placeholder magnitudes a body is parsed with, then rewritten to the "x" sentinel; the first one the payoff text
+#: does not already print (so a printed "-2/-2" can never be mistaken for the count).
+_PICKED_COUNT_PLACEHOLDERS = (7, 6, 9, 8)
+#: Spec params whose value can be the handled count (power / toughness for "-X/-X", the target counts for "up to that many").
+_PICKED_COUNT_KEYS = ("count", "count_max", "amount", "target_count", "power", "toughness")
+_ANY_NUMBER_POOL_ACTIONS = {"tap": "tap", "sacrifice": "sacrifice", "discard": "discard", "exile": "exile"}
+
+
+def _bind_picked_count(value: Any, placeholder: int) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: ("x" if k in _PICKED_COUNT_KEYS and v == placeholder
+                else "-x" if k in _PICKED_COUNT_KEYS and v == -placeholder
+                else _bind_picked_count(v, placeholder))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_bind_picked_count(v, placeholder) for v in value]
+    return value
+
+
+def _any_number_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    verb, what, from_graveyard = m.group("verb"), m.group("what"), bool(m.group("zone"))
+    raw_effect = m.group("effect").strip().rstrip(". ")
+    effect = _WHERE_X_THIS_WAY_RE.sub("", raw_effect)
+    if effect != raw_effect:
+        effect = _X_WORD_RE.sub("that many", effect)
+    if not _THAT_MANY_WORDS_RE.search(effect):
+        return None  # the payoff must actually read the count
+    placeholder = next((n for n in _PICKED_COUNT_PLACEHOLDERS if str(n) not in effect), None)
+    if placeholder is None:
+        return None
+    # Where the pool lives: a card exiled from the graveyard; otherwise the controller's own untapped / sacrificable
+    # permanents or their hand (discard).
+    if (verb == "exile") != from_graveyard:
+        return None
+    pool_phrase = what.removesuffix(" you control")
+    if verb == "tap":
+        if not pool_phrase.startswith("untapped "):
+            return None
+        pool_phrase = pool_phrase.removeprefix("untapped ")
+    pool = parse_count_phrase(pool_phrase)
+    if pool is None or set(pool.get("filter") or {}) - {"card_type", "subtype"}:
+        return None
+    params: dict = {
+        "action": _ANY_NUMBER_POOL_ACTIONS[verb], "what": "permanent", "count": "all", "optional": True,
+    }
+    if pool.get("filter"):
+        params["permanent_filter"] = dict(pool["filter"])
+    if verb == "tap":
+        params["require_untapped"] = True
+    elif verb == "discard":
+        params["pool_zones"] = ["hand"]
+    elif verb == "exile":
+        params["pool_zone"] = "graveyard"
+    sub = parse_effect_body(
+        _THAT_MANY_WORDS_RE.sub(str(placeholder), effect) + ".", reading=ClauseReading(self_subject=True),
+    )
+    if not sub:
+        return None
+    bound = [_bind_picked_count(s.to_dict(), placeholder) for s in sub]
+    if '"x"' not in json.dumps(bound) and '"-x"' not in json.dumps(bound):
+        return None  # the count reached nothing
+    params["then_that_many"] = {"trigger": bound}
+    return [EffectSpec("choose_objects", params)]
 
 
 #: MEC-104: "draw cards equal to the number of opponents dealt damage this way. If you do,
@@ -1386,6 +1475,10 @@ _PAYOFF_PRONOUN_RE = re.compile(
     r"|the (?:exiled|sacrificed|discarded|milled|returned|tapped|chosen|revealed|amassed) \w+)\b",
     re.IGNORECASE,
 )
+#: PAR-286: a payoff that names its own target and then points at it ("target creature you control and it gains ...").
+_PAYOFF_OWN_TARGET_PRONOUN_RE = re.compile(
+    r"(\btarget [^.,]+?) and it (gains|gets)\b", re.IGNORECASE,
+)
 #: PAR-207: the leading intervening "if" of a payoff ("When you do, if you control a Dragon, ...", RULE 603.4).
 _PAYOFF_IF_RE = re.compile(r"^if (?P<cond>[^,]{2,160}),\s+(?P<rest>.+)$", re.IGNORECASE | re.DOTALL)
 
@@ -1412,6 +1505,20 @@ def _untargeted_own_choice(spec: EffectSpec) -> EffectSpec:
     return spec
 
 
+#: PAR-286 (RULE 603.12 / 608.2h): antecedents whose object a payoff may name -- what an instruction made (a token, the
+#: amassed Army) or put onto the battlefield (a returned card) -- carried into the reflexive trigger
+#: (`ReflexiveTriggerEffect.carry_referent`). The targeted two may announce their own target: it belongs to the whole
+#: ability, the payoff's own target is announced when the reflexive trigger is put on the stack.
+_CARRIED_CREATED_ANTECEDENTS: frozenset[str] = frozenset({"create_token", "amass", "return_from_graveyard"})
+_TARGETED_CARRYING_ANTECEDENTS: frozenset[str] = frozenset({"return_from_graveyard", "attach"})
+CARRIED_CREATED = "created"  # mirrors `game/effects/choices_actions.CARRIED_CREATED` (no game/ import here)
+#: "the amassed Army's power" names the same object "that creature's power" does under the carried reading.
+_AMASSED_ARMY_POSSESSIVE_RE = re.compile(r"\bthe amassed army'?s\b", re.IGNORECASE)
+#: The serialized spots a payoff read as the carried object leaves behind (`dealer_kind` / `fighter_kind` /
+#: `of`: "previous_target"); a payoff without one never looked at the antecedent.
+_CARRIED_REFERENT_MARKERS: tuple[str, ...] = ("previous_target", "previous_subject")
+
+
 def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     if reading.group_subject or reading.attached_subject:
         return None  # "it" / the firing object would be a different referent than the source's own
@@ -1419,11 +1526,14 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
     action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
     if action and len(action) == 1 and "target" not in action_text:
         action = [_untargeted_own_choice(action[0])]
-    if not action or len(action) != 1 or any(s.params.get("target_kind") for s in action):
-        # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half (Blood
-        # Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+    if not action or len(action) != 1:
+        return None  # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half
+        # (Blood Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+    targeted_antecedent = bool(action[0].params.get("target_kind"))
+    if targeted_antecedent and action[0].type not in _TARGETED_CARRYING_ANTECEDENTS:
         return None  # a targeted antecedent needs its own announcement; "return a land you control" is no target
-    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+    carries_created = action[0].type in _CARRIED_CREATED_ANTECEDENTS
+    if not (if_you_do_antecedent_ok([s.to_dict() for s in action]) or carries_created):
         return None
     payoff_text = m.group("payoff").strip()
     condition = None
@@ -1435,12 +1545,31 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
         payoff_text = gate.group("rest")
     # Only the payoff's *first* sentence is read against the antecedent: a later "it gains trample" follows the
     # target that first sentence chose, which the ordinary sentence chain (`parse_effect_body`) resolves.
-    if _PAYOFF_PRONOUN_RE.search(re.split(r"\.\s+", payoff_text, maxsplit=1)[0]):
+    first_sentence = re.split(r"\.\s+", payoff_text, maxsplit=1)[0]
+    # PAR-286 (Sigil of Myrkul): "... on target creature you control and it gains deathtouch" -- here "it" is the
+    # payoff's own announced target, not the antecedent's object, so only that exact join is exempt from the check.
+    first_sentence = _PAYOFF_OWN_TARGET_PRONOUN_RE.sub(r"\1 and the target \2", first_sentence)
+    names_antecedent = _PAYOFF_PRONOUN_RE.search(first_sentence) is not None or _AMASSED_ARMY_POSSESSIVE_RE.search(first_sentence)
+    carry = None
+    if names_antecedent and carries_created:
+        # PAR-286: the payoff's "it" is the object the antecedent made / returned, read as the previous clause's pick
+        # (`GameContext.previous_targets`, seeded by `CarriedAntecedentEffect`). Only a reading that actually points
+        # at that referent counts: a payoff that parses with "it" as the source would act on the wrong object.
+        payoff = parse_effect_body(
+            _AMASSED_ARMY_POSSESSIVE_RE.sub("that creature's", payoff_text), reading=ClauseReading(previous_subject=True),
+        )
+        if not payoff or not any(marker in str([s.to_dict() for s in payoff]) for marker in _CARRIED_REFERENT_MARKERS):
+            return None
+        carry = CARRIED_CREATED
+    elif names_antecedent:
         return None
-    payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
+    else:
+        payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
     if not payoff:
         return None
     trigger: dict[str, Any] = {"then_trigger": [s.to_dict() for s in payoff]}
+    if carry is not None:
+        trigger["carry_referent"] = carry
     if condition is not None:
         trigger["then_trigger_condition"] = condition
     return [EffectSpec("seq", {
@@ -1497,6 +1626,37 @@ def _action_if_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list
             return None
         params["else_effects"] = [s.to_dict() for s in other]
     return [EffectSpec("seq", params)]
+
+
+#: PAR-287 (RULE 608.2c): "<action>. **If you can't**, <effect>." (Egon, God of Death: "exile two cards from your
+#: graveyard. If you can't, sacrifice Egon and draw a card.") -- the same `seq` + ``if_you_do_from`` node with no
+#: payoff: the else branch runs when the mandatory action could not be performed (`antecedent_impossible`) or changed
+#: nothing (`IfYouDoEffect`).
+_ACTION_IF_YOU_CANT_RE = compile_clause(
+    r"(?P<action>(?!you may\b)[^.]+?)\.\s*if you can'?t,\s*(?P<other>.+)"
+)
+
+
+def _action_if_you_cant(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    if reading.group_subject or reading.attached_subject:
+        return None
+    action_text = m.group("action").strip()
+    if re.search(r"\b(?:may|if|unless|instead|when|whenever|target)\b", action_text):
+        return None
+    action = parse_effect_body(action_text, reading=ClauseReading(self_subject=True))
+    if not action or len(action) != 1 or action[0].params.get("target_kind"):
+        return None
+    action = [_untargeted_own_choice(action[0])]
+    if not if_you_do_antecedent_ok([s.to_dict() for s in action]):
+        return None
+    other = parse_effect_body(m.group("other").strip(), reading=ClauseReading(self_subject=True))
+    if not other or any(s.params.get("target_kind") for s in other):
+        return None
+    return [EffectSpec("seq", {
+        "effects": [s.to_dict() for s in action],
+        "if_you_do_from": len(action),
+        "else_effects": [s.to_dict() for s in other],
+    })]
 
 
 #: PAR-208 (RULE 701.5a): "counter ~" -- the payoff of a "When you cast this spell, any player may ... If a player
@@ -1813,7 +1973,7 @@ def _become_prepared_target(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 
 def _become_prepared_group(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec(_prepared_effect_type(m), {"selector": "creatures_you_control"})]
+    return [EffectSpec(_prepared_effect_type(m), {"selector": battlefield_group(OF_YOU)})]
 
 
 def _become_unprepared_self(m: re.Match[str]) -> list[EffectSpec]:
@@ -1966,6 +2126,9 @@ _ACTIVATION_CONDITION_RES: list[tuple[re.Pattern[str], Callable[[re.Match[str]],
 
 def activation_condition_dict(text: str) -> Optional[dict[str, Any]]:
     stripped = text.strip().rstrip(".").strip()
+    if stripped.startswith("defending player "):
+        # PAR-313: the activator is not the attacker, so any player attacked this combat may stand for "defending player".
+        return defending_player_condition(stripped, combat_wide=True)
     for pattern, build in _ACTIVATION_CONDITION_RES:
         match = pattern.fullmatch(stripped)
         if match is not None:
@@ -2178,6 +2341,13 @@ ROWS: list[EffectHandler] = [
         _SACRIFICE_CHOSEN_THEN_RE,
         _sacrifice_chosen_then,
     ),
+    # PAR-286: "tap / sacrifice / discard / exile any number of <pool>. When you do, <payoff reading that many>."
+    EffectHandler(
+        "any_number_when_you_do",
+        _ANY_NUMBER_WHEN_YOU_DO_RE,
+        _any_number_when_you_do,
+        reading_aware=True,
+    ),
     # MEC-104: Hordewing Skaab's "draw cards equal to the number of opponents dealt damage this
     # way. If you do, discard that many cards."
     EffectHandler(
@@ -2246,6 +2416,7 @@ ROWS: list[EffectHandler] = [
     ),
     # PAR-208 (RULE 608.2c): "<action>. If you do, <effect>[. Otherwise, <effect>]." -- the mandatory-action outcome chain.
     EffectHandler("action_if_you_do", _ACTION_IF_YOU_DO_RE, _action_if_you_do, reading_aware=True),
+    EffectHandler("action_if_you_cant", _ACTION_IF_YOU_CANT_RE, _action_if_you_cant, reading_aware=True),
     # PAR-207 (RULE 603.12): "<action>. When you do, <effect>." -- the certain-antecedent reflexive trigger.
     EffectHandler(
         "action_when_you_do",

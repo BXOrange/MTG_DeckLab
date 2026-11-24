@@ -1,5 +1,5 @@
 """The Dragon Brothers playtest card's named path and closed Legends token pool."""
-from .core import GameEffect, StaticAbility, _controller_of
+from .core import ALL_CREATURES_GROUP, GameEffect, StaticAbility, _controller_of
 from ..continuations import choice, ANSWER_STR
 from ...models.game.game_object import Zone
 
@@ -29,7 +29,7 @@ def _resume_path(rules, frame, answer):
     previous = rules.context.resolving_controller_id
     rules.context.resolving_controller_id = frame["player_id"]
     try:
-        specs = ([{"type": "destroy", "params": {"selector": "all_creatures"}}] if answer == "bolas" else
+        specs = ([{"type": "destroy", "params": {"group": dict(ALL_CREATURES_GROUP)}}] if answer == "bolas" else
                  [{"type": "manifest", "params": {"count": 3}}])
         rules._apply_effect_specs(specs, source)
     finally:

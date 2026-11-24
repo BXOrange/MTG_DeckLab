@@ -19,7 +19,7 @@ def _motivated_pony() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": "attacking_creatures"})],
+            [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True}}})],
             trigger={"event": EventType.ATTACKS, "condition": {"subject": "self"}},
         ),
     ]

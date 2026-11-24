@@ -25,7 +25,7 @@ def _righteous_valkyrie() -> list[AbilitySpec]:
             }},
         ),
         AbilitySpec("static", [EffectSpec("anthem", {
-            "affects": "creatures_you_control", "power": 2, "toughness": 2,
+            "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "power": 2, "toughness": 2,
             "active_if": {"kind": "life_over_starting_at_least", "amount": _LIFE_OVER_STARTING},
         })]),
     ]

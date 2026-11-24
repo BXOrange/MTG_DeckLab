@@ -25,12 +25,10 @@ def _hofri_ghostforge() -> list[AbilitySpec]:
             "static",
             [
                 EffectSpec("anthem", {
-                    "power": 1, "toughness": 1, "affects": "creatures_you_control",
-                    "subtype": "Spirit",
+                    "power": 1, "toughness": 1, "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Spirit"}},
                 }),
                 EffectSpec("grant_keyword", {
-                    "keywords": ["trample", "haste"], "affects": "creatures_you_control",
-                    "subtype": "Spirit",
+                    "keywords": ["trample", "haste"], "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "Spirit"}},
                 }),
             ],
         ),

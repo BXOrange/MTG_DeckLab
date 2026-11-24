@@ -11,7 +11,7 @@ def _nahiri_s_resolve() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('anthem', {"power": 1, "toughness": 0, "affects": 'creatures_you_control'}), EffectSpec('grant_keyword', {"affects": 'creatures_you_control', "keywords": ['haste']})],
+            [EffectSpec('anthem', {"power": 1, "toughness": 0, "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}}), EffectSpec('grant_keyword', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, "keywords": ['haste']})],
             raw_text='creatures you control get +1/+0 and have haste.',
         ),
         AbilitySpec("triggered", [EffectSpec("choose_objects", {

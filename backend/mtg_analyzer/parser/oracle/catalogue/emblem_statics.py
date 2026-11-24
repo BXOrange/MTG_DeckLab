@@ -1,6 +1,16 @@
 """Shared permission/restriction sentences usable inside quoted emblems."""
 import re
 from ..spec import EffectSpec
+from .named_groups import OF_YOU, battlefield_group
+
+
+def reveal_hands_specs(text):
+    text = text.lower().strip().rstrip('.')
+    if text == "players play with their hands revealed":
+        return [EffectSpec("reveal_opponents_hands", {"all_players": True})]
+    if text == "your opponents play with their hands revealed":
+        return [EffectSpec("reveal_opponents_hands", {})]
+    return None
 
 
 def emblem_static_effect_specs(text):
@@ -11,7 +21,7 @@ def emblem_static_effect_specs(text):
                 "shuffle your graveyard into your library, you lose all poison counters, and you lose ~"):
         return [EffectSpec('recover_instead_of_losing', {})]
     if text == "untap all permanents you control during each opponent's untap step":
-        return [EffectSpec('untap_each_untap_step', {'affects': 'permanents_you_control'})]
+        return [EffectSpec('untap_each_untap_step', {'affects': battlefield_group(OF_YOU, None)})]
     if text == "you draw a card during each opponent's draw step":
         return [EffectSpec('opponent_draw_step', {})]
     if text == "your opponents can't cast noncreature spells":
@@ -21,14 +31,14 @@ def emblem_static_effect_specs(text):
     match = re.fullmatch(r"your opponents can't untap more than (?P<count>[0-9]+) permanents during their untap steps", text)
     if match:
         return [EffectSpec('untap_cap', {'count':int(match.group('count')),'card_type':'permanent','scope':'opponents'})]
-    if text == "your opponents play with their hands revealed":
-        return [EffectSpec('reveal_opponents_hands', {})]
+    if hands := reveal_hands_specs(text):
+        return hands
     if text == "if you control a creature, damage that would reduce your life total to less than 1 reduces it to 1 instead":
         return [EffectSpec('creature_damage_life_floor', {})]
     if text == "you may play lands and cast permanent spells from your graveyard":
         return [EffectSpec('graveyard_cast_permission', {'permanent_only': True, 'once_per_turn': False, 'plays_lands': True})]
     if text == "creatures you control have trample and haste and get +2/+2 for each differently named dungeon you've completed":
-        return [EffectSpec('grant_keyword', {'keywords': ['trample', 'haste'], 'affects': 'creatures_you_control'}),
-                EffectSpec('anthem', {'power': 2, 'toughness': 2, 'affects': 'creatures_you_control',
+        return [EffectSpec('grant_keyword', {'keywords': ['trample', 'haste'], 'affects': battlefield_group(OF_YOU)}),
+                EffectSpec('anthem', {'power': 2, 'toughness': 2, 'affects': battlefield_group(OF_YOU),
                     'power_count': 'differently_named_completed_dungeons', 'toughness_count': 'differently_named_completed_dungeons'})]
     return None

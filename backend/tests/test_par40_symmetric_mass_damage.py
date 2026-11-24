@@ -52,7 +52,8 @@ def test_each_creature_and_each_player_parses():
 
 def test_each_creature_and_each_planeswalker_parses():
     assert parse_effect_body("~ deals 20 damage to each creature and each planeswalker") == [
-        EffectSpec("damage", {"amount": 20, "selector": "each_creature_and_planeswalker"})
+        EffectSpec("damage", {"amount": 20, "group": {
+            "zone": "battlefield", "of": "any", "filter": {"card_type_any": ["creature", "planeswalker"]}}})
     ]
 
 
@@ -96,7 +97,7 @@ def test_each_creature_and_player_hits_everything():
     eng.recompute_continuous_effects()
 
     build_effects([EffectSpec("damage", {
-        "amount": 2, "selector": "each_creature_and_player",
+        "amount": 2, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "group_and_players": "each_player",
     })], src)[0].apply(GameContext(state, eng.rules), None)
     eng.rules.check_state_based_actions()
 
@@ -116,7 +117,7 @@ def test_each_creature_and_player_is_lethal_symmetrically():
     eng.recompute_continuous_effects()
 
     build_effects([EffectSpec("damage", {
-        "amount": 6, "selector": "each_creature_and_player",
+        "amount": 6, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "group_and_players": "each_player",
     })], src)[0].apply(GameContext(state, eng.rules), None)
     eng.rules.check_state_based_actions()
 

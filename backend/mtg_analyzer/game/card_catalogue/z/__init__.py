@@ -9,3 +9,4 @@ from . import zinnia_valley_s_voice  # noqa: F401
 from . import zo_zu_the_punisher  # noqa: F401
 from . import zul_ashur_lich_lord
 from . import zameck_guildmage  # noqa: F401
+from . import zedruu_the_greathearted  # noqa: F401

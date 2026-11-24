@@ -30,7 +30,7 @@ def _void_winnower() -> list[AbilitySpec]:
             [EffectSpec("combat_restriction", {
                 "kind": "cant_block_self_filtered",
                 "filter": {"even_mana_value": True},
-                "affects": "creatures_opponents_control",
+                "affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
             })],
         ),
     ]

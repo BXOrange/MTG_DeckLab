@@ -26,6 +26,12 @@ from typing import Any
 TARGET = "target"
 #: A player previously targeted by this sequence; never interchangeable with a permanent's "it".
 PLAYER = "player"
+#: PAR-284 milestone 23: `Referent.noun` of a `PLAYER` referent made by a bare "Choose target opponent(s)." announcement
+#: (`choose_targets`, RULE 601.2c) -- "that player" / "those opponents" in the next sentence are exactly those targets,
+#: so an amount about them reads ``of: target`` (the other `PLAYER` referents name a body's own target or a trigger's
+#: player instead).
+CHOSEN_PLAYER_NOUN = "chosen"
+
 #: `Referent.kind`: the group an earlier untargeted mass selector acted on -- `GameContext.previous_selector` -- read
 #: by "they" / "those creatures".
 SELECTOR = "selector"
@@ -51,6 +57,10 @@ REVEALED = "revealed"
 REVEALED_CARD = "revealed"
 EXILED_CARD = "created"
 
+#: `Referent.kind`: the card(s) the preceding clause milled -- "target player mills a card. ~ gets +X/+X, where X is the
+#: milled card's mana value" (RULE 701.17); measured through the ``milled`` this-way pool (`GameContext.milled_objects`).
+MILLED = "milled"
+
 # The exact batch a preceding instruction put into exile, for cast/play follow-ups.
 EXILE_POOL = "exile_pool"
 
@@ -73,6 +83,7 @@ CREATED_GROUP_REFERENT = Referent(CREATED, group=True)
 COUNTERED_REFERENT = Referent(COUNTERED)
 REVEALED_REFERENT = Referent(REVEALED, noun=REVEALED_CARD)
 EXILED_REFERENT = Referent(REVEALED, noun=EXILED_CARD)
+MILLED_REFERENT = Referent(MILLED, noun="milled")
 
 
 @dataclass(frozen=True)

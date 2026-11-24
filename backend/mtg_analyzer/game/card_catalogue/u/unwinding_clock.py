@@ -10,7 +10,7 @@ def _unwinding_clock() -> list[AbilitySpec]:
     — PLAY-ALL (Shorikai Vehicles). Victory Chimes' `untap_each_untap_step` (`continuous.untaps_in_every_untap_step`, consulted by the untap step
     for the permanents of the players whose step it is *not*), scoped to every artifact you control.
     """
-    return [AbilitySpec("static", [EffectSpec("untap_each_untap_step", {"affects": "artifacts_you_control"})])]
+    return [AbilitySpec("static", [EffectSpec("untap_each_untap_step", {"affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}})])]
 
 
 register("Unwinding Clock", _unwinding_clock)

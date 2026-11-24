@@ -42,6 +42,7 @@ class EventType:
     #: ruling for e.g. Kambal-style triggers, and Dionus, Elvish Archdruid's
     #: "whenever this creature becomes tapped").
     TAPPED = "TAPPED"
+    ATTACHED_TO_PERMANENT = "ATTACHED_TO_PERMANENT"  # RULE 701.3 / 603.2
     ATTACHED_TO_CREATURE = "ATTACHED_TO_CREATURE"  # RULE 701.3 / 603.2
     #: The mirror image of `TAPPED`: a permanent transitions tapped →
     #: untapped (RULE 701.22), fired once per genuine transition by
@@ -81,7 +82,12 @@ class EventType:
     #: was activated) and ``controller_id`` = the activating player, the same
     #: RULE 603.1 ``"group"`` subject convention `TAPPED_FOR_MANA` uses.
     ACTIVATED_ABILITY = "ACTIVATED_ABILITY"
-    # Hand mana abilities resolve without a stack item (RULE 605.3b).
+    BECOMES_PLOTTED = "BECOMES_PLOTTED"
+    ENLISTS = "ENLISTS"
+    REGENERATED = "REGENERATED"
+    # RULE 603.2: occurrence at triggering time, before modes/targets/stack placement.
+    ABILITY_TRIGGERED = "ABILITY_TRIGGERED"
+    # Mana abilities resolve without a stack item (RULE 605.3b).
     # Separate from ACTIVATED_ABILITY, whose triggers exclude mana abilities.
     MANA_ABILITY_ACTIVATED = "MANA_ABILITY_ACTIVATED"
 
@@ -247,6 +253,8 @@ class EventType:
     #: token exists.
     CREATE_TOKENS = "CREATE_TOKENS"
     SAGA_CHAPTER = "SAGA_CHAPTER"
+    SAGA_FINAL_CHAPTER_TRIGGERED = "SAGA_FINAL_CHAPTER_TRIGGERED"
+    SAGA_FINAL_CHAPTER_RESOLVED = "SAGA_FINAL_CHAPTER_RESOLVED"
     #: A battle lost its last defense counter (RULE 310.11b) — carries
     #: ``instance_id`` and ``controller_id``. This is what a Siege's own
     #: intrinsic "when the last defense counter is removed from this
@@ -451,6 +459,19 @@ class EventType:
     #: RULE 702.122e: a Vehicle "becomes crewed" when its Crew ability resolves (Mobilizer Mech). ``instance_id`` is the Vehicle,
     #: ``controller_id`` its controller; fired by `CrewedEventEffect`, the last effect of every Crew ability.
     CREWED = "CREWED"
+    #: RULE 702.149a: a creature "trains" -- its Training trigger resolved and put the +1/+1 counter on it (Savior of
+    #: Ollenbock's "whenever ~ trains"). ``instance_id`` is the training creature; fired by `TrainedEventEffect`.
+    TRAINS = "TRAINS"
+    #: RULE 702.100b: a creature "evolves" -- its Evolve trigger resolved and put the +1/+1 counter on it (Renegade Krasis's
+    #: "whenever ~ evolves"). ``instance_id`` is the evolving creature; fired by `EvolvedEventEffect`.
+    EVOLVES = "EVOLVES"
+    #: RULE 701.50f: a permanent "connives" once the draw / discard / counter process is complete, even if some of it was
+    #: impossible; conniving 0 fires nothing (RULE 701.50e). ``instance_id`` is the conniving permanent; fired by
+    #: `ConnivedEventEffect` (Iron Monger's "whenever a creature you control connives").
+    CONNIVES = "CONNIVES"
+    #: RULE 702.171b: a permanent "becomes saddled" when its Saddle ability resolves (`BecomeSaddledEffect`);
+    #: ``instance_id`` is the Mount, ``controller_id`` its controller.
+    BECAME_SADDLED = "BECAME_SADDLED"
     #: RULE 702.28c: a card was cycled (its Cycling cost paid, discarding
     #: it — `ActivationCost.is_cycling` distinguishes this from Channel's
     #: own, unrelated ``discard_self`` cost). What a "When you cycle this
@@ -486,6 +507,7 @@ class EventType:
     #: afflict/bushido/rampage (RULE 702.130/702.45/702.23) all trigger off
     #: the *attacker* becoming blocked, which `BLOCKS` alone can't express.
     BECOMES_BLOCKED = "BECOMES_BLOCKED"
+    BECOMES_BLOCKED_BY = "BECOMES_BLOCKED_BY"  # One event per newly assigned blocker.
     #: MEC-19/RULE 115/601.2c: an object or player was named as a target when
     #: a spell or ability's targets were finalized — fired once per target by
     #: `RulesEngine.check_ward` (renamed from a ward-only check to the general
@@ -525,6 +547,7 @@ class EventType:
     #: ``item_instance_id`` is the targeting *spell's* object (``None`` for an
     #: ability), what "becomes the target of an Aura spell" filters on (PAR-236).
     BECOMES_TARGET = "BECOMES_TARGET"
+    TARGETS_ANNOUNCED = "TARGETS_ANNOUNCED"  # RULE 603.2c: one event for the full target group
     #: RULE 901.10: a player planeswalked **to** a plane — the plane that
     #: just turned face up is named by ``instance_id``/``plane``, and the
     #: planeswalking player by ``player_id``/``controller_id``. This is what
@@ -589,6 +612,8 @@ class EventType:
     #: card's own separate "when this creature becomes renowned, …" trigger
     #: (Relic Seeker) can key off it distinctly from Renown's own counter-
     #: placing effect (`game/effects/core.py`'s `RenownEffect`, which fires this).
+    #: ``controller_id`` / ``object_types`` (PAR-286) let a group head ("whenever a creature you control becomes renowned")
+    #: scope and filter on the event itself.
     RENOWNED = "RENOWNED"
     #: RULE 701.37a: a permanent just became **monstrous** (its monstrosity
     #: ability resolved for the first, only time) — carries ``instance_id``

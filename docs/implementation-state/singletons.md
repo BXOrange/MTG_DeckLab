@@ -59,7 +59,6 @@ Saved-deck audit on 2026-11-12. Newly found gaps are requested intake; recheck s
 | The Eternal Wanderer | Compound gap — `+<n>: exile up to <n> target artifact or creature. return that card to the battlefield under its owner's control at the beginning of that player's next end step.`; `no more than <n> creature can attack <name> each combat.`; `−<n>: for each player, choose a creature that player controls. each player sacrifices all creatures they control not chosen this way.` |  |
 | Thousand Moons Smithy // Barracks of the Thousand | `at the beginning of your first main phase, you may tap <n> untapped artifacts and/or creatures you control. if you do, transform <name>.` |  |
 | Tivash, Gloom Summoner | `at the beginning of your end step, if you gained life this turn, you may pay x life, where x is the amount of life you gained this turn. if you do, create an x/x black demon creature token with flying.` |  |
-| Tom Bombadil | Compound gap — `as long as there are <n> or more lore counters among sagas you control, <name> has hexproof and indestructible.`; `whenever the final chapter ability of a saga you control resolves, reveal cards from the top of your library until you reveal a saga card. put that card onto the battlefield and the rest on the bottom of your library in a random order. this ability triggers only once each turn.` |  |
 | Tomb of Horrors Adventurer | `whenever you cast your second spell each turn, copy it. if you've completed a dungeon, copy that spell twice instead. you may choose new targets for the copies.` |  |
 | Ugin, the Spirit Dragon | Compound gap — `−<n>: you gain <n> life, draw <n> cards, then put up to <n> permanent cards from your hand onto the battlefield.`; `−x: exile each permanent with mana value x or less that's <n> or more colors.` |  |
 | Underdark Rift | `{5}, {t}, exile ~: roll a d10. put target artifact, creature, or planeswalker into its owner's library just beneath the top x cards of that library, where x is the result. activate only as a sorcery.` | Saved deck: Commander Cube. Shared-shape review pending. |
@@ -78,7 +77,7 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 | Alpha Brawl, Deputy of Detention | prior-target group bodies | Three distinct shapes. |
 | Windshaper Planetar; Portal Manipulator; Arni Metalbrow; Nick Fury, Spymaster; Shark Shredder, Killer Clone; Summoner's Grimoire; Noble Ox | `enters … attacking` / reselect the attacked player | Eight distinct bodies. |
 | Nahiri's Lithoforming; Gluttonous Hellkite; Lonis, Cryptozoologist | `sacrifice x <noun>` count form + this-way tally | Builds on the `sacrificed_this_way` window. |
-| Boneyard Desecrator; Thallid Omnivore; Dargo, the Shipwrecker; Explosive Singularity; Burn at the Stake; Devouring Greed; Devouring Rage | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
+| Boneyard Desecrator; Thallid Omnivore; Explosive Singularity; Burn at the Stake | tallies over a sacrifice/tap paid as a cost | The `mark_event_log` window opens at resolution, after costs. |
 | Warren Weirding; Reign of the Pit; Shadowgrange Archfiend; Ill-Timed Explosion; Reckless Handling | subtype condition / power or mana-value measured over the this-way pool | Reckless Handling also needs a search-clause body. |
 | Parnesse, the Subtle Brush; Surrak, Elusive Hunter | `you or a permanent you control becomes the target` heads | Distinct bodies. |
 | Nadu, Winged Wisdom | quoted grant of a becomes-the-target trigger | |
@@ -89,36 +88,10 @@ Sized with `parser_probe.py blocked` at v691–692: each row's cards share a phr
 
 Explicitly queued from the open card-text coverage in `status.de.js` / `status.en.js`. Current cache data was read without modification; every actionable card below is UNMODELED and not AUTHORED. These are card-specific follow-ups, **not yet verified singletons**: no cache-wide sibling/cluster admission check was performed. Before implementation, recheck the current verdict and shared shapes; route shared work to an existing or new parser ticket. The existing Invasion of Tarkir row was moved here to avoid duplication. Counts cover this batch only, not the historical queue above.
 
-### Flip cards (6 cards)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Akki Lavarunner // Tok-Tok, Volcano Born | `if a red source would deal damage to a player, it deals that much damage plus 1 to that player instead.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Curse of the Fire Penguin // Curse of the Fire Penguin Creature | `~ consumes and confuses enchanted creature.`; `when ~ dies, return curse of the fire penguin to the battlefield.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Homura, Human Ascendant // Homura's Essence | `when ~ dies, return it to the battlefield flipped.`; `creatures you control get +2/+2 and have flying and "{r}: ~ gets +1/+0 until end of turn."` | Current unclaimed clauses; singleton/cluster check pending. |
-| Kitsune Mystic // Autumn-Tail, Kitsune Sage | `at the beginning of the end step, if ~ is enchanted by 2 or more auras, flip it.`; `{1}: attach target aura attached to a creature to another creature.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Sasaya, Orochi Ascendant // Sasaya's Essence | `reveal your hand: if you have 7 or more land cards in your hand, flip ~.`; `whenever a land you control is tapped for mana, add an additional 1 mana of any type that land produced for each other land you control with the same name as it.` | Current unclaimed clauses; singleton/cluster check pending. |
-| Student of Elements // Tobita, Master of Winds | `when ~ has flying, flip it.` | Current unclaimed clauses; singleton/cluster check pending. |
-
-### Flash-permission residue (PAR-226 close, PARSER_VERSION 825)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Savage Summoning | next creature spell "enters with an additional +1/+1 counter" | Flash and uncounterable halves exist; needs a spell-bound one-shot ETB-counter stamp (a floating `extra_etb_counter` would hit every creature cast that turn). |
-| Progenitor's Icon | next-spell flash over the source's chosen creature type | Needs a chosen-type next-spell grant. |
-| Radagast of Rhosgobel | "first creature spell each turn costs {2} less" | No self-cost row for a first-spell-each-turn reduction. |
-| Cherished Hatchling | dies trigger: Dinosaur spells have flash this turn, plus cast trigger granting a fight ability | Bundle of two temporary grants. |
-| Rootwater Shaman | "Aura spells with enchant creature" flash | No enchant-restriction filter on `flash_permission`. |
-| Keeper of the Secret Lair | "Secret Lair" spells | No card predicate for the Secret Lair set. |
-| Azula, Cunning Usurper | exile-linked cast permission with bundled flash | — |
-| Fated Clash; Silver Scrutiny; Quantum Reduction; Tegwyll's Scouring | "you may cast this spell as though it had flash if <state>" | Conditions not yet parsed (attacking+blocking creature, X ≤ 3, teamwork, tap-three-fliers cost); promote to a ticket if two share a condition. |
-
 ### Quantity-threshold head residue (PAR-231 close, PARSER_VERSION 833)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Anje, Maid of Dishonor | `whenever ~ and/or 1 or more other vampires you control enter` (once each turn) | Self-or-group entry batch with a subtype filter. |
-| Bloodletter | `when the names of 3 or more nonland permanents begin with the same letter` | State trigger over name initials. |
 | Deeproot Pilgrimage | `whenever 1 or more nontoken merfolk you control become tapped` | No batched tap event. |
 | Fblthp, Impossibly Lost | `when 1 or more of your opponents are dealt combat damage during your turn` | Plus its win-on-empty-library and shuffle-into-library body. |
 | Hezrou // Demonic Stench | `whenever 1 or more creatures you control become blocked` | Aggregate becomes-blocked across attackers; body names "each blocking creature". |
@@ -129,7 +102,6 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sharae of Numbing Depths | `whenever you tap 1 or more untapped creatures your opponents control` (once each turn) | No tap-by-you event batch. |
 | The Red Terror | `whenever a red source you control deals damage to 1 or more permanents and/or players` | Per-source damage batch with a color filter (the v833 batch is grouped by recipient). |
 | Zone of Flame | `whenever 1 or more cards enter or leave enchanted zone` | Enchant-zone aura; check `DEFERRED.md` before work. |
-| Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile` | Mixed battlefield/graveyard exile batch plus a copy body. |
 | The War Doctor | `whenever 1 or more other permanents phase out and whenever 1 or more other cards are put into exile from anywhere` | Double head; phase-out batch missing, exile half exists (v833). |
 | Hero of Bretagard; Ranar the Ever-Watchful | `whenever 1 or more cards are put into exile from your hand or a spell or ability you control exiles 1 or more permanents from the battlefield` | Shared pair, both blocked by other clauses as well; promote together once those land. |
 | The Heron Moon | body: release counter, at 13 or more sacrifice it and cast a copy of Emrakul, the Promised End | Head parses (v833 exile batch). |
@@ -139,142 +111,489 @@ Explicitly queued from the open card-text coverage in `status.de.js` / `status.e
 | Sand Scout | body: the `red, green, and white` token | Head parses (v832). |
 | Flummoxed Cyclops | body: `can't block this combat` | Head parses (v831). |
 
-### Attachment-head residue (PAR-234 close, PARSER_VERSION 834)
+### Filter-slot residue (PAR-281 close, PARSER_VERSION 917)
+
+Both rows were checked against the shared `stack_source_filter` (`targeting.stack_source_matches`) and do not fit it without new engine state; each is solo on 1 in the cache.
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Curse of Echoes | body: `each other player may copy that spell and may choose new targets` | Head (enchanted player casts) parses since v834. |
-| Maddening Hex | body: `roll a d6 ... then attach ~ to another 1 of your opponents chosen at random` | Head parses since v834. |
-| Grievous Wound | static: `enchanted player can't gain life` | `enchanted player is dealt damage` head parses since v834. |
-| Archnemesis | `whenever you attack enchanted player` and `whenever a player attacks you, you may attach ~ to that player` | Actor-you form is excluded in `player_event_head`. |
-| Eriette, the Beguiler | Aura becomes attached to a nonland permanent an opponent controls with mana value at most that Aura's | Attach-host filter with a comparison to the Aura. |
+| The Peregrine Dynamo | `{1}, {t}: copy target activated or triggered ability you control from another legendary source that's not a commander.` | `stack_source_filter` knows only `card_types`/`colorless`. Needs "another" (compare with the copying ability's own source: `stack_source_matches` is never handed it), a `legendary` supertype key and an `is_commander` key. Small hand-authored `copy_target_ability` with its own filter, or extend the three keys when a second card appears. |
+| Ayesha Tanaka | `{t}: counter target activated ability from an artifact source unless that ability's controller pays {w}.` | The source filter ("from an artifact source") is already carried (Rust); the open part is the "unless that ability's controller pays {W}" rider, which `counter_ability` has no param for (the spell-side `counter` has `unless_pays`). Hand-author with `counter_ability` + unless-pay, or add the param on a second card. |
 
-### Subject-filter residue (PAR-233 close, PARSER_VERSION 836)
+### Defending-player residue (PAR-315 close, PARSER_VERSION 936)
 
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Nyx Herald | target `enchanted creature or enchantment creature you control` may name the Herald itself | `permanent_you_control` excludes the source and can't tell "target" from "another target"; fail-closed guard `_source_excluded_union` (v836). |
-| King of the Oathbreakers | body: `it phases out` | Head parses since v836. |
-| Visitor from Planet Q | `all creature cards you own with flash are instants in addition to their other types` | Head and `min_card_types` exist (v836). |
-| Shadow the Hedgehog | `each spell you cast has split second if mana from an artifact was spent to cast it` | Head parses since v836. |
-| Last Laugh | `when no creatures are on the battlefield, sacrifice ~` | State trigger (RULE 603.8). |
-| Astral Drift | `whenever you cycle this card or cycle another card while ~ is on the battlefield` | Self-or-another cycle head with a zone condition. |
-| Marvel Boy, Noh-Varr | `whenever another creature you control enters and whenever you activate a power-up ability` | Power-up activation event. |
-
-### Cast- and target-head residue (PAR-236 close, PARSER_VERSION 837)
+Each needs its own primitive beyond the PAR-313/315 defending-player referent (`attack_scope.defending_player_id`, `core._combat_defending_player`, player scope `defending_player`).
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Danitha, Sword of Hope | `whenever you cast an equipment spell or a spell that targets a creature you control` (once each turn) | Disjunction over the spell itself; one trigger per spell. |
-| Leyline of Combustion | `whenever you and/or at least 1 permanent you control becomes the target of a spell or ability an opponent controls` | Triggers once per spell however many of your things it targets (ruling); the v837 coordinated head triggers per target. |
-| Giant Shark | `whenever ~ blocks or becomes blocked by a creature that has been dealt damage this turn` | Phrase tail missing; `damaged_this_turn` filter key already exists in `combat.matches_object_filter`. |
-| Loki, God of Mischief | `whenever a player or permanent becomes the target of an ability you control` (once each turn) | Ability-only targeting source filter. |
-| Mirror-Shield Hoplite | `whenever a creature you control becomes the target of a backup ability, copy that ability` | Backup-ability source filter plus ability copy. |
+| Coral Fighters | look at the top card of defending player's library; you may put it on the bottom | peek-and-bottom on another player's library |
+| Bone Dancer | put the top creature card of defending player's graveyard onto the battlefield under your control; ~ assigns no combat damage | reanimate from another graveyard, top creature card |
+| Radha's Firebrand | target creature defending player controls with power less than ~'s power can't block | dynamic power comparison in a target filter |
+| Yare | target creature defending player controls ... can block additional creatures | block-count change |
+| Blaze of Glory | target creature defending player controls can block any number of creatures; blocks each attacking creature if able | block-count plus forced block of all |
+| False Orders | remove target creature defending player controls from combat; creatures it was blocking that had become blocked by only that creature become unblocked; you may have it block an attacking creature | remove from combat plus reassigned block |
+| Cyclops Gladiator | ~ deals damage equal to its power to target creature defending player controls and that creature deals damage equal to its power to ~ | mutual fight-like damage outside fight |
+| Purifying Dragon | rider "if that creature is a Zombie" on damage to a creature defending player controls | per-target subtype rider |
+| Sensational Spider-Man | stun counters on a creature defending player controls | stun counter placement on a defender's creature |
+| Silumgar, the Drifting Death | creatures defending player controls get -1/-1 until end of turn | mass P/T on a defender-scoped group |
+| Storm the Citadel, Icingdeath, Frost Tyrant | grant a combat trigger naming defending player from an unrelated head | not examined beyond the probe line |
+| Kazuul, Tyrant of the Cliffs | "unless that creature's controller pays {3}" on a creature attacking you | defender-relative tax |
+| Erithizon, Cunning Giant, Midnight Crusader Shuttle, Trepanation Blade | one odd defending-player clause each | see `parser_probe blocked 'defending player'` |
 
-### Activation-cost residue (PAR-232 close, PARSER_VERSION 838)
-
-| Card | Gap | Notes |
-| --- | --- | --- |
-| Benthic Explorers | cost: `{t}, untap a tapped land an opponent controls`; effect: `add 1 mana of any type that land could produce` | Untap-others grammar reads only "you control"; the mana ability needs the picked land's producible types (PAR-247 close, v839). |
-| Illuminated Folio | cost: `reveal 2 cards from your hand that share a color` |  |
-| Weight of Conscience | cost: `tap 2 untapped creatures you control that share a creature type` |  |
-| Mossbridge Troll | cost: `tap any number of untapped creatures you control other than ~ with total power 10 or greater` |  |
-| The Archimandrite | cost: `tap 3 untapped advisors, artificers, and/or monks you control` | Subtype-union tap cost. |
-| Magosi, the Waterveil | cost: remove an eon counter and return ~ to its owner's hand |  |
-| Sphinx of the Chimes | cost: discard two nonland cards with the same name |  |
-| Jandor's Ring | cost: discard the last card you drew this turn |  |
-| Knollspine Invocation | cost: `discard a card with mana value x` |  |
-| Ormos, Archive Keeper | cost: discard cards with different names |  |
-| Krovikan Sorcerer | cost: discard a nonblack card (and the black-card branch) |  |
-| Fabrication Foundry | cost: exile one or more other artifacts you control with total mana value X |  |
-| Nivmagus Elemental | cost: exile an instant or sorcery spell you control | Exiling a spell from the stack as a cost. |
-| Tomb of Urami | cost: `sacrifice all lands you control` |  |
-| Thelon of Havenwood | `{b}{g}, exile a fungus card from a graveyard: put a spore counter on each fungus on the battlefield` | Any-graveyard exile is pickable since BUG-53; the Fungus spore-counter static is the remaining gap. |
-| Painbringer | `{t}, exile any number of cards from your graveyard: target creature gets -x/-x`, X = cards exiled | Needs an "any number" graveyard-exile count feeding X (BUG-53 close, v840). |
-
-### Escape rider residue (PAR-239 close, PARSER_VERSION 844)
-
-Cards next to the plain "escapes with N counters" shape, each probed SOLO on 1. Re-run `parser_probe.py blocked` on the clause before authoring.
+### Pay-or-sacrifice residue (PAR-316 close, PARSER_VERSION 938)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Charred Graverobber | `when ~ enters, return target outlaw card from your graveyard to your hand.` | Its `escapes with` line is claimed; the `outlaw` card target filter is the only blocker. |
-| Pharika's Spawn | `~ escapes with 2 +1/+1 counters on it. when it enters this way, each opponent sacrifices a non-gorgon creature of their choice.` | Needs an Escape-only reflexive trigger next to the counters. |
-| Polukranos, Unchained | `~ enters with 6 +1/+1 counters on it. it escapes with 12 +1/+1 counters on it instead.` | The Escape amount replaces the printed enters-with amount. |
-| Skyway Robber | `~ escapes with "whenever ~ deals combat damage to a player, you may cast an artifact, instant, or sorcery spell from among cards exiled with ~ without paying its mana cost."` | Escape grants a quoted ability over the cards exiled with it. |
-| Tizerus Charger | `~ escapes with your choice of a +1/+1 counter or a flying counter on it.` | Counter-kind choice as it enters (RULE 614.1c). |
+| Stromgald Spy | defending player plays with their hand revealed for as long as ~ remains on the battlefield | no duration-bound hand-reveal primitive |
+| Pygmy Hippo | drain the defending player's mana abilities and add the mana later as a delayed effect | one-off mana redirection |
+| Dark Deal | each player discards their hand, then draws that many cards minus one | the PAR-316 wheel (`then_draw_hand_size`) has no offset |
 
-### Copy-exception residue (PAR-253 close, PARSER_VERSION 850)
-
-The `except it has` tail parses for these; each is blocked by another clause.
+### Defending-player chooser residue (PAR-317 close, PARSER_VERSION 939)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Court of Vantress | `if you're not the monarch, you may have ~ become a copy of it, except it has this ability.` | After an optional `you may create a token that's a copy of it`, the reading loses the target, so `it` reads as the created token. |
-| Curie, Emergent Intelligence | `whenever ~ deals combat damage to a player, draw cards equal to its base power.` | Needs a base-power amount and a copy of the object exiled as a cost. |
-| Face Yourself | `... except it has haste and "at the beginning of the end step, if you don't control a planeswalker, sacrifice ~."` | The quoted condition is unclaimed; `copy_permanent` has no `add_ability_lines` consumer. |
-| Firion, Wild Rose Warrior | `... except it has "~'s equip abilities cost {2} less to activate." sacrifice that token at the beginning of the next upkeep.` | Equip-cost reduction in a quoted ability; token copy. |
-| Kaya, Spirits' Justice | `whenever 1 or more creatures you control and/or creature cards in your graveyard are put into exile, you may choose a creature card from among them.` | Batch-exile choice, plus an unclaimed -2. |
-| Mirage Phalanx | `as long as ~ is paired with another creature, each of those creatures has "at the beginning of combat on your turn, create a token that's a copy of ~, except it has haste and loses soulbond. exile it at end of combat."` | Soulbond-granted trigger; the quoted copy needs `loses soulbond` and a two-sentence body. |
-| The Cosplayzer | `... except it has "the first time each turn an ability of ~ is activated or triggered, copy it. ..." and the first letter of its name is z.` | Ability-copy trigger and a name-letter exception. |
-| Vesuvan Drifter | `if you reveal a creature card this way, ~ becomes a copy of that card until end of turn, except it has flying.` | Needs a referent for the revealed top card. |
-| Zedruu the Greathearted | `at the beginning of your upkeep, you gain x life and draw x cards, where x is the number of permanents you own that your opponents control.` | PAR-277 residue (v876): the donate ability parses; needs an "owned by you, controlled by an opponent" count phrase. |
+| The Seventh Doctor | defending player guesses a mana value; cast the card free if wrong | guess primitive plus free cast |
+| Celestine Cave Witch | curse the defending player | no curse-a-player primitive |
+| Witch-king of Angmar | each opponent who was dealt combat damage by it sacrifices a creature that dealt combat damage to you; the Ring tempts you | damage-history filter on the edict |
+| Drana, the Last Bloodchief | defending player chooses a nonlegendary creature card in your graveyard; return it with a +1/+1 counter | opponent chooses from the controller's graveyard |
+| Labyrinth Raptor | a creature defending player controls that's blocking it | blocker-relative selection |
 
-### Star Trek (TRK + TRC) one-offs (50 rows, 2026-11-10, PARSER_VERSION 870)
-
-Open Star Trek cards that fit none of the MEC-139..143 / ENG-55 / PAR-258..276 families in [BACKLOG.md](BACKLOG.md). Seven are Sagas, about a dozen are Spacecraft with a unique ability; several also need a primitive from those tickets first (assimilate, face a dilemma, differently named lands). Re-check each with `parser_probe.py blocked` after those tickets land: a new primitive often turns two of these into a cluster.
+### Defending-player count residue (PAR-318 close, PARSER_VERSION 940)
 
 | Card | Gap | Notes |
 | --- | --- | --- |
-| Commander Spock | `whenever ~ enters or attacks, reveal the top card of your library. you may cast that card without paying its mana cost if that spell's mana value is equal to or less than the number of differently named lands you control. if it's a land card, you may put it onto the battlefield tapped. if that card is still on top of your library, draw a card.` | Blocked: composable except the closing 'if that card is still on top of your library, draw a card' -- no predicate asks whether the revealed card is still on top (cast_window_exiled_pool pool_zone=library checks it internally; reveal_top/put_revealed_card/amount_compare exist). Needs a 'revealed card still on top' condition in effect_conditions.py. |
-| Ensign Pavel Chekov | `when ~ enters, each opponent exiles the top x cards of their library, where x is the number of differently named lands you control. for each opponent, choose a land card that player owns exiled this way. you may play the chosen cards for as long as they remain exiled.` | Not authored: 'for each opponent, choose a land card that player owns exiled this way' then 'play the chosen cards' has no per-opponent chooser over an exiled pool (exile_top_of_library + play_cards_exiled_with_source exist). Needs the chooser primitive. |
-| Lieutenant Nyota Uhura | `{4}, {t}: target opponent exiles the top x cards of their library, where x is the number of differently named lands you control. you may cast an instant or sorcery spell from among them without paying its mana cost. then that player puts the rest on the bottom of their library in a random order.` | Blocked: 'puts the rest on the bottom of their library in a random order' has no exile-pool-to-library-bottom-random primitive (only graveyard_to_library_bottom_random); cast_window_exiled_pool covers the free instant/sorcery cast. |
-| Chief Montgomery Scott | `{6}, {t}: you may put a creature or spacecraft card from your hand onto the battlefield. it enters with x additional +1/+1 counters on it if it's a creature and x additional charge counters on it if it's a spacecraft, where x is the number of differently named lands you control.` | Blocked: put_from_hand_onto_battlefield has no 'enters with additional counters' parameter; placed_effects would add the counters after entry, which is not 'enters with' (replacement-time) behaviour. |
-| Species 8472 | `~ can't be the target of abilities from artifact sources your opponents control.` | Blocked: targeting._targetable_by has no restriction 'abilities from artifact sources your opponents control' (only protection, hexproof, shroud, hexproof from instants/own colours); needs a quality-scoped untargetable check in targeting.py. |
-| 70,000 Light-Years from Home | `exile target creature or spacecraft. its controller may search their library for a basic land card, reveal it, put it into their hand, then shuffle.` | Blocked: exile_controller_searches_basic_land puts the land onto the battlefield tapped, not into hand. |
-| All Good Things... | `i, ii, iii — draw 2 cards, then exile a card from your hand. \|\| iv — if all cards exiled with this saga share a card type, you gain 10 life.` | Blocked: (1) `ExileHandCardEffect` (effects/damage_draw.py; registry.py `exile_hand_card`) has no `track_exiled_with`, so the card exiled from hand never lands on the Saga's `exiled_with_ids`; (2) no condition 'all cards exiled with this source share a card type' in effect_conditions.py/static_conditions.py (only `shares_type_with_linked_exile`, one played card vs one linked card, and `milled_cards_share_all_types`). |
-| Ambulatory Reactor | `artifact creatures you control have "{t}: add {c}. spend this mana only to cast an artifact spell or activate an ability of an artifact source."` | Blocked: grant_mana_ability's spend restriction type_spell matches creature subtypes only (continuous._has_subtype), so 'cast an artifact spell or activate an ability of an artifact source' is unusable (the artifact spell cannot be cast); needs an artifact card-type restriction kind in mana_abilities.py. |
-| Borg Incursion | `create 2 1/1 colorless borg artifact creature tokens, then artifact creatures you control gain protection from the color of your choice until end of turn.` | Blocked: no group-wide single-colour protection choice primitive (grant_protection group supports only 'shares'). |
-| Brazen Bluff | `choose target noncreature spell an opponent controls. that player may exile it. if they don't, you may cast a noncreature spell from your hand without paying its mana cost.` | Blocked: 'that spell's controller may exile it; if they don't, you may cast a noncreature spell from your hand free' has no opponent-decides-exile-of-target-spell primitive. |
-| Chronomantic Escape | `until your next turn, creatures can't attack you. exile ~ with 3 time counters on it.` | Blocked: no 'until your next turn, creatures can't attack you' duration effect and no spell self-exile-with-time-counters (suspend-style) primitive. |
-| Cmdr. Troi, Outgoing Empath | `{t}: target opponent whose turn it is may cast a spell from their hand without paying its mana cost. if they do, you copy that spell. you may choose new targets for the copy. if they don't, you draw a card.` | Skipped: copying an opponent's free cast is too complex without a new primitive. |
-| Concerted Effort | `at the beginning of each upkeep, creatures you control gain flying until end of turn if a creature you control has flying. the same is true for fear, first strike, double strike, landwalk, protection, trample, and vigilance.` | Blocked: needs copying the exact landwalk/protection qualities present among your creatures (per-quality keyword grants), which no group grant expresses. |
-| Daniels, Temporal Agent | `{2}, put this card from your graveyard on the bottom of your library: you gain 2 life.` | Examined: ETB return is parser-claimed; missing primitive is an activated ability usable from the graveyard whose cost is 'put this card from your graveyard on the bottom of your library' (no such cost word in game/costs.py). |
-| Dathon, His Heart Open | `whenever you cast an enchantment spell, draw a card. if it's a saga spell, ~ deals 2 damage to each opponent. \|\| {2}: choose a counter on target enchantment you control. put another counter of that kind on it. activate only as ...` | Blocked: '{2}: choose a counter on target enchantment you control, put another counter of that kind on it' (choose-a-counter-kind duplicate) has no primitive. |
-| Deep Space 9 | `when ~ enters and at the beginning of your upkeep, exile the top 4 cards of your library. put all permanent cards exiled this way onto the battlefield.` | Blocked: 'put all permanent cards exiled this way onto the battlefield' needs an OR-of-permanent-types filter; return_all_exiled_with.card_types is AND (card_query all_types), so it can only be done as six sequential, non-simultaneous batches. |
-| Extraction Integrant | `artifact creatures you control have menace and "whenever a creature blocks ~, that creature gets -1/-1 until end of turn."` | Blocked: grant_triggered_ability has no related_to_source param for 'whenever a creature blocks ~' and the BLOCKS related_filter has no 'controlled by the source's controller' key, so neither the granted nor the global form is exact. |
-| Georgiou, Terran Emperor | `you don't lose the game for having 0 or less life. \|\| at the beginning of your end step, you lose 3 life and draw a card. then if your life total is 0 or less, create 10 1/1 red officer creature tokens.` | Examined: end-step half is expressible (lose_life, draw, if_else life_at_most 0 create 10 Officers); missing primitive is 'you don't lose the game for having 0 or less life' (a Phyrexian Unlife-style 704.5a-only exemption; `cant_lose_game` is blanket and would also stop poison/decking losses). |
-| Gowron, Eager for Battle | `sacrifice another creature: ~ gains trample until end of turn. if you sacrificed a klingon this way, you draw a card and lose 1 life.` | Blocked: no condition for the subtype of a creature sacrificed as a cost. |
-| Gwyndala, the Progeny | `when ~ enters, create a colorless equipment artifact token named neuroflux heirloom with "equipped creature gets +1/+1" and equip {2}. attach it to ~. \|\| {2}: each equipment token you control becomes a copy of target equipment ...` | Blocked: 'each Equipment token you control becomes a copy of target Equipment you control until end of turn' is a group become-copy; `become_copy_until_eot` / `become_copy_of_target_until_eot` (effects/registry.py) take one target permanent only. The ETB token (named Neuroflux Heirloom, granted equip {2}, attach to ~) was not probed further. |
-| H.M.S. Bounty, Unlikely Timeship | `whenever ~ deals combat damage to a player, draw a card. if you control a whale and haven't begun an extra turn this game, take an extra turn after this 1.` | Blocked: no per-player 'has begun an extra turn this game' state. |
-| Holo-Engineer | `if 1 or more tokens would be created under your control, that many 3/3 colorless illusion artifact creature tokens are created instead.` | Not authored: token-creation replacement ('that many 3/3 Illusion artifact creature tokens instead') has no whitelisted replacement type. |
-| Hugh, First of Many | `artifact spells you cast have replicate {2}{u}.` | Blocked: replicate (RULE 702.56) does not exist in the engine (no keyword handler, no cast-time repeat-payment/copy-spell step; grep of game/ finds none) and there is no static 'spells you cast have <keyword>' grant for it (`granted_cast_keyword_instances` in continuous.py covers cast triggers only). |
-| Kai Winn, Faithless Leader | `whenever an opponent casts a spell with the chosen name or activates an ability of a source with the chosen name, that player loses 3 life.` | Blocked: no trigger for 'activates an ability of a source with the chosen name'. |
-| La Forge, Thoughtful as Ever | `{t}: for each permanent you control that you've put a counter on this turn, create a 1/1 blue faerie creature token with flying.` | Blocked: needs a `continuous.count_selector` selector 'distinct permanents you put a counter on this turn' (COUNTER events carry target_id and source_controller_id in `state.events_this_turn()`, but only the boolean conditions `you_placed_counter_on_creature_this_turn` / `counter_put_on_source_this_turn` read them) usable as `create_token` count; a shared-engine edit. |
-| Lwaxana Troi, Charming Guest | `{2}, {t}: choose another target creature you control. for as long as ~ remains tapped, if a triggered ability of that creature triggers, that ability triggers an additional time.` | Blocked: `continuous._active_doublers` only scans `static_effects` of battlefield permanents (`TriggerDoublerEffect.subject` is a filter, not a chosen object) and never `state.floating_statics`; needs a floating trigger-doubler bound to one chosen creature with a `for_as_long_as` source-tapped duration (durations.py already has the duration). |
-| Nog, Ambitious Cadet | `{1}: if ~ is a rogue, he becomes a ferengi scout with base power and toughness 3/4 and gains "whenever ~ becomes tapped, surveil 2." \|\| {3}: if ~ is a scout, he becomes a ferengi officer and gains "you may play lands from your ...` | Blocked: parts 1 and the type/P-T/extra-land half compose (`if_else` + `is_subtype`, `grant_until` rest_of_game with `type_change` set_creature_types/power/toughness, `grant_triggered_ability` TAPPED, `grant_static_ability` `extra_land_drop`), but 'you may play lands from your graveyard' cannot be granted: `graveyard_cast.active_graveyard_cast_grants` reads only `GraveyardCastPermissionEffect` objects in `static_effects`, not `_granted_static_abilities`/floating statics. Needs that scan widened. |
-| Nyota Uhura, Communications | `as ~ enters, choose a number between 0 and 10. \|\| whenever an opponent casts a spell with mana value equal to the chosen number, you draw a card.` | Blocked: binding/core.py spell_characteristic_equals_chosen_number matches MV or power or toughness; an MV-only variant needs a shared-engine edit. |
-| Peace in Our Time | `at the beginning of combat on each player's turn, that player may draw a card. if they do, they can't attack this turn and you put a peace counter on ~.` | Blocked: 'they can't attack this turn' for the active player has no primitive; no_attack_pairs_this_turn covers one (attacker, defender) pair, not every opponent. |
-| Q, Stacking the Deck | `when ~ enters, shuffle your library, then exile cards from the top of your library until you exile a nonland card. that nonland card gains "exile a card from your hand: create a copy of this card. you may cast the copy. activat...` | Blocked: the exiled card must gain an activated ability usable from exile ('exile a card from your hand: create a copy of this card, you may cast the copy; only during your turn and only if this card is exiled'); `grant_activated_ability` (effects/registry.py) only reaches battlefield objects and activation_mixin has no activate-from-exile path for a granted ability. |
-| Quark, Humble Proprietor | `you can't sacrifice treasure tokens.` | Examined: the Treasure upkeep trigger is parser-claimed; missing primitive is a static player/permanent-class prohibition 'can't sacrifice Treasure tokens' (only the per-object `cant_be_sacrificed_this_turn` flag exists). |
-| Queen's Diamond | `{t}: choose a color. add 1 mana of that color for each charge counter on ~. spend this mana only to cast your commander.` | Blocked: mana abilities are parsed from raw text in game/mana_abilities.py; 'Choose a color. Add one mana of that color for each charge counter' (colour chosen per activation, amount from counters, commander-only restriction) is not a recognised shape, and an activated add_mana would not be a mana ability (RULE 605). |
-| Rite of Oblivion | `as an additional cost to cast this spell, sacrifice a nonland permanent.` | Skipped: authored spec is complete except `additional_cost={"sacrifice": "nonland_permanent"}`, which `parser/oracle/spec.py` `_ADDITIONAL_COST_SACRIFICE_TYPES` rejects (the cost engine in `game/costs.py` already knows the word). Add it to that whitelist once the parser tree is free, then hand-author in minutes. |
-| S.S. Botany Bay | `whenever ~ deals combat damage to a player, return each creature card you own exiled with it to the battlefield.` | Blocked: the tap ability's 'each opponent exiles a card from their graveyard' (`for_each` over `exile_hand_card` zone=graveyard) does not take `track_exiled_with`, so there is no 'creature card you own exiled with it' pool for the combat-damage `return_all_exiled_with`. Same missing flag as All Good Things... |
-| Stonespeaker Crystal | `{2}, {t}, sacrifice ~: exile any number of target players' graveyards. draw a card.` | Examined: only `exile_target_graveyard` (single player target) exists; needs an 'any number of target players' graveyards' multi-target (0..N players) form. |
-| Sulu, Heroic Helmsman | `~ stations spacecraft and crews vehicles as though his power were tripled.` | Blocked: 'crews as though power were tripled' is a multiplier; `GameEngine._crew_power_of` (engine/activation_mixin.py) only sums a flat `crew_power_bonus` count (Pilot idiom), and `_station_cost_choice`/`_resolve_station_cost` ignore any power bonus (station taps exactly one creature and uses raw power). Needs a multiplier kind plus station power accounting. |
-| Sylvia Tilly, Joy of Discovery | `at the beginning of combat on your turn, you may pay {1} and exile a card from your graveyard. when you do, put a +1/+1 counter on target creature.` | Examined: authored spec ready (surveil + pay_cost_then then_trigger), but `RulesEngine._pay_player_cost` (game/rules/player_costs_mixin.py) ignores `ActivationCost.exile_from_graveyard`: pay_cost_then charges the mana and never exiles the card. Add an interactive graveyard-exile payment there, then author. |
-| T'Pring, Never Parted | `when ~ enters, choose another target creature you control and target creature an opponent controls. you may have the chosen creatures fight each other. whenever a creature that fought this way dies this turn, you draw a card.` | Blocked: 'whenever a creature that fought this way dies this turn' tracks two creatures chosen by the same ETB; create_turn_trigger previous_subject captures only the first previous target. |
-| The City on the Edge of Forever | `i — all artifacts and creatures phase out. create a 0/1 white human creature token with "permanents can't phase in." \|\| iii — sacrifice a creature token. if you do, you gain 5 life.` | Blocked: (1) no 'all artifacts and creatures phase out' (every player's): `phase_out_all_you_control` is the controller's only, `phase_out` is targeted; (2) `_step_untap` (engine/turn_loop_mixin.py) has no 'permanents can't phase in' check. |
-| The Holodeck | `once during each of your turns, you may play a permanent card you own from outside the game or from your graveyard.` | Blocked, not a permanent non-goal (DEFERRED.md lists cross-game interactions only; `game/sideboard.py` implements RULE 400.11 outside-game cards): the sideboard permission (`sideboard_cast_permission`) is cast-only (no land play from outside the game in `can_play_land`) and has no per-turn limit shared with the graveyard half (`graveyard_cast_permission` once_per_turn is per granting permanent), so 'once during each of your turns, outside the game or graveyard' cannot be exact. |
-| The Immortal Sun | `players can't activate planeswalkers' loyalty abilities.` | Blocked: 'players can't activate planeswalkers' loyalty abilities' has no prohibition primitive. |
-| The Needs of the Many | `creatures you control gain hexproof and indestructible until end of turn. you gain hexproof until end of turn. prevent all damage that would be dealt to you this turn. exile ~.` | Blocked: 'you gain hexproof until end of turn' (a player) has no temporary form; player_hexproof is a battlefield static only (continuous.player_has_hexproof). Needs a PlayerShieldEffect-style hexproof marker. |
-| Those Old Scientists | `ii — return up to 1 target artifact, instant, or sorcery card from your graveyard to your hand. \|\| iii — choose up to 2 target cards in graveyards. the owners of those cards shuffle them into their libraries.` | Blocked: ch. III needs a multi-player graveyard target, ch. II a multi-type graveyard target kind. |
-| Unification | `i — the owner of up to 1 target creature draws 2 cards, then shuffles that creature into their library.` | Blocked: no 'shuffle target permanent into its owner's library' effect without Chaos Warp's reveal (shuffle_target_into_library_reveal_top) and no owner-draws recipient for it. |
-| Vulcan Mind-Meld | `target opponent looks at the top card of your library, then exiles it face down. you look at the top 2 cards of their library, then exile them face down. for each card exiled this way, the player who exiled it may play it for a...` | Blocked: `impulsive_draw` (effects/registry.py factory) does not expose the class's `player`/`permission_player` params (its `library_of` only supports 'that_player' from a trigger event), so 'target opponent exiles the top card of MY library face down and may play it, and I exile their top two and may play them, any mana type' cannot be built; the any-mana-type rider (`mana_wildcard`) itself exists. |
-| Võx, Child of the Collective | `when ~ enters and at the beginning of your first main phase, the next artifact creature spell and the next spacecraft spell you cast this turn have undaunted.` | Blocked: undaunted (RULE 702.125) does not exist in the engine (no keyword handler or cost reduction), and there is no 'next <type> spell you cast this turn has <keyword>' one-shot grant for it (`next_spell_flash_grants` is flash-only). |
-| World at War | `after the second main phase this turn, there's an additional combat phase followed by an additional main phase. at the beginning of that combat, untap all creatures that attacked this turn.` | Blocked: extra_combat_phase (main_phase_too) inserts after the next end_combat (or the end of the turn when cast in main 2), not 'after the second main phase', and untap_at_beginning untaps creatures you control, not creatures that attacked this turn. |
-| Genesis Device | `sacrifice any number of lands you control, then search your library for up to that many land cards, put them onto the battlefield tapped, then shuffle.` | PAR-259 residue (v873): the ETB Planet search parses; needs a sacrifice-any-number-then-search-that-many primitive. |
-| Warp Speed | `lands you control enter untapped.` | PAR-259 residue (v873): the search and the PAR-258 cost reduction parse; needs a static "enters untapped" replacement that overrides a land's own "enters tapped" (RULE 614.12 / 616.1 ordering). |
+| Snowblind | enchanted creature gets -X/-Y, X = snow lands its controller (or defending player, while attacking) controls, Y = min(X, toughness - 1) | one-off clamp and role-dependent count |
+| Awesome Presence | enchanted creature can't be blocked unless the blocker's controller pays {N} for each | `block_tax` is per blocker globally, not per attacker |
+| Robber of the Rich | cast an exiled card during any turn you attacked with a Rogue | turn-history-gated cast-from-exile permission |
+| Bursting Beebles | can't be blocked as long as defending player controls a permanent that shares an artist with it | `Card` carries no `artist` (printing metadata, not a rules characteristic) |
+| Must Be Knights | counts "Enchanting Tale" cards (set code WOT) | many WOT printings share names with WOE originals; the oracle cache cannot tell them apart |
+
+### Modal wrapper residue (PAR-310 close, PARSER_VERSION 941)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Immard, the Stormcleaver | put a charge counter on it or remove one from it; "when you remove a counter this way, choose one —" | put-or-remove counter choice plus a reflexive trigger keyed on which was chosen |
+
+### Normalization residue (PAR-311 close, PARSER_VERSION 943)
+
+The names now fold correctly; what still blocks each card is a different clause.
+
+| Card | Open clause |
+| --- | --- |
+| Destroy the Evidence | its controller reveals cards until a land |
+| Fear Fire Foes! | damage can't be prevented this turn |
+| Call Damage Control, Fruitcake Elemental, Fetching Garden, B.F.M., Water Gun Balloon Game, Segovian Sword, Yet Another Night in Vegas, "Ach! Hans, Run!" | one-off or Un-set text the scan grouped under normalization |
+
+### Amount residue (PAR-284 milestone 16, PARSER_VERSION 961)
+
+One-off amount phrases from the v961 `P1-B Mengen` scan, each checked with `parser_probe.py blocked`; four are 2-card pairs below the ticket threshold (Springjack Shepherd / Phosphorescent Feast, Baleful Stare / Withering Gaze, Kaima / Havoc Eater, In the Eye of Chaos / Invoke Prejudice).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Balduvian Fallen | `whenever ~'s cumulative upkeep is paid, it gets +1/+0 until end of turn for each {b} or {r} spent this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Doran, Besieged by Time | `whenever a creature you control attacks or blocks, it gets +x/+x until end of turn, where x is the difference between its power and toughness.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: its cost-reduction static. |
+| Dovescape | `that player creates x 1/1 white and blue bird creature tokens with flying, where x is the spell's mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: third-person subject guard. |
+| One with the Kami | `whenever enchanted creature or another modified creature you control dies, create x 1/1 colorless spirit creature tokens, where x is that creature's power.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: union head `enchanted creature or another modified creature`. |
+| Heart of Bogardan | `when a player doesn't pay ~'s cumulative upkeep, ~ deals x damage to target player or planeswalker and each creature that player or that planeswalker's controller controls, where x is twice the number of age counters on ~ minus 2.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Immortal Coil | `exile a card from your graveyard for each 1 damage prevented this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Havoc Eater | `put x +1/+1 counters on ~, where x is the total power of creatures goaded this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Kaima, the Fractured Calm | `put a +1/+1 counter on ~ for each creature goaded this way.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| The Master of Lake-town | `when ~ dies, draw a card for each graveyard with 7 or more cards in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card and its named sibling. Sibling: Master's Councillors (same count phrase, P2 Friedhof), 2 cards. |
+| Springjack Shepherd | `when ~ enters, create a 0/1 white goat creature token for each white mana symbol in the mana costs of permanents you control.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Phosphorescent Feast | `you gain 2 life for each green mana symbol in those cards' mana costs.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Baleful Stare | `you draw a card for each mountain and red card in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Withering Gaze | `you draw a card for each forest and green card in it.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Power Surge | `at the beginning of each player's upkeep, ~ deals x damage to that player, where x is the number of untapped lands they controlled at the beginning of this turn.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Slime Against Humanity | `put x +1/+1 counters on it, where x is 2 plus the total number of cards you own in exile and in your graveyard that are oozes or are named ~.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Staff of Eden, Vault's Key | `{t}: draw a card for each permanent you control but don't own.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: graveyard-to-battlefield ETB. |
+| Stinging Study | `you draw x cards and you lose x life, where x is the mana value of a commander you own on the battlefield or in the command zone.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| Strength of the Tajuru | `choose target creature, then choose another target creature for each time this spell was kicked.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card and its named sibling. Sibling: Comet Storm (same multi-target-per-kick phrase), 2 cards. |
+| The Celestial Toymaker | `at the beginning of each end step, each opponent loses 2 life for each spell or ability that caused 1 or more players to guess or to group cards or permanents into a pile this turn.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: pile-split attack trigger. |
+| Volo, Itinerant Scholar | `{2}, {t}: draw a card for each creature type noted for target permanent you control named ~'s journal.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Also blocked: the journal token's noting trigger. |
+| Zenith Flare | `~ deals x damage to any target and you gain x life, where x is the number of cards with a cycling ability in your graveyard.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. |
+| In the Eye of Chaos | `whenever a player casts an instant spell, counter it unless that player pays {x}, where x is its mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Pair with Invoke Prejudice (same unless-pays-its-mana-value counter). |
+| Invoke Prejudice | `whenever an opponent casts a creature spell that doesn't share a color with a creature you control, counter that spell unless that player pays {x}, where x is its mana value.` | PAR-284 closure (v961): `parser_probe.py blocked` on this clause lists only this card. Pair with In the Eye of Chaos. |
+
+### Amount residue (PAR-284 close, PARSER_VERSION 968)
+
+Cards still open when PAR-284 closed, each re-checked against the pool; no sibling shares the missing primitive. Pairs worth taking together: Blazing Effigy / Impact Resonance, Auntie Ant / Mutated Cultist, Song of Blood / The Eagles Are Coming!.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Sudden Salvation | `choose up to 3 target permanent cards in graveyards that were put there from the battlefield this turn. ... you draw a card for each opponent who controls 1 or more of those permanents.` | PAR-284 close (v968): the target filter (graveyard arrival from the battlefield this turn) and a count over the chosen set's controllers (referent set) are both missing. |
+| Pact of the Serpent | `choose a creature type. target player draws x cards and loses x life, where x is the number of creatures they control of the chosen type.` | PAR-284 close (v968): the chosen-type tail after `they control` is not in `_RELATIVE_PLAYER_COUNT_RE`, and a "choose a creature type" producer is not a `choose_targets` referent. 19 cards print `of the chosen type`, so check the chosen-type count family before hand-authoring. |
+| Vren, the Relentless | `create x 1/1 black Rat tokens with "~ gets +1/+1 for each other Rat you control", where x is the number of creatures that were exiled under your opponents' control this turn.` | PAR-284 close (v968): no history verb for exile with a controller scope (LEAVES_BATTLEFIELD to exile), plus the token's quoted anthem. |
+| Reap | `return up to x target cards from your graveyard to your hand, where x is the number of black permanents target opponent controls as you cast this spell.` | PAR-284 close (v968): the count reads another target of the same cast; `targeting.resolved_count` needs the earlier picks passed in and a two-step announcement in the cast UI / legal actions. |
+| Blazing Effigy | `when ~ dies, it deals x damage to target creature, where x is 3 plus the amount of damage dealt to ~ this turn by other sources named ~.` | PAR-284 close (v968): a named-source qualifier on the `DAMAGE` tally (`history_phrase.parse_damage_taken_count` groups sources by card type only). Pair with Impact Resonance. |
+| Impact Resonance | `~ deals x damage divided as you choose among any number of target creatures, where x is the greatest amount of damage dealt by a source to a permanent or player this turn.` | PAR-284 close (v968): a max over per-source sums of `DAMAGE` events (an aggregate variant of `event_count`), plus an announce-time divided total (M22 machinery). Pair with Blazing Effigy. |
+| Anowon, the Ruin Thief | `whenever 1 or more rogues you control deal combat damage to a player, that player mills a card for each 1 damage dealt to them. if the player mills at least 1 creature card this way, you draw a card.` | PAR-284 close (v968): the per-event damage payload under a group batch trigger, then a milled-type condition. |
+| Auntie Ant, Ant Auntie | `for each creature you control, you may remove a counter from it. create a 1/1 green Insect token for each counter removed this way.` | PAR-284 close (v968): effect-side counter removal tally (`counters_removed_this_way`) in a per-creature loop; also `when ~ enters, multiblight 4`. Pair with Mutated Cultist. |
+| Mutated Cultist | `when you cast this spell, remove all counters from up to 1 target permanent or opponent. the next spell you cast this turn costs {1} less to cast for each counter removed this way.` | PAR-284 close (v968): the same effect-side removal tally, plus a "next spell" cost reduction that carries it. Pair with Auntie Ant. |
+| Emergent Sequence | `search your library for a basic land card, put it onto the battlefield tapped, then shuffle. that land becomes a 0/0 green and blue Fractal creature that's still a land. put a +1/+1 counter on it for each land you had enter the battlefield under your control this turn.` | PAR-284 close (v968): the count is a plain `history_phrase` row; the open part is the animation with no duration (`becomes a 0/0 ... that's still a land`). |
+| Niko Aris | `+1: up to 1 target creature you control can't be blocked this turn. whenever that creature deals damage this turn, return it to its owner's hand.` and `-1: ~ deals 2 damage to target tapped creature for each card you've drawn this turn.` | PAR-284 close (v968): shard tokens, an effect-created trigger on the chosen creature and the tapped-creature damage per card drawn are all open; the draw count itself is a `history_phrase` row. |
+| Razorfield Ripper | `whenever ~ or equipped creature attacks, you get {e}, then it gets +x/+x until end of turn, where x is the amount of {e} you have.` | PAR-284 close (v968): the amount parses (`energy_counters_you_have`); the pronoun host of the `~ or equipped creature` head is unresolved. |
+| Sword of War and Peace | `whenever equipped creature deals combat damage to a player, ~ deals damage to that player equal to the number of cards in their hand and you gain 1 life for each card in your hand.` | PAR-284 close (v968): the amount parses with `of: event_player` but `event_player_events` carries only STEP_BEGIN, so the gate refuses. The v968 `damaged_player` + `["DAMAGE"]` marker (Hoard Hauler) is the model, but the body's recipient selector must be checked first. |
+| Song of Blood | `mill 4 cards. whenever a creature attacks this turn, it gets +1/+0 until end of turn for each creature card put into your graveyard this way.` | PAR-284 close (v968): the payoff sits in an effect-created trigger, so the milled tally must be frozen into it when the spell resolves. Pair with The Eagles Are Coming!. |
+| The Eagles Are Coming! | `... return each chosen creature to your hand. at the beginning of the next upkeep, create a 4/4 white Bird Soldier token with flying for each creature returned to your hand this way.` | PAR-284 close (v968): the same frozen `returned this way` tally inside a delayed trigger, plus `if kicked, instead choose any number of target creatures you own`. Pair with Song of Blood. |
+| Lukka, Bound to Ruin | `-4: ~ deals x damage divided as you choose among any number of target creatures and/or planeswalkers, where x is the greatest power among creatures you control as you activate this ability.` | PAR-284 close (v968): needs the M22 announce-time total for an activated (loyalty) ability; the `+1: add {R}{G}. Spend this mana only to cast creature spells or activate abilities of creatures` line is a second blocker. |
+| Chong and Lily, Nomads | `whenever 1 or more Bards you control attack, choose 1 - put a lore counter on each of any number of target Sagas you control; creatures you control get +1/+0 until end of turn for each lore counter among Sagas you control.` | PAR-284 close (v968): the amount parses; the Bard batch attack head, `any number of target Sagas` counter placement and the modal header are open. |
+| Rose Tyler | `whenever ~ attacks, put a time counter on it for each suspended card you own and each other permanent you control with a time counter on it.` | PAR-284 close (v968): the engine has no suspend state to count (RULE 702.62; `grep suspend` finds unrelated suspends). 84 cached cards print Suspend / `suspended`, 29 are UNMODELED, so a Suspend mechanic ticket may be worth opening on its own merits. |
+| Hurska Sweet-Tooth | `whenever hurska attacks, create a food token.` | PAR-284 close (v968): the normalizer does not fold the legendary's given name `Hurska` (no comma, no "the") to `~`; the amount (`the amount of life you gained`) already parses. |
+| Monstrous Onslaught | hand-authored entry measures the damage total at resolution | PAR-284 close (v968): the parser now yields the announce-time total (M22, `announced_amount`) for the same text. Retire the hand entry and re-run its tests. |
+| Phyrexian Unlife | `as long as you have 0 or less life, all damage is dealt to you as though its source had infect.` | The `you don't lose the game for having 0 or less life` line parses since v968 (`cant_lose_game`, `reason: life`); the infect-conditional damage line is open. |
+| Soul Echo | `... target opponent may choose that for each 1 damage that would be dealt to you until your next upkeep, you remove an echo counter from this enchantment instead.` | The life exemption parses since v968; the enters-with-X-counters / sacrifice-if-none / opponent-chosen damage replacement is open. |
+| Pact Weapon | `whenever equipped creature attacks, draw a card and reveal it. the creature gets +x/+x until end of turn and you lose x life, where x is that card's mana value.` | The gated life exemption (`as long as ~ is attached to a creature`) parses since v968; the reveal-then-pump trigger and `Equip - discard a card` are open. |
+| Marina Vendrell's Grimoire | `you have no maximum hand size and don't lose the game for having 0 or less life.` then `whenever you lose life, discard that many cards. then if you have no cards in hand, you lose the game.` | The combined sentence is not split by the new row (only the bare sentence is read); the discard-that-many trigger is open. |
+| Gerrard and Hanna | `whenever ~ attacks, you gain 1 life for each card in target opponent's hand. then, choose 1 —` | PAR-284 close (v968, from PAR-310): the hand-count amount parses elsewhere; the lead effect before a chosen mode (`modes["lead_effects"]` prepended in `_resume_trigger_mode`) is missing. |
+
+### Object-filter residue (PAR-285 close, PARSER_VERSION 986)
+
+Re-checked with `parser_probe.py blocked` during the PAR-285 closure scan; paired rows share a shape but stay under 3 cards.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Abyssal Harvester | `{t}: exile target creature card from a graveyard that was put there this turn` | Per-turn graveyard-arrival record on the pick, then a nightmare-token copy rider. |
+| Arcbound Overseer | `put a +1/+1 counter on each creature you control with modular` | Keyword-quality mass group; modular is not in the group-filter keyword set. |
+| Biomantic Mastery | `draw a card for each creature target player controls, then draw a card for each creature another target player controls` | Two player targets, per-target creature count. |
+| Bioshift; Simic Guildmage | `move ... +1/+1 counter(s) from target creature onto another target creature with the same controller` | Cross-target "same controller" constraint on a counter move. |
+| Culling Scales; Topple | `destroy / exile target ... permanent / creature with the lowest mana value / the greatest power among creatures on the battlefield` | Superlative target filter (no live-extremum target kind). |
+| Desecrate Reality; Sylvan Primordial | `for each opponent, exile up to 1 / destroy target <qualified> permanent that player controls` | Per-opponent round plus a parity (even mana value) or noncreature quality; Desecrate Reality also has an odd-mana-value graveyard return. |
+| Display of Dominance | `destroy target blue or black noncreature permanent` | Colour union combined with a noncreature negation on a permanent target; second mode is a can't-be-targeted-by-colour restriction. |
+| Eaten by Spiders | `destroy target creature with flying and all equipment attached to that creature` | Attached-Equipment rider on a keyword-quality target. |
+| Ent-Draught Basin | `{x}, {t}: put a +1/+1 counter on target creature with power x` | Target stat equal to the announced X (the stat-bound slot has bounds, not equality to X). |
+| Everythingamajig; Urza's Hot Tub | `search your library for a card that shares a complete word in its name with the discarded card` | Word-in-name referent for a library search criterion. |
+| Gallia, Tragic Host; Winter Soldier, Icy Assassin | `return this card from your graveyard to the battlefield [tapped] with a +1/+1 / finality counter on her / him` | Self-return from graveyard with an entry counter; Gallia's cost exiles another creature card from the graveyard, Winter Soldier also attaches an Equipment. |
+| Iron Man, Armored Avenger; Tori D'Avenant, Fury Rider | `other attacking modified creatures gain flying` / `other red attacking creatures you control gain trample` | "other" + attacking + quality group subject for a keyword grant (the v984 slot covers "attacking <quality> creatures you control", not "other"). |
+| Krovikan Horror | `if this card is in your graveyard with a creature card directly above it` | Graveyard-order intervening-if. |
+| Lulu, Loyal Hollyphant | `if a permanent you controlled left the battlefield this turn, put a +1/+1 counter on each tapped creature you control, then untap them` | Leave-battlefield-this-turn record plus tapped-group counter-then-untap. |
+| Merfolk Assassin | `{t}: destroy target creature with islandwalk` | Landwalk keyword quality on a target. |
+| Rampaging Yao Guai | `destroy any number of target artifacts and/or enchantments with total mana value x or less` | Aggregate mana-value bound across a target set. |
+| Ravager Wurm | `destroy target land with an activated ability that isn't a mana ability` | Ability-quality filter; the ETB is also a choose-one with a fight mode. |
+| Scavenger's Talent | `you may sacrifice 3 other nonland permanents. if you do, return a creature card from your graveyard to the battlefield with a finality counter on it` | Counted qualified sacrifice as a reflexive "if you do" antecedent plus a finality-counter reanimation. |
+| Shadows' Verdict | `exile all creatures and planeswalkers with mana value 3 or less from the battlefield and all creature and planeswalker cards with mana value 3 or less from all graveyards` | Two-zone mass exile with a shared mana-value bound. |
+| Sorin, Lord of Innistrad | `-6: destroy up to 3 target creatures and/or other planeswalkers` | Mixed creature / other-planeswalker multi-target plus a return-each-put-this-way rider. |
+| Spelltwine | `exile target instant or sorcery card from your graveyard and target instant or sorcery card from an opponent's graveyard` | Two graveyard picks of different scope, then copy and free cast. |
+| Thraben Exorcism | `exile target spirit, creature with disturb, or enchantment` | Three-way union mixing a subtype, a keyword quality and a type. |
+| Trick Shot | `6 damage to target creature and 2 damage to up to 1 other target creature token` | Second target qualified as a token with "other". |
+| Ugin, the Spirit Dragon | `-x: exile each permanent with mana value x or less that's 1 or more colors` | Mass group with an X mana-value bound plus a "1 or more colors" quality. |
+| Whip Vine | `{t}: tap target creature with flying blocked by ~` | Blocked-by-source quality; the lock-while-tapped rider is a separate duration. |
+| Éowyn, Fearless Knight | `exile target creature an opponent controls with greater power` | Target power compared with the source's power (the stat-bound slot has a numeric bound or a measured count, not the source stat); the pump rider reads the exiled creature's colours. |
+| Dire Downdraft | `this spell costs {1} less to cast if it targets an attacking or tapped creature` | Cost reduction conditioned on the chosen target's state. |
+| Ivorytusk Fortress | `untap each creature you control with a +1/+1 counter on it during each other player's untap step` | Extra untap in the other players' untap steps over a counter-quality group. |
+| Primevals' Glorious Rebirth | `return all legendary permanent cards from your graveyard to the battlefield` | Mass graveyard return with a supertype-plus-"permanent card" filter. |
+| Sol, Advocate Eternal | `legendary partner` (+ `support 4 and investigate 4 times` after attacking or blocking with its partner) | Partner variant without a name list; the paired attack/block head is separate. |
+| Spy Eye | `you may draw a card from that player's library` | Draw from another player's library. |
+| Stiltzkin, Moogle Merchant | `target opponent gains control of another target permanent you control. if they do, you draw a card` | Give-control-of-your-own-permanent with an if-they-do rider. |
+| The Book of Vile Darkness | `exile ~ and artifacts you control named eye of vecna and hand of vecna: create vecna ... with all triggered abilities of the exiled cards` | Named-artifact cost plus a token inheriting the exiled cards' abilities. |
+| Wing Puncture | `target creature you control deals damage equal to its power to target creature with flying` | One-sided bite with a keyword-quality second target. |
+| Wing Storm | `deals damage to each player equal to twice the number of creatures that player controls with flying` | Per-player doubled count of a keyword-quality group. |
+| Apocalypse Chime | `destroy all nontoken permanents with a name originally printed in the homelands expansion` | Printed-set filter; no other card filters by original expansion. |
+| Primal Empathy | `draw a card if you control a creature with the greatest power among creatures on the battlefield` | Superlative-power condition at upkeep (sibling shape of the Culling Scales / Topple target row). |
+| Fluttershy | `put a +1/+1 counter on each creature with a tail target player controls` / `stare down` | Joke qualities on a Secret Lair card (not set_type funny, so not auto-parked); likely park rather than author. |
+
+### Trigger- and cost-head residue (PAR-286 close, PARSER_VERSION 997)
+
+P1-D solo cards at v997 without a shared shape of 3+, plus the heads the PAR-286 line named. Missing engine primitives moved to MEC-151–155; Emrakul's Evangel moved to MEC-169 (MEC-145 close).
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Arnyn, Deathbloom Botanist | `whenever a creature you control with power or toughness 1 or less dies, target opponent loses 2 life and you gain 2 life.` | dies head with a 'power or toughness 1 or less' creature filter |
+| Autarch Mammoth | `when ~ enters and whenever it attacks while saddled, create a 3/3 green elephant creature token.` | compound head 'when ~ enters and whenever it attacks while saddled' (per-event gate on one head) |
+| Brotherhood Scribe | `whenever you get 1 or more {e} during your turn, creatures you control get +1/+1 until end of turn.` | 'whenever you get 1 or more {E} during your turn' (energy-gain head with turn gate) |
+| Chandra's Phoenix | `whenever an opponent is dealt damage by a red instant or sorcery spell you control or by a red planeswalker you control, return this card from your graveyard to your hand.` | 'whenever an opponent is dealt damage by a red instant or sorcery spell you control or by a red planeswalker you control' (damage head with a colour-qualified source union) + return from graveyard |
+| Chandra's Regulator | `{1}, {t}, discard a mountain card or a red card: draw a card.` | cost 'discard a Mountain card or a red card' (union cost filter) |
+| Circle of Confinement | `whenever an opponent casts a vampire spell with the same name as a card exiled with ~, you gain 2 life.` | 'whenever an opponent casts a Vampire spell with the same name as a card exiled with ~' (linked-exile name filter on a cast head) |
+| Coffin Queen | `when ~ becomes untapped or you lose control of ~, exile that creature.` | 'when ~ becomes untapped or you lose control of ~, exile that creature' (linked creature + untap/control-loss head) |
+| Corruption of Towashi | `whenever a permanent you control transforms or a permanent you control enters transformed, you may draw a card.` | 'whenever a permanent you control transforms or enters transformed' (union with an enters-transformed event) |
+| Devouring Tendrils | `when the permanent you don't control dies this turn, you gain 2 life.` | 'when the permanent you don't control dies this turn' (linked 2nd-target referent after a bite; no `that creature` wording) |
+| Donna Noble | `whenever ~ or a creature it's paired with is dealt damage, ~ deals that much damage to target opponent.` | 'whenever ~ or a creature it's paired with is dealt damage, deals that much damage' (soulbond pair subject) |
+| Edea, Possessed Sorceress | `whenever a creature you control but don't own dies, return it to the battlefield under its owner's control and you draw a card.` | 'a creature you control but don't own dies, return it under its owner's control' (owner-vs-controller subject) |
+| Elektra, Femme Fatale | `when you do, it deals 4 damage to target creature.` | reflexive 'when you do, it deals 4 damage to target creature' (payoff names the cost object) |
+| Flesh Reaver | `whenever ~ deals damage to a creature or opponent, ~ deals that much damage to you.` | 'whenever ~ deals damage to a creature or opponent, ~ deals that much damage to you' (damage amount echo) |
+| Foul Emissary | `when you sacrifice ~ while casting a spell with emerge, create a 3/2 colorless eldrazi horror creature token.` | 'when you sacrifice ~ while casting a spell with emerge' (emerge-cost sacrifice head) |
+| Hibernation's End | `whenever you pay ~'s cumulative upkeep, you may search your library for a creature card with mana value equal to the number of age counters on ~, put it onto the battlefield, then shuffle.` | 'whenever you pay ~'s cumulative upkeep' (cumulative-upkeep payment event) |
+| Inferno of the Star Mounts | `when its power becomes 20 this way, it deals 20 damage to any target.` | 'when its power becomes 20 this way' (state-threshold reflexive) |
+| Ivora, Insatiable Heir | `when ~ enters and whenever it deals combat damage to a player, create a blood token.` | compound head 'when ~ enters and whenever it deals combat damage to a player' (compound heads) |
+| Jaws, Relentless Predator | `whenever a noncreature artifact is sacrificed or destroyed, ~ deals 1 damage to each opponent.` | 'whenever a noncreature artifact is sacrificed or destroyed' (sacrificed-or-destroyed union event) |
+| Justice, Vance Astrovik | `whenever another nonland permanent you control is returned to its owner's hand, put a +1/+1 counter on ~.` | 'whenever another nonland permanent you control is returned to its owner's hand' (bounce event head) |
+| Key to the Side-Door | `{1}, {t}, discard a legendary card with the same name as a legendary permanent you control: draw 2 cards.` | cost 'discard a legendary card with the same name as a legendary permanent you control' (relational cost filter) |
+| Kraven the Hunter | `whenever a creature an opponent controls with the greatest power among creatures that player controls dies, draw a card and put a +1/+1 counter on ~.` | 'whenever a creature an opponent controls with the greatest power among creatures that player controls dies' (relative-greatest filter) |
+| Krumar Initiate | `{x}{b}, {t}, pay x life: ~ endures x.` | cost '{X}{B}, {T}, pay X life' then '~ endures X' (X life cost feeding endure) |
+| Lady Octopus, Inspired Inventor | `whenever you draw your first or second card each turn, put an ingenuity counter on ~.` | 'whenever you draw your first or second card each turn' (ordinal draw-count head) |
+| Lo and Li, Royal Advisors | `whenever an opponent discards a card or mills 1 or more cards, put a +1/+1 counter on each advisor you control.` | 'whenever an opponent discards a card or mills 1 or more cards' (discard-or-mill union) |
+| Loot Dispute | `whenever you attack the player who has the initiative, create a treasure token.` | 'whenever you attack the player who has the initiative' (initiative-holder defender; initiative exists in engine) |
+| Market Gnome | `when ~ is exiled from the battlefield while you're activating a craft ability, you gain 1 life and draw a card.` | 'when ~ is exiled from the battlefield while you're activating a craft ability' (craft-cost exile head; craft is an engine word) |
+| Master Symmetrist | `whenever a creature you control with power equal to its toughness attacks, it gains trample until end of turn.` | 'whenever a creature you control with power equal to its toughness attacks' (self-relational creature filter) |
+| Mikey & Leo, Chaos & Order | `whenever you put a counter on a creature you control, draw a card.` | 'whenever you put a counter on a creature you control' (any-counter event head) |
+| Mistbind Clique | `when a faerie is championed with ~, tap all lands target player controls.` | 'when a Faerie is championed with ~' (champion linkage) |
+| Mob Mentality | `whenever all non-wall creatures you control attack, enchanted creature gets +x/+0 until end of turn, where x is the number of attacking creatures.` | 'whenever all non-Wall creatures you control attack' (all-attack head) + enchanted-creature pump with X = attackers |
+| Ms. Marvel, Elastic Ally | `whenever a creature you control with power greater than its base power deals combat damage to a player, draw a card.` | 'a creature you control with power greater than its base power deals combat damage' (base-power comparison filter) |
+| Namor the Sub-Mariner | `whenever you cast a noncreature spell with 1 or more blue mana symbols in its mana cost, create that many 1/1 blue merfolk creature tokens.` | 'whenever you cast a noncreature spell with 1 or more blue mana symbols in its mana cost, create that many tokens' (mana-symbol-count cast head; 6 pool cards share the family, 2 unclaimed) |
+| Ob Nixilis, Unshackled | `whenever an opponent searches their library, that player sacrifices a creature of their choice and loses 10 life.` | 'whenever an opponent searches their library' (search event head) |
+| Powerleech | `whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without {t} in its activation cost, you gain 1 life.` | 'whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without {T}' (compound) |
+| Preacher of the Schism | `whenever ~ attacks while you have the most life or are tied for most life, you draw a card and you lose 1 life.` | 'whenever ~ attacks while you have the most life or are tied for most life' (attack head with a life-rank gate) |
+| Psychic Pickpocket | `when it connives this way, return up to 1 target nonland permanent to its owner's hand.` | 'when it connives this way' (reflexive on connive; CONNIVES event exists) |
+| Psychogenic Probe | `whenever a spell or ability causes a player to shuffle their library, ~ deals 2 damage to that player.` | 'whenever a spell or ability causes a player to shuffle their library' (shuffle-cause head; SHUFFLE event exists) |
+| Rage Extractor | `whenever you cast a spell with {h} in its mana cost, ~ deals damage equal to that spell's mana value to any target.` | 'whenever you cast a spell with {H} in its mana cost, ~ deals damage equal to that spell's mana value' (mana-cost symbol cast head, with the spell's mana value) |
+| Selfless Squire | `whenever damage that would be dealt to you is prevented, put that many +1/+1 counters on ~.` | 'whenever damage that would be dealt to you is prevented, put that many counters' (prevention event, amount carry) |
+| Skyfire Phoenix | `when you cast your commander, return this card from your graveyard to the battlefield.` | 'when you cast your commander, return this card from your graveyard to the battlefield' (commander-cast head from the graveyard) |
+| Spare Changeling | `whenever you pay an additional cost while casting a spell, you may return this card from your graveyard to your hand.` | 'whenever you pay an additional cost while casting a spell' (additional-cost-paid event; head absent) + return from graveyard |
+| Storm Cauldron | `whenever a land is tapped for mana, return it to its owner's hand.` | 'whenever a land is tapped for mana, return it to its owner's hand' (any land tapped-for-mana head with a pronoun body) + replacement rider |
+| Strict Proctor | `whenever a permanent entering causes a triggered ability to trigger, counter that ability unless its controller pays {2}.` | 'whenever a permanent entering causes a triggered ability to trigger, counter that ability unless its controller pays {2}' (trigger-caused-by-ETB head) |
+| Surrak, Elusive Hunter | `whenever a creature you control or a creature spell you control becomes the target of a spell or ability an opponent controls, draw a card.` | 'whenever a creature you control or a creature spell you control becomes the target of a spell or ability an opponent controls' (target-event union) |
+| The Beast, Deathless Prince | `whenever a creature deals combat damage to its owner, untap ~ and draw a card.` | 'whenever a creature deals combat damage to its owner' (owner-vs-damaged-player relation) |
+| The Council of Four | `whenever a player draws their second card during their turn, you draw a card.`; `whenever a player casts their second spell during their turn, you create a 2/2 white knight creature token.` | 'whenever a player draws their second card / casts their second spell during their turn' (ordinal per-player heads; two lines) |
+| The Master, Mesmerist | `whenever a creature with skulk deals combat damage to 1 of your opponents, put a +1/+1 counter on ~ and draw a card.` | 'whenever a creature with skulk deals combat damage to 1 of your opponents' (batch keyword-subject combat damage) |
+| Timestream Navigator | `{2}{u}{u}, {t}, put ~ on the bottom of its owner's library: take an extra turn after this 1.` | cost 'put ~ on the bottom of its owner's library' + 'take an extra turn after this 1' (self-library cost) |
+| Tornado | `{2}{g}, pay 3 life for each velocity counter on ~: destroy target permanent and put a velocity counter on ~.` | cost 'pay 3 life for each velocity counter on ~' (counter-scaled life cost) |
+| Uchbenbak, the Great Mistake | `descend 8 — {4}{u}{b}: return this card from your graveyard to the battlefield with a finality counter on it.` | 'descend 8 — {4}{U}{B}: return this card from your graveyard to the battlefield with a finality counter' (descend activation gate from the graveyard) |
+| Vengeful Pharaoh | `whenever combat damage is dealt to you or a planeswalker you control, if this card is in your graveyard, destroy target attacking creature, then put this card on top of your library.` | 'whenever combat damage is dealt to you or a planeswalker you control, if this card is in your graveyard, destroy target attacking creature, then put this card on top of your library' (graveyard-active trigger) |
+| Voldaren Bloodcaster // Bloodbat Summoner | `whenever you create a blood token, if you control 5 or more blood tokens, transform ~.` | 'whenever you create a Blood token, if you control 5 or more Blood tokens, transform ~' (token-created head) |
+| Voltaic Visionary // Volt-Charged Berserker | `when you play a card exiled with ~, transform ~.` | 'when you play a card exiled with ~, transform ~' (linked-exile play event) |
+| Warped Devotion | `whenever a permanent is returned to a player's hand, that player discards a card.` | 'whenever a permanent is returned to a player's hand, that player discards a card' (bounce head, owner-as-actor) |
+| Watcher of Hours | `whenever you remove a time counter from this card while it's exiled, surveil 1.` | 'whenever you remove a time counter from this card while it's exiled, surveil 1' (counter-removed head from exile) |
+| Xira, the Golden Sting | `when that creature dies, if it has an egg counter on it, draw a card and create a 1/1 black insect creature token with flying.` | 'when that creature dies, if it has an egg counter on it, draw a card and create a Insect' (linked 'that creature' dies head after an attack-trigger target; counter-gated) |
+| Zellix, Sanity Flayer | `whenever a player mills 1 or more creature cards, you create a 1/1 black horror creature token.` | 'whenever a player mills 1 or more creature cards' (mill batch head) |
+| Zhur-Taa Druid | `whenever you tap ~ for mana, it deals 1 damage to each opponent.` | 'whenever you tap ~ for mana, it deals 1 damage to each opponent' (tapped-for-mana head with a mana-ability trigger) |
+| Zidane, Tantalus Thief | `whenever an opponent gains control of a permanent from you, you create a treasure token.` | 'whenever an opponent gains control of a permanent from you' (control-change head) |
+| Gempalm Incinerator | `when you cycle this card, you may have it deal X damage ... Goblins`: "you may have it deal" phrasing (head exists; Gempalm Strider is MODELED) | Named in the PAR-286 backlog line or skipped in M11. |
+| Thunderous Might | `whenever enchanted creature attacks, it gets +X/+0` (even a fixed +1/+0 is unclaimed: head with pronoun body) | Named in the PAR-286 backlog line or skipped in M11. |
+| Sigil of Valor | `whenever equipped creature attacks alone, it gets +1/+1 for each other creature you control` | Named in the PAR-286 backlog line or skipped in M11. |
+| Sapphire Charm | mode 1 `target player draws a card at the beginning of the next turn's upkeep` (delayed upkeep, tagged P1-C) + mode 3 phases out | Named in the PAR-286 backlog line or skipped in M11. |
+| Lobelia Sackville-Baggins | `exile target creature card from an opponent's graveyard that was put there from the battlefield this turn, then create X Treasure tokens` (graveyard-arrival object filter, tagged P1-C) | Named in the PAR-286 backlog line or skipped in M11. |
+| HELIOS One | `pay X {E}` activation cost | Engine cost `PAY_ENERGY_X` exists; parser cost row shared with Chthonian Nightmare and Sphinx of the Revelation (3 pool cards). |
+| Chthonian Nightmare | `pay X {E}` activation cost | See HELIOS One. |
+
+### Cross-sentence referent residue (PAR-287 close, PARSER_VERSION 1002)
+
+P1-E solo cards at v1002 without a shared shape of 3+, plus the 1-2-card missing primitives found while building. Clusters of 3+ moved to PAR-321–324; Savage Order and the search shapes of Entish Restoration and The Earth King stay with PAR-292.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Bag of Holding | "exile that card from your graveyard" after "whenever you discard a card" | the discard event's card is the referent; needs a DISCARD event card reference |
+| Consuming Ferocity | "if that creature has 3 or more +1/+0 counters on it, it deals damage equal to its power to its controller, then destroy that creature and it can't be regenerated" | counter-count condition on the target plus a damage-source swap |
+| Crash Landing | "~ deals damage to that creature equal to the number of forests you control" | amount measured over lands, target is the earlier flipped-over creature |
+| Creepy Doll | "if you win the flip, destroy that creature" | combat-damage trigger target plus coin_won; indestructible-on-flip is hand-authorable |
+| Dovin, Architect of Law | "-9: tap all permanents target opponent controls. That player skips their next untap step." | player-scoped skip-untap after a tap group |
+| Entish Restoration | "if you control a creature with power 4 or greater, instead search ... up to 3 basic land cards" | conditional-instead on a search (PAR-292 owns the search shape; the instead-condition is this gap) |
+| Jaya, Fiery Negotiator | "whenever you attack this turn, ~ deals damage equal to the number of attacking creatures to that creature" | delayed attack trigger carrying the earlier target |
+| Kayla's Command | "it gains double strike until end of turn" | a mode that names the creature of a previous mode |
+| Kitesail Freebooter | "you choose a noncreature, nonland card from it. Exile that card until ~ leaves the battlefield" | revealed-hand choice and linked exile |
+| Loki, God of Lies | "gain control of that creature until end of turn. If it's your turn, untap that creature and it gains haste" | targeted-spell trigger (only a single creature) + gain control |
+| Momir Vig, Simic Visionary | "if it's a creature card, put that card into your hand" | revealed-top-card referent for each of two reveals |
+| Nurgle's Conscription | "put target creature card from an opponent's graveyard onto the battlefield ... then exile that player's graveyard" | target card's owner as the player of the next sentence |
+| Prowling Geistcatcher | "whenever you sacrifice another creature, exile it. If that creature was a token, put a +1/+1 counter on ~" | sacrificed-object referent with token test |
+| Puresight Merrow | "you may exile that card" | the mill/reveal card referent |
+| Sabotage Strategist | "whenever 1 or more creatures attack you, those creatures get -1/-0 until end of turn" | attacker batch as a group referent |
+| Spider-Man Noir | "then surveil X, where X is the number of counters on it" | counters on the referenced object |
+| Summons of Saruman | "you may cast an instant or sorcery spell with mana value X or less from among them without paying its mana cost" | cast from "among them" (the exiled cards) with an X bound |
+| Sword of Wealth and Power | "you may choose new targets for the copy" | copy of the cast spell with new targets |
+| Taunt from the Rampart | "until your next turn, those creatures can't block" | group referent with a next-turn duration |
+| The Fall of Kroog | "~ deals 3 damage to that player and 1 damage to each creature they control" | target-opponent referent over a damage and a group |
+| Tiller Engine | "untap that land" | the entering land, replacement-or-tap choice |
+| Tui and La, Moon and Ocean | "whenever ~ becomes untapped, put a +1/+1 counter on them" | "them" for a two-object source |
+| Vraska, the Cutting Glare | "they create a Treasure token" | target-opponent referent after a sacrifice/loyalty step |
+| Waltz of Rage | "you may play it until the end of your next turn" | the card exiled by the previous sentence |
+| Watchful Radstag | "whenever ~ evolves, create a token that's a copy of it" | evolve trigger plus a copy of the source |
+| Kros, Defense Contractor | "whenever you put 1 or more counters on a creature you don't control, tap that creature and goad it. It gains trample until your next turn" | counter-put batch referent on an opponent's creature |
+| Abigale, Eloquent First-Year | keyword counters put after "loses all abilities" | `continuous.py` strips keyword counters from an object that has lost all abilities and keeps no layer-6 timestamps (RULE 613.7); engine primitive, 1 card. |
+| Laquatus's Champion | leaves-the-battlefield trigger names the enters trigger's target player | no linked ETB-target primitive (RULE 607.2a); shared only with Soul Scourge. |
+| Soul Scourge | leaves-the-battlefield trigger names the enters trigger's target player | See Laquatus's Champion. |
+| Neko-Te | "doesn't untap ... for as long as ~ remains on the battlefield" | no duration tied to the source staying on the battlefield (RULE 611.2b). |
+| Forger's Foundry | spend-to-exile rider on its mana | the rider cannot create a linked exile pool (RULE 607.2a). |
+
+### Small-modifier residue (PAR-288 close, PARSER_VERSION 1003)
+
+P1-F solo cards at v1003 without a shared shape of 3+. Clusters moved to PAR-325, MEC-156 and ENG-65; Storm of Memories moved to PAR-325.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Calix, Destiny's Hand | `-3: exile target creature or enchantment you don't control until target enchantment you control leaves the battlefield` | PAR-288 close (v1003): the duration is tied to a second target, not to the source (`until_source_leaves` is source-only); solo P1-F. |
+| Congregation at Dawn; Insidious Dreams | `search your library for up to <n> / x <type> cards, reveal them, then shuffle and put those cards on top in any order` | PAR-288 close (v1003): search-to-top with an owner-ordered placement; pair, both solo P1-F (Insidious Dreams also needs the discard-X additional cost, which parses). |
+| Dispense Justice | `Metalcraft - that player sacrifices two attacking creatures of their choice instead if you control three or more artifacts` | PAR-288 close (v1003): the override sits on its own ability-word line and replaces the previous line's sacrifice; the line segmenter never joins them. Solo. |
+| Magus of the Abyss; The Abyss | `at the beginning of each player's upkeep, destroy target nonartifact creature that player controls of their choice` (+ `it can't be regenerated`) | PAR-288 close (v1003): the target is chosen by the affected player (RULE 115.1 chooser), not the controller; the regeneration rider is a second open sentence. Pair. |
+| Orcish Farmer | `{T}: target land becomes a Swamp until its controller's next untap step` | PAR-288 close (v1003): a land-type change with a controller-relative expiry (RULE 611.2b); solo P1-F. |
+| Soul Sculptor | `{1}{W}, {T}: target creature becomes an enchantment and loses all abilities until a player casts a creature spell` | PAR-288 close (v1003): type change plus "loses all abilities" with a spell-cast expiry event; solo P1-F. |
+| Repel Intruders | `create two 1/1 ... if {W} was spent to cast this spell. Counter up to one target creature spell if {U} was spent` | PAR-288 close (v1003): two independent mana-spent gates on one spell, the second on an optional target; solo P1-F. |
+| Shaile, Dean of Radiance // Embrose, Dean of Shadow | `{T}: put a +1/+1 counter on each creature that entered the battlefield under your control this turn` | PAR-288 close (v1003): an entered-this-turn group filter on a counter put; solo P1-F. |
+| Urdnan, Dromoka Warrior | `target attacking creature with a +1/+1 counter on it gains first strike. If that creature has two or more +1/+1 counters on it, it gains double strike instead` | PAR-288 close (v1003): the `instead` override works (PAR-288 handles the counter gate), but the base target carries a counter qualifier that the pronoun rewrite loses; solo. |
+| Veteran Ice Climber | `whenever ~ attacks, up to one target player mills cards equal to ~'s power` | PAR-288 close (v1003): an optional player target on a mill; solo P1-F. |
+| Negative Zone Portal | `if you lose the flip, sacrifice ~ and return a card exiled with it at random to its owner's hand` | PAR-288 close (v1003): random pick from the linked exile pile after a coin flip; solo P1-F. Pair with the `P2 Wuerfel und Muenze` coin tallies (PAR-309). |
+| Court of Locthwain | `if you're the monarch, until end of turn, you may cast a spell from among cards exiled with ~ without paying its mana cost` | PAR-288 close (v1003): a monarch-gated window leading the sentence ("until end of turn" before "you may"); the exiled-with pool exists. |
+| The Ur-Dragon | `whenever 1 or more Dragons you control attack, draw that many cards, then you may put a permanent card from your hand onto the battlefield` | PAR-288 close (v1003): "that many" under the grouped-attack head then an optional hand put; plus the command-zone Dragon cost reduction (PAR-301). |
+| Tishana's Tidebinder | `counter up to one target activated or triggered ability. If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as ~ remains on the battlefield` | PAR-288 close (v1003): optional ability target plus the countered-this-way rider; PAR-308 owns the ability-counter family. |
+| Jon Irenicus, Shattered One | `target opponent gains control of up to one target creature you control. Untap it. It's goaded for the rest of the game and gains "can't be sacrificed"` | PAR-288 close (v1003): optional creature target for a control gift and a permanent goad; plus a second head (`whenever a creature you own but don't control attacks`). |
+| Lagrella, the Magpie | `exile any number of other target creatures controlled by different players until ~ leaves the battlefield` | PAR-288 close (v1003): `any number of` targets with a distinct-controller group constraint; also the `when an exiled card enters under your control this way` head (PAR-303). |
+| Intellect Devourer | `each opponent exiles a card from their hand until ~ leaves the battlefield` | PAR-288 close (v1003): each opponent picks from their own hand with a source-leaves return; plus the any-colour cast rider (PAR-299). |
+
+### Continuous-static residue (PAR-289 close, PARSER_VERSION 1007)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Ekthi, Contaminator Priest | "Each Equipment you control has living weapon": a granted `living_weapon` is a bare slug, the RULE 702.92a trigger is built only for a printed keyword | refused through `UNGRANTABLE_FLAG_KEYWORDS`; see ENG-66 |
+| Don Andres, the Renegade | "Each creature you control but don't own gets ..." | needs a "controlled but not owned" filter (RULE 108.3) in `parse_object_phrase` |
+| Planar Nexus | "This land is every nonbasic land type" | needs an every-nonbasic-land-type type change (RULE 205.3i) |
+| Glittering Frost | "Enchanted land is snow" | supertype addition on the host; the mana rider is a separate clause |
+| Nylea's Presence | "Enchanted land is every basic land type in addition to its other types" | host every-basic-land-type addition (RULE 305.7) |
+| The Tarrasque | "has haste and ward {10} as long as it was cast" | gated self grant on a was-cast condition |
+| Khod, Etlan Shiis Envoy | "Other Homarids, Camarids, Cephalids, Nautilids, and Merfolk you control" | check `CREATURE_SUBTYPES` for Cephalid / Nautilid before blaming the row |
+| Spider-Ham, Peter Porker | 18-type ability-word list "Other Spiders, Boars, ... you control get +1/+1" | long coordinated type list after an ability word |
+| Rakdos Riteknife | quoted grant "Put a blood counter on Rakdos Riteknife": the folded `~` must stay the Equipment, but a granted ability's self-reference binds to the host | `rows_typed_groups` refuses a quote that puts a counter on `~`; needs a quote-rebind flag |
+| Hankyu | same as Rakdos Riteknife (aim counters on the Equipment) | shares the quote-rebind fix |
+| Withercrown | "Enchanted creature has base power 0" (power only) plus a quoted upkeep trigger | `rows_typed_groups` has `base_toughness` but no base-power-only clause |
+
+### Restriction residue (PAR-290 close, PARSER_VERSION 1009)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Lovestruck Beast // Heart's Desire | "can't attack unless you control a 1/1 creature" | condition vocabulary: a creature with exact P/T; the Adventure half is claimed |
+| Pipsqueak, Rebel Strongarm | "can't attack alone unless it has a +1/+1 counter on it" | "alone" combined with a counter condition |
+| Elephant Grass | "nonblack creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you" | `attack_tax` has an `attacker_filter` param; the row grammar has no filter slot |
+| Norn's Annex | "creatures can't attack you or planeswalkers you control unless their controller pays {W/P} for each of those creatures" | Phyrexian-mana tax amount |
+| Intimidation Bolt | "other creatures can't attack this turn" | group bar that exempts the damage target (the previous target as an excluded instance) |
+| Ember Gale | "creatures target player controls can't block this turn. ~ deals 1 damage to each white and/or blue creature that player controls" | "that player" must name the spell's target player; the group one-shot itself parses |
+| Concussive Bolt | "metalcraft: creatures controlled by that player or by that planeswalker's controller can't block this turn" | controller-of-the-target scope plus a metalcraft gate |
+| Rumbling Ruin | "count the +1/+1 counters on creatures you control. creatures your opponents control with power less than or equal to that number can't block this turn" | counted threshold carried between sentences |
+| Ironclaw Curse | "enchanted creature can't block creatures with power equal to or greater than the enchanted creature's toughness" | filter against the host's toughness (new relative key) |
+| Hand to Hand | "during combat, players can't cast instant spells or activate abilities that aren't mana abilities" | combat-gated cast bar plus a gated all-player activation bar |
+| Brand of Ill Omen | "enchanted creature's controller can't cast creature spells" | `cast_prohibition` scoped to the host's controller (`player_id` is stamped only at resolution today) |
+| Curse of Exhaustion | "enchanted player can't cast more than one spell each turn" | `cast_limit` scoped to the enchanted player |
+| Akron Legionnaire | "except for creatures named ~ and artifact creatures, creatures you control can't attack" | exception list in a group attack bar |
+| Ensnaring Bridge | "creatures with power greater than the number of cards in your hand can't attack" | dynamic threshold against a hand count |
+
+### Trigger-subject reference residue (ENG-64 close, PARSER_VERSION 1010)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Dual Nature | "its controller creates a token that's a copy of that creature"; "exile all tokens created with ~" | `copy_permanent` has no creator-is-the-subject's-controller param; tokens carry no created-by-source record (new `GameState` state). Line 2 now carries the trigger-subject reference |
+| Legion's End | "... and all other creatures that player controls with the same name as that creature. Then that player reveals their hand and exiles all cards with that name from their hand and graveyard" | controller-scoped name group in `target_group` (shared with Declaration in Stone, Banishment, Deputy of Detention) plus the hand-and-graveyard name exile (shared with Hour of Glory, Deicide) |
+
+### Recorded-referent residue (MEC-145 close, PARSER_VERSION 1018)
+
+Cards the MEC-145 cost / effect referent records reach but that still miss a different, one-card primitive. Clusters went to MEC-146 and MEC-169–172.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Endemic Plague | `destroy all creatures that share a creature type with the sacrificed creature. they can't be regenerated.` | group filter over the sacrificed creature's creature types (sibling of Sanguine Praetor's `exact_mana_value: sacrificed_cost`) |
+| Fatal Grudge | `each opponent chooses a permanent they control that shares a card type with the sacrificed permanent and sacrifices it.` | per-opponent choice filtered by the sacrificed permanent's card types |
+| Essence Burn | `~ deals 5 damage to target black or green creature or planeswalker. if that permanent would die this turn, exile it instead.` | the "exile it instead" rider does not arm when the damage sits in a `for_each`; pinned unclaimed in `test_mec145_cost_referents.py` |
+| Phyrexian Devourer | `when ~'s power is 7 or greater, sacrifice it.` | state trigger on own power (RULE 603.8); its exile-top-card cost referent already parses |
+| Void | `choose a number. destroy all artifacts and creatures with mana value equal to that number. then target player reveals their hand and discards all nonland cards with mana value equal to the number.` | choose-a-number referent for a group filter and a hand discard |
+| Public Execution | `destroy target creature an opponent controls. each other creature that player controls gets -2/-0 until end of turn.` | "that player" = the destroyed creature's controller, group pump excluding the target |
+| Arcbond | `choose target creature. whenever that creature is dealt damage this turn, it deals that much damage to each other creature and each player.` | delayed trigger on a chosen creature, re-dealing the damage |
+| Kogla and Yidaro | `when ~ enters, choose 1 — it gains trample and haste / it fights target creature you don't control; {2}{r}{g}, discard this card: destroy up to 1 target artifact or enchantment. shuffle this card into your library from your graveyard, then draw a card.` | ETB modal plus a hand-activated discard ability that shuffles itself back |
+
+### Attached-host, earlier-target and random-exile residue (PAR-323 to PAR-325 close, PARSER_VERSION 1023–1025)
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Writ of Passage | `whenever enchanted creature attacks, if its power is 2 or less, it can't be blocked this turn.` | `UnblockableEffect` has only a `previous_subject` mode and is not in the binder's attached-host retarget list; pinned unclaimed in `test_par323_attached_host_referents.py`. |
+| Obsessive Pursuit | `if x is three or more, ...` after a where-X count of permanents sacrificed this turn (PAR-324 close) | needs a condition on the bound where-X value; the reading must not become `x_paid`. |
+| Elkin Lair | `at the beginning of each player's upkeep, that player exiles a card at random from their hand. the player may play that card this turn. at the beginning of the next end step, if the player hasn't played the card, they put it into their graveyard.` (PAR-325 close) | random hand exile by the active player (not the controller) plus a next-end-step delayed graveyard move of the uncast card. |
+
+### Library residue (PAR-292 re-scope, PARSER_VERSION 1054)
+
+Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks them. Not each re-checked with `parser_probe.py blocked` yet; recheck shared shapes before hand-authoring. Multi-card mechanisms stay on PAR-292; pile cards moved to PAR-298, outside-the-game cards to MEC-144.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Demonlord Belzenlok | repeat-until loop with a put-into-hand-this-way tally | from the PAR-284 close |
+| March of Burgeoning Life | "may exile any number of green cards" additional cost with cost reduction; strict "mana value less than x" on a target | from the PAR-285 close |
+| Night Dealings | "put that many theft counters" trigger plus exact "mana value x" fed by a remove-counters cost |  |
+| Ringsight | "shares a color with a legendary creature you control" search criterion |  |
+| Wild Pair | "same total power and toughness" as the cast creature |  |
+| The Earth King | "up to that many" after an attack-count trigger | from the PAR-321 close |
+| Savage Order | rider "it gains indestructible until your next turn" on the found card |  |
+| Pyre of Heroes | "shares a creature type with the sacrificed creature" plus a mana-value bound |  |
+| Light-Paws, Emperor's Voice | "less than or equal to that aura and with a different name than each aura you control" |  |
+| Curse of Misfortunes | "doesn't have the same name as a curse attached to enchanted player" |  |
+| Instrument of the Bards | "if that card is legendary, create a treasure token" (conditional on the found card) |  |
+| Hibernation's End | head "whenever you pay ~'s cumulative upkeep" | body parses |
+| Prishe's Wanderings | rider "when you search your library this way, put a +1/+1 counter on target creature you control" |  |
+| Dance of the Tumbleweeds | spree modes around the search |  |
+| Canoptek Wraith | "you may pay {3} and sacrifice it. If you do, ..." (mana plus self-sacrifice optional cost) | inner choose-then-search is built |
+| Arcum Dagsson | "target artifact creature's controller sacrifices it" | search sentence parses |
+| Incoming! | "any number of artifact, creature, enchantment, and/or land cards" (one count, four-way type list) |  |
+| Collective Voyage | X = total mana paid by each player |  |
+| Rootweaver Druid | split control of the found cards |  |
+| Scholarship Sponsor | count from a land-count difference |  |
+| Settle the Wreckage | "that many" from exiled attackers |  |
+| Turtle Tracks | "any number of target players" |  |
+| Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
+| Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |
+| Pir's Whim | friend / foe split |  |
+| Clever Combo | "a host card or a card with augment" (keyword-quality union) |  |
+| Hero's Uncle | "a legendary team-up creature" has no "card" noun |  |
+| The Champion | negated type "that isn't a creature" plus its reveal-put-shuffle tail |  |
+| Thawing Glaciers | delayed "return at the beginning of the next cleanup step" (cleanup grants no priority, RULE 514.3a) |  |
+| Ruin in Their Wake | may-gated conditional put "if you control a land named wastes" |  |
+| Verdant Mastery | puts under an opponent's control; kicker-cost condition |  |
+| Signal the Clans | random choice among 3 cards with different names |  |
+| Mitotic Manipulation | "same name as a permanent" |  |
+| Hew the Entwood | sacrifice-count X plus a chosen subset, two destinations |  |
+| Zimone's Experiment | two destinations by type among the revealed cards |  |
+| Expand the Sphere | "fewer than 2 ... the difference" proliferate |  |
+| Preferred Selection | sacrifice-and-pay, then pick |  |
+| Depala, Pilot Exemplar | pay {x}, then reveal x |  |
+| Sandstalker Moloch | intervening-if "an opponent cast a blue and/or black spell this turn" |  |
+| Zurgo and Ojutai | extra "you may return 1 of those dragons" tail |  |
+| Inferno Hellion | intervening-if "~ attacked or blocked this turn" |  |
+| Etrata, the Silencer | "loses the game if they own 3 or more exiled cards with hit counters" |  |
+| Fblthp, the Lost | "if your library has no cards in it, you win the game" |  |
+| Rishadan Pawnshop | target kind "nontoken permanent you control" for an owner shuffle |  |
+| Riftsweeper | target kind "face-up exiled card" |  |
+| Oracle of Tragedy | minimum mana value on a graveyard target pick, plus its modal head |  |
+| Trenzalore Clocktower | cost "remove 12 time counters from ~ and exile it" |  |
+| Time Spiral | "untap up to 6 lands" |  |
+| Jace, the Mind Sculptor | -12 (exile library, shuffle hand into library) |  |
+| Symbiote Spider-Man | graveyard ability "Find New Host ... It gains this card's other abilities" | dig parses |
+| Choco, Seeker of Paradise | "that many" = attacking-bird count, mixed pick |  |
+| Duelist's Flame | granted trigger with a quoted dig |  |
+| Glimpse of Tomorrow | "reveal that many" = the shuffled permanents |  |
+| Ryan Sinclair | free cast only "if it's a spell with mana value less than or equal to Ryan's power" |  |
+| Bismuth Mindrender | cast by paying life equal to the mana value |  |
+| Black Widow, Super Spy | counter-or-cast window with mana of any type |  |
+| Sunbird's Invocation | "from among cards revealed this way" plus X = that spell's mana value under a cast trigger |  |
+| Svella, Ice Shaper | Icy Manalith token ability | dig parses |
+| Aetherworks Marvel | energy clauses | dig parses |
+| Kamahl's Druidic Vow | announced X under the spell plus "land and/or legendary permanent" union |  |
+| Kayla's Reconstruction | "up to X" pick count |  |
+| Birthing Ritual | X = 1 plus the sacrificed creature's mana value |  |
+| Ayesha Tanaka, Armorer | "less than or equal to ~'s power" cap | cached text: re-check |
+| Coralhelm Chronicler | "a card with a kicker ability" |  |
+| Overgrown Pest | "a land or double-faced card" |  |
+| Radagast the Brown | "doesn't share a creature type with a creature you control" |  |
+| Getaway Barrel | "a random creature card" |  |
+| Kotose, the Silent Spider | "for as long as you control Kotose, you may play one of the exiled cards" over the sweep's finds |  |
+| Deadly Cover-Up | non-targeted pick from an opponent's graveyard behind the evidence condition |  |
+| Haunting Echoes | "exile all cards from target player's graveyard other than basic land cards" | engine side exists |
+| Gifts Given | library owner chooses; chosen to their graveyard, rest to the caster's hand |  |
+| Emergent Ultimatum | split with an exile pile plus a free-cast window over the other pile |  |
+| Jhoira, Ageless Innovator | "lose life equal to that permanent's mana value"; historic criteria misread (all permanent types) | hand-authored |
+| M'Odo, the Gnarled Oracle | announced-X hit quality plus a command-zone activation restriction |  |
+| Thought Dissector | "an artifact card or X cards, whichever comes first" plus conditional sacrifice |  |
+| Tasha, the Witch Queen | counted dig of three creature cards plus its +1 / -2 |  |
+| Thoughtpicker Witch | exile pick from a target opponent's top cards |  |
+| Kayla's Music Box | look-at-top rest action |  |
+| Agency Outfitter | two named slots over graveyard, hand and library |  |
+| Fang-Druid Summoner | "with no abilities" card predicate |  |
+| Mishra, Artificer Prodigy | "same name as that spell" referent of a cast trigger |  |
+| Say Its Name | graveyard-exile cost with "other cards named ~" |  |
+| Arachnus Spinner | "attached to target creature" needs a target the search's then_specs cannot bind; "tap an untapped spider" cost |  |
+| Mwonvuli Beast Tracker | "Shuffle and put that card on top" as its own sentence after a reveal |  |
+| Loyal Inventor | "into hand if you control an assassin, otherwise on top" after the shuffle |  |
+| Rootwater Thief | "you may pay {2}. If you do, search that player's library" wrapper |  |
+| Knowledge Exploitation | casts from the library, never exiled |  |
+| Naughty // Nice | hand destination from another player's library |  |
+| Earwig Squad | prowl (alternative cost and a prowl-paid flag) — PAR-299 | search sentence parses |
+| Thada Adel, Acquisitor / Grinning Totem | "you may play that card" after a search-exile (`cast_window_exiled_pool` not wired to a search's finds) | pair |
+| Scheming Symmetry / Varragoth, Bloodsky Sire | shuffle-then-put-on-top by another player | pair |
+| Pattern of Rebirth / Verdant Succession | "that creature's controller" with a dying-trigger referent | pair |
+| Hide in Plain Sight / Write into Being | cloak / manifest a looked-at card | pair |
+| Azami's Familiar / Aladdin's Lamp | draw-replacement head (replacement family, PAR-294) | pair |
+| Stream of Thought / Tamiyo, Seasoned Scholar | untargeted "shuffle up to N cards from your graveyard" pick | pair |
+| Plunge into Darkness / Karn, Living Legacy | "pay any amount, then look at that many" | pair |
+| Genesis Hydra / Knickknack Ouphe | announced X read under a cast / enters trigger | pair |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)
 

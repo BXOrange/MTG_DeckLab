@@ -103,7 +103,7 @@ def _extra_etb_spec():
 def test_named_counter_entry_clause_parses():
     spec = _extra_etb_spec()
     assert (spec.params["kind"], spec.params["count"], spec.params["filter"]) == (
-        "charge", 2, {"subtype": "Spacecraft"})
+        "charge", 2, {"subtype": "spacecraft"})
 
 
 @pytest.mark.parametrize("text", [

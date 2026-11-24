@@ -366,7 +366,10 @@ class PaymentChoicesMixin:
         outer_incarnation = self.context.resolving_source_incarnation
         self.context.resolving_source_incarnation = pending.get("source_incarnation")
         outer_revealed = self.context.revealed_card
+        outer_revealed_incarnation = self.context.revealed_card_incarnation
         self.context.revealed_card = pending.get("revealed_card")
+        if pending.get("revealed_card_incarnation") is not None:
+            self.context.revealed_card_incarnation = pending["revealed_card_incarnation"]
         try:
             if not captured:
                 self._apply_effect_specs(specs, pending["source"], targets)
@@ -381,6 +384,7 @@ class PaymentChoicesMixin:
             self.context.acting_player_id = outer_acting
             self.context.trigger_event = outer_event
             self.context.revealed_card = outer_revealed
+            self.context.revealed_card_incarnation = outer_revealed_incarnation
             self.context.resolving_source_incarnation = outer_incarnation
 
     def _finish_paid_cost_then(self, pending: dict[str, Any]) -> None:
@@ -396,7 +400,7 @@ class PaymentChoicesMixin:
 
     def _request_exile_source_then(
         self, player: Player, source: GameObject, then_trigger_specs: list[dict],
-        prompt: Optional[str] = None, event: Optional[GameEvent] = None,
+        prompt: Optional[str] = None, event: Optional[GameEvent] = None, required: bool = False,
     ) -> None:
         """Offer ``You may exile this card. If you do, ...`` during a
         resolution.  This is intentionally separate from ``ActivationCost``:
@@ -404,6 +408,11 @@ class PaymentChoicesMixin:
         The follow-up is a reflexive trigger so its target is chosen only
         after the source was actually exiled (RULE 603.11)."""
         if source.zone != Zone.GRAVEYARD:
+            return
+        if required:
+            # RULE 603.12: "Exile it. When you do, ..." -- no choice; the payoff's targets are chosen afterwards.
+            self.exile(source)
+            self.enqueue_reflexive_trigger([dict(d) for d in then_trigger_specs], source, event)
             return
         self._pending_exile_source_then = {
             "player_id": player.id,
@@ -446,6 +455,7 @@ class PaymentChoicesMixin:
         condition: Optional[dict[str, Any]] = None,
         source_incarnation: Optional[int] = None,
         parent_ability: Optional[Any] = None,
+        carried_objects: Optional[list[Any]] = None,
     ) -> None:
         """RULE 603.12: "`<effect with its own condition>`. **When you
         do**, `<targeted payoff>`." fires the payoff as its *own* fresh
@@ -488,6 +498,11 @@ class PaymentChoicesMixin:
             [EffectSpec(type=d["type"], params=dict(d.get("params") or {}), condition=d.get("condition")) for d in effect_specs],
             source,
         )
+        if carried_objects:
+            # PAR-286: the payoff's "it" is the antecedent's object (`CarriedAntecedentEffect`), seeded first.
+            from ..effects.choices_actions import CarriedAntecedentEffect  # function-scoped: effects<->rules cycle
+
+            built = [CarriedAntecedentEffect(carried_objects, source), *built]
         modal_options = None
         modal = dict(modes or {})
         if modal:
@@ -637,6 +652,7 @@ class PaymentChoicesMixin:
         source: Optional[GameObject],
         scope: str = "each_player",
         effect_targets: str = "decliner",
+        only_ids: Optional[list[str]] = None,
     ) -> None:
         """RULE 101.4's APNAP mass "unless" (PAR-13 — "Each player loses N
         life unless they `<pay cost>`.", Bellowing Mauler/Lim-Dûl's Hex/
@@ -679,6 +695,8 @@ class PaymentChoicesMixin:
             # "At the beginning of combat on each opponent's turn, **they** may pay {2}." (Jace, Multiverse Architect) —
             # only the active player is asked.
             and (scope != "active_player" or (start + i) % n == start)
+            # PAR-320: a single named asked player (the trigger event's player, or the controller).
+            and (only_ids is None or self.state.players[(start + i) % n].id in only_ids)
         ]
         self._pending_each_player_pay_or = {
             "remaining_ids": order,

@@ -30,7 +30,7 @@ def _put(eng, name, creature=True, keywords=None, controller="p1"):
 
 
 def _static(source, params):
-    ab = StaticAbility("ability", affects="all_creatures", params=params, source=source)
+    ab = StaticAbility("ability", affects={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, params=params, source=source)
     source.static_effects.append(ab)
 
 

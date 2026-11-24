@@ -12,6 +12,8 @@ from ..clause_reading import ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
 from ..emblem_bodies import emblem_body_spec
+from ..named_groups import OF_YOU, battlefield_group
+from .reveal_until_other import parse_reveal_until_other
 from ..emblem_statics import emblem_static_effect_specs
 from ..static_handlers import static_effect_specs, type_addition_params, quoted_ability_grant_effects_list, flag_keywords_and_ward
 from ..subgrammars import (
@@ -189,6 +191,9 @@ def _inline_create_token_params(m: re.Match[str]) -> Optional[dict]:
     if m.groupdict().get("tapped_attacking") or m.groupdict().get("pre_ta"):  # RULE 508.4 — enters tapped and attacking
         params["tapped"] = True
         params["attacking"] = True
+        if m.groupdict().get("atk_defender") and not m.groupdict().get("per_opp"):
+            # PAR-286, RULE 508.4: "attacking that player" is the attack event's defending player.
+            params["attacks_event_player"] = True
     if m.groupdict().get("atk_walker"):
         params["defender_planeswalker"] = True
     tname = m.groupdict().get("tname")
@@ -634,16 +639,22 @@ _THIS_WAY_BODY_PRONOUN_RE = re.compile(r"\b(?:it|its|that|them|those|their|they)
 def _for_each_this_way(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     body = m.group("body")
     its_controller = body.startswith("its controller ")
-    if its_controller:
-        body = body[len("its controller "):]
-    elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
-        return None
-    effects = match_clause_once(body, reading=reading.only())
+    dig = parse_reveal_until_other(body, iterating=True) if its_controller else None
+    if dig is not None:
+        # PAR-292 M14: "its controller reveals cards from the top of their library until they reveal a creature card,
+        # puts that card onto the battlefield, then shuffles the rest" (Chaos Mutation): that item's controller digs.
+        effects = dig
+    else:
+        if its_controller:
+            body = body[len("its controller "):]
+        elif _THIS_WAY_BODY_PRONOUN_RE.search(body):
+            return None
+        effects = match_clause_once(body, reading=reading.only())
     if not effects:
         return None
     if '"target_kind"' in json.dumps([e.to_dict() for e in effects], default=str):
         return None
-    if its_controller:
+    if its_controller and dig is None:
         if (
             len(effects) != 1 or effects[0].type != "create_token"
             or effects[0].params.get("creators") is not None
@@ -1230,6 +1241,12 @@ _EMBLEM_RE = re.compile(
 _EMBLEM_UNSUPPORTED_SUBJECTS: frozenset[str] = frozenset(
     {"self", "attached_permanent", "self_or_attached_permanent"}
 )
+def _emblem_unsupported_affects(affects: object) -> bool:
+    """Whether ``affects`` names a selector an emblem can't host; a structured group selector (a dict, ENG-60) names
+    battlefield permanents by filter and is always hostable."""
+    return isinstance(affects, str) and affects in _EMBLEM_UNSUPPORTED_AFFECTS
+
+
 _EMBLEM_UNSUPPORTED_AFFECTS: frozenset[str] = frozenset(
     {"self", "attached_permanent", "other_creatures_you_control"}
 )
@@ -1265,7 +1282,7 @@ def emblem_ability_spec(inner: str) -> Optional[dict]:
         if condition.get("subject") == "group" and condition.get("other"):
             return None
     elif spec.ability_kind == "static":
-        if any(e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS for e in spec.effects):
+        if any(_emblem_unsupported_affects(e.params.get("affects")) for e in spec.effects):
             return None
     elif spec.ability_kind == "activated":
         # RULE 114.4 also permits an emblem's own activated ability (MEC-8) —
@@ -1277,7 +1294,7 @@ def emblem_ability_spec(inner: str) -> Optional[dict]:
         if any(
             e.params.get("target_kind") in _EMBLEM_UNSUPPORTED_SUBJECTS
             or e.params.get("selector") in _EMBLEM_UNSUPPORTED_SUBJECTS
-            or e.params.get("affects") in _EMBLEM_UNSUPPORTED_AFFECTS
+            or _emblem_unsupported_affects(e.params.get("affects"))
             for e in spec.effects
         ):
             return None
@@ -1334,7 +1351,7 @@ _COLOR_CREATURES_UNBLOCKABLE_RE = compile_clause(
 def _color_creatures_unblockable(m: re.Match[str]) -> list[EffectSpec]:
     color = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}[m.group("color").lower()]
     return [EffectSpec("combat_restriction_this_turn", {
-        "selector": "creatures_you_control", "selector_params": {"color": [color]},
+        "selector": battlefield_group(OF_YOU, color=color),
         "restriction": {"kind": "only_blocked_by", "filter": {"color": color}},
     })]
 
@@ -1907,8 +1924,7 @@ def _animate_all_lands(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     of = "you" if controller else "any"
     subtype = {"plains": "plains", "islands": "island", "swamps": "swamp",
                "mountains": "mountain", "forests": "forest"}.get(subject)
-    affects = ({"zone": "battlefield", "of": of, "filter": {"card_type": "land", "subtype": subtype}}
-               if subtype else "lands_you_control" if controller else "all_lands")
+    affects = battlefield_group(of, "land", **({"subtype": subtype} if subtype else {}))
     params["static"] = {**params["static"], "params": {**params["static"]["params"], "affects": affects}}
     params.update({"duration": _animation_duration(m), "lock_group": True,
                    "target_kind": "player" if controller == " target player controls" else None})
@@ -1929,6 +1945,12 @@ def _extra_etb_counter_this_turn(text: str) -> Optional[list[EffectSpec]]:
 
 
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "counter_then_goad_target_creature",
+        compile_clause(r"put a \+1/\+1 counter on target creature and goad it"),
+        lambda m: [EffectSpec("add_counters", {"target_kind": "creature", "kind": "+1/+1", "amount": 1}),
+                   EffectSpec("goad", {"previous_subject": True})],
+    ),
     EffectHandler(
         "you_gain_life_eq_that_creature_mv",
         _YOU_GAIN_LIFE_EQ_THAT_CREATURE_MV_RE,

@@ -4,7 +4,9 @@ from __future__ import annotations
 from typing import Any, Optional
 from ...models.game.game_object import GameObject
 from ...models.game.player import Player
-from ..costs import DISCARD_HAND, PAY_LIFE_HALF_UP, REMOVE_COUNTERS_ANY_KIND, ActivationCost
+from ..costs import (
+    DISCARD_HAND, EXILE_FROM_GRAVEYARD_X, PAY_LIFE_HALF_UP, REMOVE_COUNTERS_ANY_KIND, ActivationCost,
+)
 from .. import continuations
 from .misc_helpers import (
     _names_other_word,
@@ -49,6 +51,11 @@ class PlayerCostsMixin:
             return False
         if cost.discard and cost.discard != DISCARD_HAND and len(self._discard_pool(player, cost, source)) < cost.discard:
             return False
+        if cost.exile_from_graveyard and (
+            cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X
+            or len(self._graveyard_exile_pool(player, cost)) < cost.exile_from_graveyard
+        ):
+            return False  # RULE 118.3: unpayable without enough graveyard cards; an X count needs an announcement
         if cost.sacrifice and not any(
             _matches_permanent_type(obj, cost.sacrifice)
             and not (obj is source and _names_other_word(cost.sacrifice))
@@ -61,6 +68,7 @@ class PlayerCostsMixin:
             if sum(
                 1 for obj in self.state.permanents_controlled_by(player.id)
                 if _matches_permanent_type(obj, word) and not obj.cant_be_sacrificed_this_turn
+                and (not cost.sacrifice_filter or self._matches_sacrifice_pool_filter(obj, cost.sacrifice_filter))
             ) < needed:
                 return False
         from ..land_drop_costs import can_pay_land_drops
@@ -92,6 +100,10 @@ class PlayerCostsMixin:
         if source is not None and self._source_counter_removal(source, cost) is False:
             return False
         return True
+    def _matches_sacrifice_pool_filter(self, obj, filters):
+        from ..combat import matches_object_filter
+        return matches_object_filter(obj, filters, state=self.state)
+
     def _source_counter_removal(
         self, source: GameObject, cost: ActivationCost
     ) -> Optional[tuple[str, int]]:
@@ -115,11 +127,7 @@ class PlayerCostsMixin:
     def _can_sacrifice_or_discard(self, player: Player) -> bool:
         """Whether ``player`` could pay a `sacrifice_or_discard` cost right
         now — a nonland permanent to sacrifice, or a card in hand."""
-        has_nonland = any(
-            _matches_permanent_type(obj, "nonland")
-            for obj in self.state.permanents_controlled_by(player.id)
-        )
-        return has_nonland or bool(player.hand)
+        return bool(player.hand or self._sacrifice_candidates(player, "nonland"))
     def _discard_pool(
         self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
     ) -> list[GameObject]:
@@ -129,6 +137,15 @@ class PlayerCostsMixin:
 
         return GameEngine(self.state, rules=self)._discard_cost_pool(
             player, None, cost.discard_filter, getattr(source, "name", None),
+        )
+
+    def _graveyard_exile_pool(self, player: Player, cost: ActivationCost) -> list[GameObject]:
+        """The ``player``'s graveyard cards that can pay ``cost``'s "exile a card from your graveyard" component
+        (filter-narrowed), the shared `_graveyard_exile_cost_candidates` pool."""
+        from ..game_engine import GameEngine  # function-scoped: import cycle
+
+        return GameEngine(self.state, rules=self)._graveyard_exile_cost_candidates(
+            player, len(player.graveyard), cost.exile_from_graveyard_filter,
         )
 
     def _pay_player_cost(
@@ -164,13 +181,21 @@ class PlayerCostsMixin:
             )
         elif cost.discard:
             self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+        if cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X:
+            # RULE 118.3 / 601.2b-style: the payer picks which graveyard cards are exiled (forced when only that
+            # many qualify); the "if you do" half waits for the pick like the discard chooser above.
+            self._request_choose_objects(
+                player, self._graveyard_exile_pool(player, cost), "exile", count=cost.exile_from_graveyard,
+                prompt="Wähle eine Karte aus deinem Friedhof zum Exilieren", source=source,
+            )
         if cost.sacrifice:
             # "another"/"other …": the source is not a legal pick (RULE 109.5).
             self.sacrifice(
                 player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None, source=source,
             )
         if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
-            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source)
+            self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source,
+                           object_filter=cost.sacrifice_filter)
         if cost.pay_land_drops:
             player.land_drops_given_up_this_turn += cost.pay_land_drops
         if cost.pay_energy:
@@ -202,10 +227,7 @@ class PlayerCostsMixin:
         choice below, then `_resume_sacrifice_or_discard` dispatches
         into the existing interactive `sacrifice`/`discard_choice`
         machinery (each already its own "which one" chooser)."""
-        can_sacrifice = any(
-            _matches_permanent_type(obj, "nonland")
-            for obj in self.state.permanents_controlled_by(player.id)
-        )
+        can_sacrifice = bool(self._sacrifice_candidates(player, "nonland"))
         can_discard = bool(player.hand)
         if can_sacrifice and can_discard:
             self.open_choice({

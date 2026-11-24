@@ -192,7 +192,7 @@ def test_wrath_of_god_destroys_every_creature_and_ignores_regeneration():
     theirs = _bound_battlefield_obj(state, _card("Relic Seeker"), controller="p2")
     eng.rules.regenerate(theirs)  # a shield up — still shouldn't save it
 
-    DestroyEffect(selector="all_creatures", can_be_regenerated=False).apply(eng.rules.context)
+    DestroyEffect(group={"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, can_be_regenerated=False).apply(eng.rules.context)
 
     assert mine not in state.battlefield
     assert theirs not in state.battlefield

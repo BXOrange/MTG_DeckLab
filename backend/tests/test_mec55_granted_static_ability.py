@@ -31,11 +31,13 @@ def test_static_inner_body_emits_grant_static_ability():
     assert specs is not None and len(specs) == 1
     s = specs[0]
     assert s.type == "grant_static_ability"
-    assert s.params["affects"] == "commander_creatures_you_own"
+    assert s.params["affects"] == {"zone": "battlefield", "of": "any",
+                         "filter": {"card_type": "creature", "is_commander": True, "owned_by_you": True}}
     (inner,) = s.params["static_specs"]
     assert inner["type"] == "anthem"
-    assert inner["params"]["power"] == 2 and inner["params"]["tokens"] is True
-    assert inner["params"]["affects"] == "creatures_you_control"
+    assert inner["params"]["power"] == 2
+    assert inner["params"]["affects"] == {
+        "zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "token": True}}
 
 
 def test_self_scoped_inner_static_resolves_per_granted_to_object():

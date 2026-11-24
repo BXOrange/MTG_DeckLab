@@ -14,7 +14,7 @@ def _gold_forged_thopteryx() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("grant_keyword", {"affects": "legendary_permanents_you_control", "ward_cost": "{2}"})],
+            [EffectSpec("grant_keyword", {"affects": {"zone": "battlefield", "of": "you", "filter": {"legendary": True}}, "ward_cost": "{2}"})],
         ),
     ]
 

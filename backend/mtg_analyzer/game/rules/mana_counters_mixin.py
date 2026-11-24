@@ -184,6 +184,12 @@ class ManaCountersMixin:
     #: but "any type that permanent produced" (Kinnan) can, since a Basalt
     #: Monolith produces exactly that.
     _MANA_TYPE_LABELS: dict[str, str] = {**_ANY_COLOR_LABELS, "C": "Farblos"}
+    @continuations.choice('copied_mana_option', answer=continuations.ANSWER_STR, rule='707.10')
+    def _resume_copied_mana_option(self, choice, answer):
+        from ..effects.copied_mana_ability import choose_option
+
+        choose_option(self, answer)
+
     def add_mana_any_color(
         self, player: Player, colors: Optional[list[str]] = None, amount: int = 1,
         keep_until: Optional[str] = None, restriction: Optional[dict] = None,
@@ -270,6 +276,7 @@ class ManaCountersMixin:
             # One pick, several recipients ("target creature and each other creature that shares a color
             # with it", MEC-126) — `target_id` stays the first so a single-target reader is unchanged.
             "target_ids": [target.instance_id, *(o.instance_id for o in (also or []))],
+            "target_visits": [(obj.instance_id, obj.zone_incarnation) for obj in [target, *(also or [])]],
             "prompt": "Farbe für den Schutz wählen",
             "options": options,
         })
@@ -282,10 +289,13 @@ class ManaCountersMixin:
         """Answer a pending `grant_protection_color` choice — a mandatory pick
         (an unrecognized/missing answer defaults to the first colour "W",
         the same treatment `_resume_add_mana_any_color` gives)."""
-        quality = answer if answer in self._ANY_COLOR_LABELS or answer == "colorless" else "W"
+        valid_ids = {option["id"] for option in choice["options"]}
+        quality = answer if answer in valid_ids else choice["options"][0]["id"]
+        visits = dict(choice.get("target_visits") or [])
         for instance_id in choice.get("target_ids") or [choice["target_id"]]:
             target = self.state.find_object(instance_id)
-            if target is None:
+            if (target is None or target.zone != Zone.BATTLEFIELD
+                    or target.zone_incarnation != visits.get(instance_id, target.zone_incarnation)):
                 continue  # RULE 608.2b: target left — the grant simply does nothing
             target.temp_protections.add(quality)
     def random_int(self, n: int) -> int:
@@ -512,8 +522,11 @@ class ManaCountersMixin:
                 highest=result == sides,
             ))
         return kept
-    def set_tapped(self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None) -> None:
-        """Tap or untap a permanent (RULE 701.21 / 701.22) — the choke point
+    def set_tapped(
+        self, obj: GameObject, tapped: bool = True, reason: Optional[str] = None,
+        tapper_id: Optional[str] = None,
+    ) -> None:
+        """Tap or untap a permanent (RULE 701.26a/b) — the choke point
         for a genuine tap/untap transition (attacking, a tap cost, a mana
         ability), so it's also where a "becomes tapped" trigger (RULE 603.2,
         e.g. Dionus, Elvish Archdruid's granted ability) fires from. Not used
@@ -539,6 +552,13 @@ class ManaCountersMixin:
         ability transition, which fires this same event with no reason at
         all. Carried on the `TAPPED` event only; every other tap source
         passes ``None`` and behaves exactly as before.
+
+        ``tapper_id`` (ENG-63, RULE 701.26a) is the player who *performed* the tap:
+        the controller of the resolving spell or ability that tapped it, or the
+        player paying a cost that taps it. It is not the permanent's controller
+        ("you tap an untapped creature an opponent controls" needs both). ``None``
+        means no tapper is known (a combat tap, a replacement, a tap by a rule),
+        and a trigger that asks "who tapped it" fails closed on ``None``.
         """
         was_tapped = obj.tapped
         # RULE 122.1c: "If a permanent with a stun counter on it would become
@@ -565,9 +585,12 @@ class ManaCountersMixin:
                     instance_id=obj.instance_id,
                     instance_zone_incarnation=obj.zone_incarnation,
                     reason=reason,
+                    tapper_id=tapper_id,
                 )
             )
         elif not tapped and was_tapped:
+            from .. import durations
+            durations.sweep(self.state, "recompute")
             self.state.fire_event(
                 GameEvent(
                     EventType.UNTAPPED,
@@ -577,7 +600,8 @@ class ManaCountersMixin:
                 )
             )
     def add_counters(
-        self, obj: GameObject, amount: int, kind: str = "+1/+1", source: Optional[GameObject] = None
+        self, obj: GameObject, amount: int, kind: str = "+1/+1", source: Optional[GameObject] = None,
+        *, as_enters: bool = False,
     ) -> None:
         """Put ``amount`` counters of ``kind`` on ``obj`` (RULE 122).
 
@@ -630,7 +654,7 @@ class ManaCountersMixin:
             if removed:
                 # RULE 122.6 / 603.2c: "N or more counters are removed" reads the whole removal, once.
                 self.state.fire_event(GameEvent(EventType.COUNTERS_REMOVED, amount=removed, **snapshot))
-            if removed and kind == "time" and before == removed and obj.zone == Zone.EXILE:
+            if removed and kind == "time" and before == removed and obj.zone in (Zone.BATTLEFIELD, Zone.EXILE):
                 self.state.fire_event(GameEvent(EventType.LAST_TIME_COUNTER_REMOVED, **snapshot))
             return
 
@@ -660,6 +684,9 @@ class ManaCountersMixin:
             "kind": "permanent_counters", "instance_id": obj.instance_id,
             "visit": obj.zone_incarnation, "counter_kind": kind, "amount": amount,
             "object": obj,  # prospective entrants may not be in a zone yet
+            # Entry counters belong to the upcoming battlefield visit (RULE
+            # 122.6), not the stack/graveyard visit used to prepare entry.
+            "history_incarnation": obj.zone_incarnation + int(as_enters and obj.zone != Zone.BATTLEFIELD),
         })
 
     def _finish_permanent_counters(self, receipt: dict, resolved: Optional[GameEvent]) -> None:
@@ -672,11 +699,22 @@ class ManaCountersMixin:
         if continuous.counters_prohibited_for(self.state, obj, kind):
             return
         amount = resolved.get("amount", receipt["amount"])
+        before = obj.counters.get(kind, 0)
         if kind == "+1/+1":
             obj.plus_one_counters += amount
         else:
             obj.add_counters(kind, amount)
+        # RULE 400.7 / 122.6: history belongs to this recipient's zone visit,
+        # including counters put on a prospective permanent as it enters.
+        resolved["target_zone_incarnation"] = receipt["history_incarnation"]
         self.state.fire_event(resolved)
+        if kind == "lore" and obj.card.is_saga and obj in self.state.permanents():
+            # RULE 715.2b: putting lore counters on a Saga by an effect
+            # triggers every chapter whose threshold this placement crosses.
+            for chapter in range(before + 1, obj.counters.get("lore", 0) + 1):
+                self.state.fire_event(GameEvent(EventType.SAGA_CHAPTER,
+                    object=obj.name, instance_id=obj.instance_id,
+                    controller_id=obj.controller_id, chapter=chapter))
 
     def add_player_counters(
         self, player: Player, amount: int, kind: str = "poison", source: Optional[GameObject] = None
@@ -740,13 +778,17 @@ class ManaCountersMixin:
         to finish — the effect, the targets its own RULE 115 spec already
         gathered, and the RULE 608.2 referent a "put … on it" reads
         (`previous_targets`), the same parking `pay_cost_then` does."""
-        controller_id = getattr(effect.source, "controller_id", None)
+        from ..effects.core import _controller_of
+        controller = _controller_of(effect.source, context)
+        controller_id = controller.id if controller is not None else None
         if controller_id is None or not effect.kind_options:
             return
-        self._pending_counter_kind = {
+        self.state.pending_counter_kind = {
             "effect": effect,
             "targets": list(targets or []),
             "previous_targets": list(context.previous_targets),
+            "target_visits": {obj.instance_id: obj.zone_incarnation for obj in (targets or [])
+                              if hasattr(obj, "instance_id")},
         }
         self.open_choice({
             "kind": "counter_kind",
@@ -763,7 +805,7 @@ class ManaCountersMixin:
         by running a copy of the parked `AddCountersEffect` with that option's
         kind/amount. Mandatory (no "decline" option), so a missing or unknown
         answer takes the first option, as every other mandatory pick here does."""
-        pending, self._pending_counter_kind = self._pending_counter_kind, None
+        pending, self.state.pending_counter_kind = self.state.pending_counter_kind, None
         if pending is None:
             return
         effect: AddCountersEffect = pending["effect"]
@@ -773,10 +815,15 @@ class ManaCountersMixin:
         chosen.kind_options = None
         chosen.kind = picked["kind"]
         chosen.amount = picked["count"]
+        targets = [obj for obj in pending["targets"]
+                   if getattr(obj, "zone_incarnation", None) == pending.get("target_visits", {}).get(
+                       getattr(obj, "instance_id", None), getattr(obj, "zone_incarnation", None))]
+        if pending["targets"] and not targets:
+            return
         saved = self.context.previous_targets
         self.context.previous_targets = list(pending["previous_targets"])
         try:
-            chosen.apply(self.context, pending["targets"] or None)
+            chosen.apply(self.context, targets or None)
         finally:
             self.context.previous_targets = saved
         self.check_state_based_actions()

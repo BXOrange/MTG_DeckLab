@@ -137,6 +137,8 @@ def _slug(name: str) -> str:
 # in `_auto_regex` since it's a single-keyword override, not a shape-wide rule.
 
 _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
+    # RULE 702.82a: an ability on the entrant, never one mentioned in an effect.
+    "devour": re.compile(r"^devour[ \t]+(?P<n>\d+)(?=[ \t]*(?:\(|[,.]|$))", re.I | re.M),
     # RULE 702.185a: the card's own Warp cost is on its keyword line.
     # A preceding grant ("cards in your hand have warp {3}") must not
     # replace that cost; a non-mana rider must not be silently discarded.
@@ -162,7 +164,8 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     "hexproof": re.compile(
         r"hexproof from (?P<quality>[a-z][a-z ]*?)(?=[.,;\n)]|$| and |\s\()", re.I
     ),
-    # RULE 702.5 — "Enchant <what it can be attached to>". ``quality`` stops
+    # RULE 702.5 — "Enchant <what it can be attached to>" (PAR-323: a hyphen is part of the quality, "non-Wall creature").
+    # ``quality`` stops
     # before a trailing controller clause ("... you control" / "... you
     # don't control" / "... an opponent controls" — Betrayal, MEC-63 bug
     # report 2026-09-04) so it stays the bare type ("creature"), not the
@@ -175,7 +178,7 @@ _SPECIAL_REGEX: dict[str, re.Pattern[str]] = {
     # stopping it from enchanting its own creature with a "you don't
     # control" Aura before this was captured at all.
     "enchant": re.compile(
-        r"\benchant\s+(?P<quality>[a-z][a-z ]*?)"
+        r"\benchant\s+(?P<quality>[a-z][a-z \-]*?)"
         r"(?:\s+(?P<controller>you control|you don'?t control|an opponent controls))?"
         r"(?=[.\n(]|$)",
         re.I,
@@ -254,6 +257,12 @@ _WARD_TEXT_COST_RE = re.compile(
 #: parse_activation_cost` can recognize both components together.
 _ESCAPE_TEXT_COST_RE = re.compile(
     r"\bescape\b[\s—-]*(?P<cost>[^.\n(]*?)\s*(?=[.\n(]|$)", re.I
+)
+
+
+#: RULE 702.33b "Kicker {1}{U} and/or {B}": the two printed kicker costs.
+KICKER_AND_OR_RE = re.compile(
+    rf"\bkicker\s+(?P<first>{_COST_RUN})\s+and/or\s+(?P<second>{_COST_RUN})", re.IGNORECASE
 )
 
 
@@ -562,10 +571,17 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 )
 
 
-#: FLAG keywords that are a *triggered ability* the engine binds only for a printed keyword
-#: (`binding.core._KEYWORD_TRIGGERED_BUILDERS`): a grant would add the slug and no trigger, so a grant of
-#: one stays unclaimed ("have exploit" — RULE 702.110a's ETB sacrifice would never happen).
-UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset({"exploit"})
+#: FLAG keywords whose rules the engine builds only for a *printed* keyword, so a grant would add the slug and nothing
+#: else (ENG-66: a keyword is granted only when its trigger / static / cost really runs on the receiving object).
+#: Flag triggers that run per object (`game.continuous.GRANTED_TRIGGERED_FLAG_KEYWORDS`: exalted, battle cry, prowess,
+#: mentor, flanking, evolve, training, exploit) are grantable. The rest are refused: living weapon (RULE 702.92a, the
+#: Germ is created by a bind-time trigger on the Equipment), soulbond (702.95, pairing state bound at load), job select
+#: (702.182, a printed-only ETB that creates and attaches a Hero), haunt (702.55, the printed card's own exile-haunting
+#: state), ravenous (702.156, an enters-with-X-counters replacement bound at load), living metal (702.161, a static
+#: type change bound at load) and read ahead (702.155, read at the Saga's cast).
+UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"}
+)
 
 
 def keyword_slug(name: str) -> str:
@@ -750,6 +766,9 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
             rf"^{re.escape(kw_name)}\b", text, re.I | re.M
         ):
             names.append(kw_name)
+    # Synthetic tokens can have the printed ability without a keywords entry.
+    if _SPECIAL_REGEX["devour"].search(text) and not any(keyword_slug(str(n)) == "devour" for n in names):
+        names.append("Devour")
     # A Leveler's ``LEVEL`` blocks (RULE 711.4c) print keywords that only
     # apply at that tier (e.g. Kargan Dragonlord's "Flying, haste" under
     # "LEVEL 7+"), but Scryfall's ``keywords`` array is position-blind — it
@@ -787,12 +806,25 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         )
         # De-dupe on the resolved identity + a landwalk's type, so "Islandwalk"
         # and "Forestwalk" both survive but a repeated "Flying" does not.
-        dedupe_key = kdef.slug + (forced_quality or "")
+        typed_cycling = kdef.slug == "cycling" and slug != "cycling"
+        # Scryfall tags the generic parent "Cycling" beside a typed variant that is the only one printed
+        # ("Basic landcycling {1}"); a plain cycling needs its own standalone "Cycling {cost}" in the text.
+        if slug == "cycling" and not re.search(r"(?<![A-Za-z])cycling\s*(?:\{|—|-)", text, re.I):
+            continue
+        dedupe_key = slug if typed_cycling else kdef.slug + (forced_quality or "")
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if typed_cycling:
+            display = str(raw_name).strip()
+            cost = re.search(rf"\b{re.escape(display)}\s*((?:\{{[^}}]+\}})+)", text, re.I)
+            param["quality"] = display.lower().removesuffix("cycling").strip()
+            if cost:
+                param["cost"] = cost[1]
+            else:
+                param.pop("cost", None)
         if kdef.shape is KeywordShape.FLAG and (instances := _printed_instances(text, kdef.display)) > 1:
             param["instances"] = instances
         if kdef.slug == "equip" and (dash := EQUIP_DASH_COST_RE.search(text)) is not None:
@@ -822,6 +854,11 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         elif kdef.slug == "equip" and EQUIP_ONCE_EACH_TURN_RE.search(text):
             # RULE 602.5b: "Equip {N}. Activate only once each turn." (Leather Armor) -- a per-turn activation cap on the equip ability.
             param["once_per_turn"] = True
+        if kdef.slug == "kicker" and (pair := KICKER_AND_OR_RE.search(text)) is not None:
+            # RULE 702.33b: "Kicker A and/or B" is two kicker costs (each payable once, in any combination);
+            # ``cost`` stays the first, ``costs`` carries both in printed order for per-cost announcement (ENG-62).
+            param["cost"] = pair.group("first").strip()
+            param["costs"] = [pair.group("first").strip(), pair.group("second").strip()]
         if _slug(str(raw_name)) == "multikicker":
             # RULE 702.34a: Multikicker is Kicker's repeatable variant — both
             # alias onto the same "kicker" slug/behaviour, but the "may pay

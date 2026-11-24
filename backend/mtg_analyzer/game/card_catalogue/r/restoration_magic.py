@@ -39,7 +39,7 @@ def _restoration_magic() -> list[AbilitySpec]:
                     [_protect_effect(target_kind="permanent")],
                     [_protect_effect(target_kind="permanent"), EffectSpec("gain_life", {"amount": 3})],
                     [
-                        _protect_effect(target_kind=None, lock_group=True, affects="permanents_you_control"),
+                        _protect_effect(target_kind=None, lock_group=True, affects={"zone": "battlefield", "of": "you", "filter": {}}),
                         EffectSpec("gain_life", {"amount": 6}),
                     ],
                 ],

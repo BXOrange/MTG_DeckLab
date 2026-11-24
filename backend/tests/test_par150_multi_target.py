@@ -92,8 +92,12 @@ def test_plural_forms_parse(clause, effect, params):
 def test_single_counter_and_unknown_x_definitions_stay_unclaimed():
     assert parse_effect_body("counter up to 1 target spell") is None  # N=1 is the singular row's job
     assert parse_effect_body(
-        "up to x target creatures gain flying until end of turn, where x is the number of lands you control"
+        "up to x target creatures gain flying until end of turn, where x is the number of lucky stars you have"
     ) is None
+    # PAR-284 milestone 22: a readable board count is the number of targets announced (RULE 601.2c)
+    [spec] = parse_effect_body(
+        "up to x target creatures gain flying until end of turn, where x is the number of lands you control")
+    assert spec.params["count_selector"]["filter"] == {"card_type": "land"}
 
 
 def test_goad_range_goes_through_the_announced_targets_not_the_goad_effect():

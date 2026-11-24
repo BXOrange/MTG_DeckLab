@@ -9,6 +9,7 @@ from ..clause_reading import ClauseReading
 from typing import Any, Optional
 from ..clause_primitives import grantable_flag_slug, split_keywords_with_parametric
 from ..count_phrase import parse_amount_phrase
+from ..characteristic_phrase import parse_object_phrase
 from ..static_handlers import quoted_ability_grant_effects, quoted_ability_grant_effects_list
 from ..subgrammars import (
     DEVOTION,
@@ -20,6 +21,7 @@ from ..subgrammars import (
     target_is_optional,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -38,6 +40,7 @@ from .shared import (
     pump_target,
     pump_target_creature_filter,
     renamed_target_count,
+    SINGULAR_GROUP_HEADS,
     signed_int,
     SUBJECT,
     subject_handlers,
@@ -299,7 +302,7 @@ _PUMP_PER_CONTROLLER_COUNTER_RE = compile_clause(
 def _pump_per_controller_counter(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("pump", {
         "power": signed_int(m.group("p")), "toughness": signed_int(m.group("t")),
-        "selector": "creatures_opponents_control",
+        "selector": battlefield_group(OF_OPPONENTS),
         "per_recipient_controller_counter": m.group("kind"),
     })]
 
@@ -323,7 +326,7 @@ def _group_pump_count_selector(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if keywords is None:
         return None
     return [EffectSpec("pump", {
-        "keywords": keywords, "selector": "creatures_you_control",
+        "keywords": keywords, "selector": battlefield_group(OF_YOU),
         "amount_from_count_selector": "creatures_you_control",
     })]
 
@@ -345,7 +348,7 @@ def _group_pump_other_source_power(m: re.Match[str]) -> Optional[list[EffectSpec
         return None
     return [EffectSpec("pump", {
         "keywords": keywords,
-        "selector": "other_creatures_you_control",
+        "selector": battlefield_group(OF_YOU, other=True),
         "amount_from_count_selector": "source_power",
     })]
 
@@ -522,10 +525,15 @@ _PUMP_X_REFERENT_AMOUNTS: dict[str, dict] = {
     # distinct from setting base P/T, which preserves signed values.
     "its power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
     "that creature's power": {"kind": "characteristic", "characteristic": "power", "of": "target", "minimum": 0},
+    # PAR-284: the same target read for the other two characteristics ("+0/+X, where X is its mana value", Great Defender).
+    "its mana value": {"kind": "characteristic", "characteristic": "mana_value", "of": "target", "minimum": 0},
+    "that creature's mana value": {"kind": "characteristic", "characteristic": "mana_value", "of": "target", "minimum": 0},
+    "its toughness": {"kind": "characteristic", "characteristic": "toughness", "of": "target", "minimum": 0},
+    "that creature's toughness": {"kind": "characteristic", "characteristic": "toughness", "of": "target", "minimum": 0},
     "the result": {"kind": "die_result"},
 }
 _PUMP_TARGET_X_AMOUNT_RE = compile_clause(
-    rf"{TARGET} gets? \+x/(?P<taxis>\+x|\+0) until end of turn, "
+    rf"{TARGET} gets? \+(?P<paxis>x|0)/(?P<taxis>\+x|\+0) until end of turn, "
     r"where x is (?P<phrase>.+)"
 )
 
@@ -545,8 +553,10 @@ def _pump_target_x_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         if counted is None:
             return None
         amount_spec = {"kind": "count_selector", "selector": counted}
+    if m.group("paxis") == "0" and m.group("taxis") != "+x":
+        return None  # "+0/+0, where X is ..." measures nothing
     pump_params: dict = {
-        "power": "$px", "toughness": "$px" if m.group("taxis") == "+x" else 0,
+        "power": "$px" if m.group("paxis") == "x" else 0, "toughness": "$px" if m.group("taxis") == "+x" else 0,
     }
     if target_kind:
         pump_params["target_kind"] = target_kind
@@ -644,6 +654,16 @@ def _reveal_random_hand_card_pump_mv(m: re.Match[str]) -> Optional[list[EffectSp
     ]
 
 
+#: PAR-284 (RULE 701.20): the bare "Target opponent reveals a card at random from their hand." clause on its own; the
+#: revealed card is the referent a later "where X is the revealed card's mana value" clause names
+#: (`referents._REVEALED_CARD_TYPES`), so a body other than the pump above (Planeswalker's Scorn's -X/-X) reads it too.
+_REVEAL_RANDOM_HAND_CARD_RE = compile_clause(r"target opponent reveals a card at random from their hand")
+
+
+def _reveal_random_hand_card(_m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("reveal_random_hand_card", {"target_kind": "opponent"})]
+
+
 #: PAR-80: "Reveal any number of green cards in your hand. Target creature
 #: gets +X/+X until end of turn, where X is the number of cards revealed
 #: this way." (Ivy Seer, Scent of Ivy — the identical body under an
@@ -731,7 +751,7 @@ def _group_pump_devotion(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     selector = devotion_selector(m)
     if not selector:
         return None
-    return [EffectSpec("pump", {"selector": "creatures_you_control", "amount_from_count_selector": selector})]
+    return [EffectSpec("pump", {"selector": battlefield_group(OF_YOU), "amount_from_count_selector": selector})]
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +798,7 @@ _SWITCH_PT_MASS_RE = compile_clause(r"switch each creature'?s power and toughnes
 
 
 def _switch_pt_mass(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("switch_power_toughness", {"selector": "all_creatures"})]
+    return [EffectSpec("switch_power_toughness", {"selector": battlefield_group(OF_ANY)})]
 
 
 #: The multi-target form — "switch the power and toughness of each of
@@ -1142,6 +1162,33 @@ def _cant_attack_or_block_until(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     })]
 
 
+#: PAR-290 / RULE 508.1a + 509.1a + 611.2c: "Creatures can't attack/block this turn." (Festival, Awe for the Guilds) -- an
+#: untargeted group bar for the rest of the turn. A restriction modifies the rules rather than characteristics, so it also binds a creature that enters
+#: later (no ``lock_group``): the same floating `grant_keyword` flag static Orim's Chant parks. Every creature
+#: group the shared object-phrase grammar reads, with its controller scope.
+_GROUP_CANT_ATTACK_THIS_TURN_RE = compile_clause(r"(?P<phrase>[a-z][a-z ,/'-]*?) can'?t (?P<verb>attack|block|attack or block) this turn")
+
+
+def _group_cant_attack_this_turn(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if SINGULAR_GROUP_HEADS.search(m.group("phrase")):
+        return None  # one object ("enchanted creature"), not a group
+    parsed = parse_object_phrase(m.group("phrase"), plural=True)
+    if parsed is None:
+        return None
+    filt, controller = parsed
+    parts = filt.get("any_of") or [filt]
+    if not all(p.get("card_type") == "creature" or "subtype" in p for p in parts):
+        return None
+    of = {None: OF_ANY, "you": OF_YOU, "not_you": OF_OPPONENTS}[controller]
+    verb = m.group("verb")
+    keywords = (["cant_attack"] if verb != "block" else []) + (["cant_block"] if verb != "attack" else [])
+    return [EffectSpec("grant_until", {
+        "static": {"type": "grant_keyword", "params": {
+            "keywords": keywords, "affects": {"zone": "battlefield", "of": of, "filter": filt}}},
+        "duration": "end_of_turn", "target_kind": None,
+    })]
+
+
 #: "It gains haste until your next turn." (Offspring's Revenge) — the
 #: previous-subject sibling of the `_SUBJECT`-anchored `grant_until` row
 #: below: the "it" is whatever the preceding clause created/targeted (here,
@@ -1431,6 +1478,7 @@ ROWS: list[EffectHandler] = [
         "reveal_random_hand_card_pump_mv",
         _REVEAL_RANDOM_HAND_CARD_PUMP_MV_RE, _reveal_random_hand_card_pump_mv,
     ),
+    EffectHandler("reveal_random_hand_card", _REVEAL_RANDOM_HAND_CARD_RE, _reveal_random_hand_card),
     EffectHandler(
         "reveal_any_number_pump", _REVEAL_ANY_NUMBER_PUMP_RE, _reveal_any_number_pump
     ),
@@ -1591,6 +1639,7 @@ ROWS: list[EffectHandler] = [
     # PAR-13: "target creature can't attack/block until <duration>" — the
     # resolve-time-grant sibling of the permanent-static "~ can't attack."
     # PAR-169 (kept): no card in the pool reaches this row; covered by tests/test_par13_dungeons_and_variants.py (dungeon room text, not a pool card).
+    EffectHandler("group_cant_attack_this_turn", _GROUP_CANT_ATTACK_THIS_TURN_RE, _group_cant_attack_this_turn),
     EffectHandler(
         "cant_attack_or_block_until",
         _CANT_ATTACK_OR_BLOCK_UNTIL_RE,

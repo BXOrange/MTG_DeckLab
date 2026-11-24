@@ -315,7 +315,7 @@ def test_sisko_exiles_five_and_offers_free_casts_up_to_the_officer_count():
     engine.resolve_until_stable()
     choice = engine.state.pending_choice
     assert choice["kind"] == "play_during_resolution" and choice["free"] and choice["repeat"]
-    offered = sorted(engine.state.find_object(i).name for i in choice["instance_ids"])
+    offered = sorted(a["name"] for a in engine.resolution_play_actions(p1) if a["type"] == "cast_spell")
     assert offered == ["Cheap1", "Cheap2", "Cheap3"]  # not the land, not mana value 4 > three Officers
     assert len(p1.exile) == 5
     for name in ("Cheap1", "Cheap3"):  # any number of them, no mana left to pay: the offer stays open for the rest

@@ -112,3 +112,11 @@ from . import de_evolve  # noqa: F401
 from . import dahar_master  # noqa: F401
 from . import door_of_destinies  # noqa: F401
 from . import dredging_claw  # noqa: F401
+
+from . import danitha_sword_of_hope  # noqa: F401
+from . import deep_space_9  # noqa: F401
+from . import dathon_his_heart_open  # noqa: F401
+
+from . import daniels_temporal_agent  # noqa: F401
+
+from . import devouring_sugarmaw  # noqa: F401

@@ -23,7 +23,10 @@ def _sam_loyal_attendant() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "static",
-            [EffectSpec("cost_reduction", {"generic": 1, "scope": "activation", "subtype": "food"})],
+            [EffectSpec("cost_reduction", {
+                "generic": 1, "scope": "activation",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"subtype": "food"}},
+            })],
         ),
     ]
 

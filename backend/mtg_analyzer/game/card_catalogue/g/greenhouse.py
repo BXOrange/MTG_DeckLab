@@ -10,7 +10,7 @@ def _greenhouse() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('grant_mana_ability', {"mana": [{'W': 1}, {'U': 1}, {'B': 1}, {'R': 1}, {'G': 1}], "affects": 'lands_you_control'})],
+            [EffectSpec('grant_mana_ability', {"mana": [{'W': 1}, {'U': 1}, {'B': 1}, {'R': 1}, {'G': 1}], "affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'land'}}})],
             raw_text='lands you control have "{t}: add 1 mana of any color."',
         ),
     ]

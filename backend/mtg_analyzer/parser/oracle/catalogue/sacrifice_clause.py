@@ -22,18 +22,14 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from ..spec import PERMANENT_COST_ADJECTIVES, PERMANENT_COST_TYPE_WORDS, POWER_AT_LEAST_PREFIX
 from .subtype_vocabulary import SUBTYPES
 
-#: Main card types a sacrificed permanent may be named by (RULE 300.1 permanent types, plus "permanent").
-_TYPE_WORDS: frozenset[str] = frozenset({
-    "artifact", "creature", "enchantment", "land", "planeswalker", "battle", "permanent",
-})
-#: Adjectives that narrow a permanent phrase without being a noun: colours (RULE 105.1), supertypes (RULE 205.4a),
-#: the token / tapped state words. Mirrors `cost_text._QUALIFIER` (kept separate so this module stays import-light).
-_ADJECTIVES: frozenset[str] = frozenset({
-    "white", "blue", "black", "red", "green", "colorless", "multicolored", "nontoken", "nonland", "noncreature",
-    "nonartifact", "nonenchantment", "basic", "snow", "legendary", "untapped", "tapped",
-})
+#: Main card types / narrowing adjectives a sacrificed permanent may be named by: the vocabulary `spec` validates a
+#: qualified sacrifice cost against (RULE 300.1 permanent types, RULE 105.1 colours, RULE 205.4a supertypes, token and
+#: tapped state), shared so the reader and the validator cannot drift.
+_TYPE_WORDS = PERMANENT_COST_TYPE_WORDS
+_ADJECTIVES = PERMANENT_COST_ADJECTIVES
 #: The token noun ("blood tokens", "an artifact token"): a permanent that is a token (RULE 111.1).
 _TOKEN_WORD = "token"
 #: Number words a count item may print; "a"/"an"/"another" are the singular determiners instead.
@@ -42,19 +38,32 @@ _COUNT_WORDS: dict[str, int] = {
 }
 #: Marker the item's count carries when it is the announced X (RULE 107.3 / 601.2b).
 COUNT_X = None
+#: RULE 107.1c / 601.2b: "any number of creatures" -- the player announces the count (zero allowed) as they pay the
+#: cost. `game/costs.SACRIFICE_COUNT_ANY` is this same value.
+COUNT_ANY = -2
+#: MEC-173 / RULE 601.2f: the `continuous.count_selector` names a spell's own "costs {N} less for each <permanent> sacrificed
+#: this way" reduction reads -- the permanents the caster announced for the additional cost, and (Dargo) the *other*
+#: artifacts / creatures already sacrificed this turn.
+ANNOUNCED_SACRIFICE_COUNT_SELECTOR = "announced_sacrifice_count"
+OTHER_SACRIFICED_THIS_TURN_SELECTOR = "other_artifacts_creatures_sacrificed_this_turn"
 
 #: Tail tokens appended to a phrase's word; `continuous.matches_permanent_word` reads each one.
 NAMED_PREFIX = "named:"
 CHOSEN_TYPE_TOKEN = "chosentype"
 COUNTER_PREFIX = "counter:"
 ATTACHED_TOKEN = "attached"
+#: PAR-286: "white and/or blue creatures" (Sky Hussar's tap cost) -- ``anycolor:white,blue`` holds when the object is any of
+#: the listed colours (RULE 105.1); and the "attacking" state word (RULE 506.4: an attacking creature, untapped by vigilance).
+ANY_COLOR_PREFIX = "anycolor:"
+ATTACKING_WORD = "attacking"
 
 _SELF_RE = re.compile(r"^(?:~|this\s+\w+|it)$")
+_ANY_NUMBER_RE = re.compile(r"^any number of\s+(?P<phrase>.+)$")
 _DETERMINER_RE = re.compile(
     r"^(?P<det>an?|another|x|\d+|" + "|".join(_COUNT_WORDS) + r")\s+(?P<phrase>.+)$"
 )
 #: Item separators inside a list: a comma (with an optional "and"), or a bare "and" followed by a new item.
-_SEPARATOR_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+(?=(?:(?:an?|another|x|\d+|this|it|" + "|".join(_COUNT_WORDS) + r")\b|~))")
+_SEPARATOR_RE = re.compile(r",\s*(?:and\s+)?|\s+and\s+(?=(?:(?:an?|another|x|\d+|this|it|any number of|" + "|".join(_COUNT_WORDS) + r")\b|~))")
 _VERB_RE = re.compile(r"\bsacrifice\s+")
 #: A tail of an object phrase, peeled from the end (order is irrelevant; each is tried until none applies).
 _TAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -63,6 +72,7 @@ _TAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\s+attached to ~$"), ATTACHED_TOKEN),
     (re.compile(r"\s+with an?\s+(?P<kind>[+\-]?\d+/[+\-]?\d+|[a-z]+)\s+counters?\s+on\s+(?:it|them)$"), COUNTER_PREFIX),
     (re.compile(r"\s+with\s+(?P<kind>defender|flying)$"), ""),
+    (re.compile(r"\s+with power (?P<power>\d+) or greater$"), POWER_AT_LEAST_PREFIX),
     (re.compile(r"\s+named\s+(?P<name>[^,]+?)$"), NAMED_PREFIX),
 )
 
@@ -105,7 +115,9 @@ def _is_known(token: str) -> bool:
     """Whether ``token`` is a word of the shared permanent-phrase vocabulary (`non<type>` negations included)."""
     if token in _ADJECTIVES or _is_noun(token):
         return True
-    return token.startswith("non") and token[len("non"):] in _TYPE_WORDS
+    # "non-Eldrazi creatures" (Emrakul's Evangel): a negated subtype is as readable as a negated type
+    # (`continuous.matches_permanent_word`'s "non<word>" branch).
+    return token.startswith("non") and (token[len("non"):] in _TYPE_WORDS or token[len("non"):] in SUBTYPES)
 
 
 def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
@@ -123,6 +135,8 @@ def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
                 tails.append(NAMED_PREFIX + groups["name"].strip())
             elif token == COUNTER_PREFIX:
                 tails.append(COUNTER_PREFIX + groups["kind"])
+            elif token == POWER_AT_LEAST_PREFIX:
+                tails.append(POWER_AT_LEAST_PREFIX + groups["power"])
             elif groups.get("kind"):  # "with defender" / "with flying"
                 tails.append(groups["kind"])
             elif token:
@@ -131,7 +145,7 @@ def _read_phrase(text: str, plural: bool, other: bool) -> Optional[str]:
             changed = True
             break
     runs: list[list[str]] = [[]]
-    for token in text.split():
+    for token in text.replace("non-", "non").split():
         if token in ("or", "and/or"):
             runs.append([])
         else:
@@ -161,6 +175,12 @@ def _read_item(text: str) -> Optional[SacrificeItem]:
     text = text.strip()
     if _SELF_RE.match(text):
         return SacrificeItem("self")
+    any_number = _ANY_NUMBER_RE.match(text)
+    if any_number is not None:
+        phrase = any_number.group("phrase").strip()
+        other = phrase.startswith("other ")
+        word = _read_phrase(phrase.removeprefix("other "), plural=True, other=other)
+        return SacrificeItem("object", COUNT_ANY, word) if word else None
     match = _DETERMINER_RE.match(text)
     if match is None:
         return None

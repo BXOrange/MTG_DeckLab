@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..clause_reading import ClauseReading
+
 import re
 
 from typing import Any, Optional
@@ -36,11 +38,13 @@ from ...normalize import SELF
 from ...spec import EffectSpec
 from ..clause_hooks import match_clause
 from ..clause_reading import PLAYER
+from .edicts import FRACTION_WORDS
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
     CAST_WINDOW_COLORS,
     compile_clause,
     EffectHandler,
+    DEFENDING_PLAYER_COMBAT_EVENTS,
     EVENT_PLAYER_EVENTS_KEY,
     GRAVEYARD_SCOPE_WORD,
     graveyard_target_kind,
@@ -77,6 +81,48 @@ def _draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("draw", {"count_from_trigger_event": "amount"})]
 
 
+#: RULE 608.2h (PAR-321): "Draw a card for each Island you control, then discard that many cards." (Last Stand) -- the
+#: discard repeats the draw's own count, so the draw's count is bound once (`bind` name ``n``) and both steps read it.
+#: Only a draw whose count is a plain number or one measured amount reads this way; anything else stays unclaimed.
+_DRAW_THEN_DISCARD_THAT_MANY_RE = compile_clause(r"(?P<draw>draw .+?),? then discard that many cards?")
+
+
+def _draw_then_discard_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    drawn = parse_effect_body(m.group("draw"))
+    if not drawn or len(drawn) != 1 or drawn[0].condition is not None:
+        return None
+    first = drawn[0]
+    if first.type == "draw" and isinstance(first.params.get("count"), int) and set(first.params) == {"count"}:
+        return [first, EffectSpec("discard", {"count": first.params["count"]})]
+    inner = first.params.get("effects") if first.type == "bind" else None
+    name = first.params.get("name")
+    if (not isinstance(inner, list) or len(inner) != 1 or inner[0].get("type") != "draw"
+            or inner[0]["params"].get("count") != f"${name}" or set(inner[0]["params"]) != {"count"}):
+        return None
+    return [EffectSpec("bind", {**first.params, "effects": [
+        *inner, EffectSpec("discard", {"count": f"${name}"}).to_dict(),
+    ]})]
+
+
+#: RULE 608.2h (PAR-321): "Shuffle all cards from your graveyard into your library. Target player mills that many cards."
+#: (Psychic Spiral) -- "that many" is the number of cards the shuffle moved, which is the graveyard's size when the spell
+#: resolves, so it is measured once up front and the shuffle and the mill both run inside that binding.
+_SHUFFLE_GRAVEYARD_MILL_THAT_MANY_RE = compile_clause(
+    r"shuffle all cards from your graveyard into your library\.? target player mills that many cards?"
+)
+
+
+def _shuffle_graveyard_mill_that_many(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    shuffle = parse_effect_body("shuffle all cards from your graveyard into your library")
+    mill = parse_effect_body("target player mills x cards")
+    if not shuffle or not mill or len(shuffle) != 1 or len(mill) != 1:
+        return None
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "count_selector", "selector": {"zone": "graveyard", "of": "you"}},
+        "effects": [shuffle[0].to_dict(), {**mill[0].to_dict(), "params": {**mill[0].params, "count": "$n"}}],
+    })]
+
+
 #: The wheel (RULE 701.8f): "Each player discards their hand, then draws N cards." (Reforge the Soul, Wheel
 #: of Fate) is a `seq` of a whole-hand mass discard and a mass draw — the hand-authored Wheel of Fortune's
 #: own shape. "…**may** discard their hand and draw N cards" (Raphael's Technique, Ruin Grinder, Will of the
@@ -101,7 +147,7 @@ def _wheel(m: re.Match[str]) -> list[EffectSpec]:
 #: must agree with the subject, so "you shuffle their ..." is not claimed. The "each player *may* shuffle ...
 #: each player who does draws" forms are the per-player choice below.
 _SHUFFLE_HAND_GRAVEYARD_RE = compile_clause(
-    r"(?:(?P<each>each player) shuffles their|you shuffle your) hand and graveyard into (?:their|your) library"
+    r"(?:(?P<each>each player) shuffles their|you shuffle your|shuffle your) (?:hand and graveyard|graveyard and hand) into (?:their|your) library"
     r"(?:, then (?:draws?) (?P<n>\d+) cards?)?"
 )
 
@@ -116,6 +162,22 @@ def _shuffle_hand_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if each:
         draw_params["selector"] = "each_player"
     return [EffectSpec("seq", {"effects": [shuffle, {"type": "draw", "params": draw_params}]})]
+
+
+#: PAR-292 (RULE 701.24a, 608.2c): "[each player] shuffle[s] the cards from [your / their] hand into [your / their] library,
+#: then draw[s] that many cards" (Whirlpool Rider / Drake / Warrior, Winds of Change): the hand-only shuffle of the effect
+#: above, each player drawing as many cards as their own hand held (a hand-size count taken before the shuffle).
+_SHUFFLE_HAND_DRAW_THAT_MANY_RE = compile_clause(
+    r"(?:(?P<each>each player) shuffles the cards from their hand into their library, then draws"
+    r"|(?:you shuffle|shuffle) the cards from your hand into your library, then draw) that many cards"
+)
+
+
+def _shuffle_hand_draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"graveyard": False, "draw_that_many": True}
+    if m.group("each"):
+        params["scope"] = "each_player"
+    return [EffectSpec("shuffle_hand_and_graveyard_into_library", params)]
 
 
 #: RULE 101.4 / 608.2c "Each player may shuffle their hand and graveyard into their library. Each player who
@@ -548,11 +610,42 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: PAR-167: an exile clause plus the casting window it opens ("Exile the top 4 cards of your library. Until end of turn,
 #: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
 #: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
-_EXILE_CAST_WINDOW_RE = compile_clause(r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+")
+_EXILE_CAST_WINDOW_RE = compile_clause(
+    r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+"
+    r"(?:\.\s+if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead)?"  # PAR-325
+    # PAR-292 M23 (Collected Conjuring, Herald of Amity): the rest of the exiled batch goes to the bottom, in a random order.
+    r"(?:\.\s+(?:then )?put [^.]+ on the bottom of your library in a random order)?"
+)
 
 
 def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_exile_cast_window(m.group(0), match_clause)
+
+
+#: PAR-325 (Tersa Lightshatter, Radiant Scrollwielder, Storm of Memories): "Exile [a|an <type>] card [with mana value N or
+#: less] at random from your graveyard." -- one uniformly random card among the graveyard cards that fit (RULE 706,
+#: 608.2d), through the engine's seeded RNG. It leaves the exiled card as the referent the play/cast window sentence
+#: after it names (`casting_window.py` pairs the two; this row also stands alone). One card only -- "exile three
+#: cards at random" (Capricious Hellraiser) feeds a copy, not this window, and stays unclaimed.
+_EXILE_RANDOM_GRAVEYARD_RE = compile_clause(
+    r"exile (?:(?P<one>a|an)|(?P<n>\d+)) (?P<desc>(?:[a-z-]+ )*?cards?(?: with mana value \d+ or (?:less|greater))?)"
+    r"(?: at random from your graveyard| from your graveyard at random)"
+)
+
+
+def _exile_random_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    count = 1 if m.group("one") else int(m.group("n"))
+    if count < 1 or (count > 1) != m.group("desc").split(" with ")[0].endswith("cards"):
+        return None  # "a cards" / "2 card": the number and the noun must agree
+    parsed = parse_object_phrase(m.group("desc").replace("cards", "card", 1))
+    if parsed is None or parsed[1] is not None:
+        return None  # a descriptor the object-phrase grammar cannot read exactly fails closed
+    params: dict = {}
+    if count > 1:
+        params["count"] = count
+    if parsed[0]:
+        params["card_filter"] = parsed[0]
+    return [EffectSpec("exile_random_graveyard_card", params)]
 
 
 #: PAR-163 (Moonstone, Harsh Mistress): the discard trigger's "exile that card from your graveyard. If you do,
@@ -667,13 +760,24 @@ _GRAVEYARD_PLAY_WINDOW_ROW_RE = compile_clause(
 
 #: PAR-167: "[Target opponent] exile[s] cards from the top of [your/their] library until [you/they] exile a `<kind>` card.
 #: [Until end of turn,] you may cast that card without paying its mana cost." (Nico Minoru, Wanda's Vision, Stolen Goods).
-_DIG_CAST_FREE_RE = compile_clause(r"(?:target opponent exiles|exile) cards from the top of (?:your|their) library until [^.]+\.\s+[^.]+")
+#: PAR-292 M20: "[that player | target opponent] exiles / you reveal ..." with the "put the exiled cards that weren't cast this
+#: way on the bottom" sentence behind the cast (Dazzling Sphinx, Gríma, Chaos Wand, Treasure Keeper).
+_DIG_CAST_FREE_RE = compile_clause(
+    r"(?:target opponent exiles|that player exiles|exile|reveal) cards from the top of (?:your|their) library until "
+    r"[^.]+\.\s+[^.]+(?:\.\s+[^.]+)?"
+)
 
 #: PAR-167: "Exile [up to one] target `<card>` from a graveyard [and copy it | . Copy it]. You may cast the copy [without
 #: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
 #: below ("with mana value N or less", a colour word, the "nonland" type), so the card filter and the origin graveyard
 #: are the same axes the targeted cast window uses.
-_EXILE_COPY_CAST_RE = compile_clause(r"exile [^.]+?(?: and copy (?:it|that card)|\.\s+copy (?:it|that card))(?:\.\s+|, then )[^.]+")
+_EXILE_COPY_CAST_RE = compile_clause(
+    r"exile [^.]+? at random from your graveyard\.\s+then copy each card exiled with ~\.\s+you may cast any number of the "
+    r"copies[^.]*|"  # PAR-325: Arcane Bombardment's linked copy pool
+    r"(?:mill \d+ cards?, then )?exile [^.]+?"  # PAR-325: a mill beforehand / a pick "from among them"
+    r"(?: and copy (?:it|that card)|\.\s+(?:choose [^.]+? from among them and )?copy (?:it|that card))"
+    r"(?:\.\s+|, then )[^.]+"
+)
 
 
 def _exile_graveyard_clause(text: str) -> Optional[list[EffectSpec]]:
@@ -705,6 +809,13 @@ def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_dig_cast_free(m.group(0))
+
+
+def _dig_cast_free_event_player(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs = parse_dig_cast_free(m.group(0), event_player=True)
+    if specs is not None:
+        specs[0].params[EVENT_PLAYER_EVENTS_KEY] = ["DAMAGE"]  # the gate strips it, or refuses a non-damage head
+    return specs
 
 
 def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -768,6 +879,53 @@ _PUT_FROM_HAND_TYPE_WORDS: frozenset[str] = frozenset(PERMANENT_TYPE_WORDS) | {
     "construct", "robot", "vehicle", "equipment", "aura", "clue",
     "food", "treasure",
 }
+# RULE 101.4: the optional choice belongs to each named player.
+_GROUP_HAND_ENTRY_RE = compile_clause(
+    r"(?:(?P<aurora>each player shuffles all cards from their hand and all permanents they own into"
+    r" their library, then draws that many cards)\. |(?P<exile>exile all creatures)\. )?"
+    r"(?P<start>starting with you, )?(?P<scope>each player|each opponent|each other player) may put "
+    r"(?P<count>a|an|any number of) (?P<types>[a-z, /]+?) cards? "
+    r"(?:from their hand onto the battlefield|onto the battlefield from their hand)"
+    r"(?P<draw>, then each opponent who didn'?t draws a card)?"
+    r"(?P<repeat>\. repeat this process until no (?:one|1) puts a card onto the battlefield)?"
+    r"(?P<return>\. then put all cards exiled this way into their owners' hands)?"
+    rf"(?P<self_exile>\. exile {re.escape(SELF)})?"
+)
+
+
+def _group_hand_entry(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    each = m.group("scope") == "each player"
+    any_number = m.group("count") == "any number of"
+    repeat = bool(m.group("repeat"))
+    draw = bool(m.group("draw"))
+    aurora, exile = bool(m.group("aurora")), bool(m.group("exile"))
+    if (bool(m.group("start")) != repeat or (repeat or draw) and (not each or any_number)
+            or repeat and draw or exile != bool(m.group("return"))
+            or (aurora or exile) != bool(m.group("self_exile"))):
+        return None
+    words = [word.strip() for word in re.split(r",\s*(?:and/or |or )?| (?:and/or|or) ", m.group("types"))]
+    types = m.group("types")
+    if types == "permanent":
+        criteria = ""
+    elif types == "legendary creature":
+        criteria = {"all_types": ["legendary", "creature"]}
+    elif all(word in PERMANENT_CARD_TYPES for word in words):
+        criteria = {"type": words}
+    else:
+        return None
+    if draw and types != "land":
+        return None
+    if (aurora or exile) and (not each or not any_number or types != ("land" if aurora else "creature")):
+        return None
+    params = {"criteria": criteria, "scope": "each_player" if each else "opponents",
+              "any_number": any_number, "repeat": repeat, "draw_if_missed": draw}
+    if aurora:
+        params.update(before="shuffle_hand_and_owned_permanents", after="exile_source")
+    elif exile:
+        params.update(before="exile_creatures", after="return_exiled_and_exile_source")
+    return [EffectSpec("group_put_from_hand", params)]
+
+
 _PUT_FROM_HAND_RE = compile_clause(
     r"(?:you may )?put (?:an?|up to (?P<put_count>\d+|x)) (?P<types>[a-z, ]+?) cards?"
     # RULE 601.2c-style card filter between "card" and "from your hand":
@@ -789,6 +947,7 @@ _PUT_FROM_HAND_RE = compile_clause(
     r"(?P<xdef>, where x is the number of attacking creatures you control)?"
     # PAR-152: "…with mana value X or less …, where X is ~'s power" (Paladin Elizabeth Taggerdy).
     rf"(?P<xpow>, where x is {re.escape(SELF)}'?s power)?"
+    r"(?P<finality> with a finality counter on it)?"
     # The Vast Scrier's two trailing sentences: (1) an explicit instruction
     # that the placed creature's own "whenever ~ attacks" triggers fire —
     # unlike ordinary RULE 508.4 entry, this is *not* a no-op; (2) "if you don't put a card … this way,
@@ -819,7 +978,10 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if not segments:
         return None
     last = segments[-1].split()
-    if (
+    if segments == ["historic permanent"]:
+        criteria = {"type": sorted(PERMANENT_CARD_TYPES),
+                    "or": [{"type": ["artifact", "legendary", "saga"]}]}
+    elif (
         len(last) == 2
         and last[1] in _PUT_FROM_HAND_MAIN_TYPES
         and all(len(s.split()) == 1 for s in segments[:-1])
@@ -869,6 +1031,11 @@ def _put_from_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         params_extra = {}
     count = m.groupdict().get("put_count")
     params: dict = {"criteria": criteria, "count": "x" if count == "x" else int(count or 1), **params_extra}
+    if m.groupdict().get("finality"):
+        if len(last) != 2 or last[1] != "creature" or not _is_creature_subtype_word(last[0]) or len(segments) != 1:
+            return None
+        params["criteria"] = {"all_types": [last[0], "creature"]}
+        params["entry_counters_by_type"] = {"creature": {"finality": 1}}
     if m.groupdict().get("tapped_attacking"):
         params["tapped"] = True
         params["attacking"] = True
@@ -928,6 +1095,9 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 # RULE 701.20 / 701.9: reveal/look, select a filtered card, then act on it.
 # The type-list grammar composes all supported printed card types rather than
 # growing one handler per Duress/Despise/Collective Brutality variant.
+#: BUG-72: both target-player pools ("target player", "target opponent": RULE 102.3 keeps the controller out of the latter).
+PLAYER_TARGET_KINDS = ("player", "opponent")
+
 _HAND_DISRUPTION_RE = compile_clause(
     r"(?:(?P<target>target opponent|target player) reveals their hand"
     r"|look at (?P<look>target opponent|target player)'s hand)"
@@ -944,7 +1114,7 @@ _HAND_DISRUPTION_RE = compile_clause(
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("target") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     filt = m.group("filter")
     if filt in _HAND_DISRUPTION_FILTERS:
@@ -1014,7 +1184,7 @@ _HAND_PICK_RE = compile_clause(
 
 def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("reveal") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     destination = next(dest for pattern, dest in _HAND_PICK_TAILS.items() if re.fullmatch(pattern, m.group("tail")))
     if m.group("reveal") and destination != "library_third":
@@ -1169,6 +1339,24 @@ def _mana_value_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("create_token", {**params, "pt_from_trigger_event": "mana_value"})]
 
 
+#: MEC-173 / RULE 608.2h: "create an X/X blue and black Zombie creature token with menace, where X is the total power of
+#: the sacrificed creatures." (Corpse Cobble) -- sized off what the spell's own additional cost sacrificed
+#: (`cost_referent_sacrificed_creature_power`); `gate._cost_referents_ok` refuses it where no cost sacrificed.
+_SACRIFICED_POWER_XX_TOKEN_RE = compile_clause(
+    r"create an? x/x (?P<mid>[a-z ]*?)creature tokens?"
+    r"(?: with (?P<kw>[a-z]+(?:, [a-z]+)*(?: and [a-z]+)?))?, "
+    r"where x is the total power of the sacrificed creatures"
+)
+
+
+def _sacrificed_power_xx_token(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    params = xx_token_mid_params(m.group("mid"), m.groupdict().get("kw"))
+    if params is None:
+        return None
+    return [EffectSpec("create_token", {**params, "pt_amount": {
+        "kind": "count_selector", "selector": "cost_referent_sacrificed_creature_power"}})]
+
+
 #: The RULE 702.28c Cycling-cost sibling — "create an X/X blue Shark
 #: creature token with flying." (Shark Typhoon's own "When you cycle this
 #: card" bonus) — X here is the Cycling cost's own paid {X}
@@ -1257,15 +1445,39 @@ def _blink_plain(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("blink", params)]
 
 
-def _discard(m: re.Match[str]) -> list[EffectSpec]:
-    # "you discard"/bare "discard" is the controller (untargeted); "target
-    # player/opponent discards" is a real RULE 115 target; "each player/
-    # opponent discards" is the untargeted mass form (RULE 601.2c). Mirrors
-    # `_gain_life`'s ``who``-group treatment — and without the target_kind
-    # half, "target player discards a card" would have made the *source's
-    # controller* discard instead of the chosen player.
-    params: dict = {"count": count_of(m.group("n"))}
-    who = (m.groupdict().get("who") or "").strip()
+_DISCARD_HAND_DRAW_RE = compile_clause(
+    r"(?P<who>that player|target player|target opponent|each player|each opponent|defending player) "
+    r"discards (?:their|all the cards in their) hand, then draws that many cards"
+)
+
+
+def _discard_hand_draw_that_many(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("who") == "that player":
+        params: dict = {"previous_subject": True}
+    else:
+        params = _discarder_params(m.group("who"), {})
+    return [EffectSpec("discard", {**params, "whole_hand": True, "then_draw_hand_size": True})]
+
+
+#: PAR-320: "target opponent discards **half the cards in their hand**, rounded down" (Lord Xander) -- counted over the
+#: discarding player's own hand when they discard; the rounding word is printed on every such card.
+_DISCARD_HAND_FRACTION_RE = compile_clause(
+    r"(?P<who>that player|target player|target opponent|each player|each opponent|defending player) discards "
+    r"(?P<frac>half|a third) (?:of )?the cards in their hand, rounded (?P<round>up|down)"
+)
+
+
+def _discard_hand_fraction(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"previous_subject": True} if m.group("who") == "that player" else _discarder_params(m.group("who"), {})
+    return [EffectSpec("discard", {
+        **params, "count": 1,
+        "hand_fraction": {"divisor": FRACTION_WORDS[m.group("frac")], "round_up": m.group("round") == "up"},
+    })]
+
+
+def _discarder_params(who: str, params: dict) -> dict:
+    """The player operand a "<who> discards" clause names, merged into ``params``."""
+    who = who.strip()
     if who == "target player":
         params["target_kind"] = "player"
     elif who == "target opponent":
@@ -1280,15 +1492,25 @@ def _discard(m: re.Match[str]) -> list[EffectSpec]:
         # PAR-208 (RULE 508.1b): the player the source attacks, named by the firing combat event's
         # ``defending_player_id``; only an attack / unblocked / blocked head carries it.
         params["player"] = {"of": "trigger_player", "as": "self"}
-        params[EVENT_PLAYER_EVENTS_KEY] = _DEFENDING_PLAYER_COMBAT_EVENTS
+        params[EVENT_PLAYER_EVENTS_KEY] = DEFENDING_PLAYER_COMBAT_EVENTS
+    return params
+
+
+def _discard(m: re.Match[str]) -> list[EffectSpec]:
+    # "you discard"/bare "discard" is the controller (untargeted); "target
+    # player/opponent discards" is a real RULE 115 target; "each player/
+    # opponent discards" is the untargeted mass form (RULE 601.2c). Mirrors
+    # `_gain_life`'s ``who``-group treatment — and without the target_kind
+    # half, "target player discards a card" would have made the *source's
+    # controller* discard instead of the chosen player.
+    # RULE 107.3: "discards X cards" keeps the literal X sentinel; the announced {X} (Mind Twist, Greel) or a
+    # trailing "where X is ..." (Mind Burst, Arcane Omens, Cabal Shrine) fills it later.
+    params = _discarder_params(m.groupdict().get("who") or "", {"count": count_or_x_of(m.group("n"))})
     if m.groupdict().get("at_random"):
         params["random"] = True
     return [EffectSpec("discard", params)]
 
 
-#: Combat events that name the attacked player (``defending_player_id``): ATTACKS, ATTACKER_UNBLOCKED (RULE 509.1h),
-#: BECOMES_BLOCKED (RULE 509.1).
-_DEFENDING_PLAYER_COMBAT_EVENTS = ["ATTACKS", "ATTACKER_UNBLOCKED", "BECOMES_BLOCKED"]
 
 
 #: "Discard N cards unless you discard a `<quality>` card." (Thirst for Knowledge, Compulsive Research, Alpharael,
@@ -1345,101 +1567,6 @@ def _that_many_player_discards(m: re.Match[str]) -> list[EffectSpec]:
                                     "count_from_trigger_event": "amount"})]
 
 
-#: RULE 601.2c mass edict — "each player sacrifices a nontoken creature of
-#: their choice" (Accursed Marauder-shaped) / "each player sacrifices N
-#: creatures of their choice" (Liliana, Dreadhorde General's own -4) — each
-#: player independently choosing their own victim(s) via `effects.
-#: SacrificeEffect`'s ``selector="each_player"``/``"each_opponent"``, not a
-#: random/rules-picked edict (RulesEngine.sacrifice is a real interactive
-#: choice per player).
-_SACRIFICE_EDICT_SELECTOR_WORDS: dict[str, str] = {
-    "each player": "each_player", "each opponent": "each_opponent",
-    # PAR-128: RULE 109.5 "each other player" — every player but the controller,
-    # the same reading `_SELECTOR_WORD_MAP` gives it (no team play, RULE 809+).
-    "each other player": "each_opponent",
-}
-_SACRIFICE_EDICT_RE = compile_clause(
-    rf"(?P<selector>{'|'.join(_SACRIFICE_EDICT_SELECTOR_WORDS)}) sacrifices? "
-    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
-    rf"(?P<what>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})s? of their choice"
-)
-
-
-def _sacrifice_edict(m: re.Match[str]) -> list[EffectSpec]:
-    selector = _SACRIFICE_EDICT_SELECTOR_WORDS[m.group("selector")]
-    what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
-    if m.group("nontoken") and what == "creature":
-        what = "nontoken_creature"
-    elif m.group("nontoken"):
-        # RULE 111.1: a token is a permanent, so "nontoken" restricts every type word, not only "creature"
-        # (`continuous.matches_permanent_word` reads the prefix).
-        what = f"nontoken_{what}"
-    count_word = m.group("count")
-    count = 1 if count_word in ("a", "an") else int(count_word)
-    return [EffectSpec("sacrifice", {"selector": selector, "what": what, "count": count})]
-
-
-#: ENG-33: "target player/opponent sacrifices [N] [nontoken] `<what>` [of
-#: their choice]" (Diabolic Edict / Chainer's Edict / Dead Drop-shaped, ~21
-#: SOLO cards, and the recurring villainous-choice / vote *other* option).
-#: A real RULE 115 player target (`SacrificeEffect.target_kind="player"` →
-#: reads `targets[0]`), the single-target sibling of `_SACRIFICE_EDICT_RE`'s
-#: `each_player`/`each_opponent` mass form.
-_TARGET_PLAYER_EDICT_RE = compile_clause(
-    rf"target (?P<who>player|opponent) sacrifices? "
-    rf"(?P<count>a|an|\d+) (?P<nontoken>nontoken )?"
-    rf"(?P<what>{'|'.join(SACRIFICE_EDICT_WHAT_WORDS)})s?(?: of their choice)?"
-)
-
-
-def _target_player_edict(m: re.Match[str]) -> list[EffectSpec]:
-    what = SACRIFICE_EDICT_WHAT_WORDS[m.group("what")]
-    if m.group("nontoken") and what == "creature":
-        what = "nontoken_creature"
-    count_word = m.group("count")
-    count = 1 if count_word in ("a", "an") else int(count_word)
-    return [EffectSpec("sacrifice", {"target_kind": "player", "what": what, "count": count})]
-
-
-#: "each opponent / target opponent sacrifices a creature with the greatest power among creatures they
-#: control" (Crackling Doom, Gix's Command, Szat's Will, Professor Onyx's −3 — the hand-authored original) —
-#: `SacrificeEffect.greatest_power` narrows the pick to the tied leaders of that player's own board.
-#: …and the same edict by **mana value**, over creatures or creatures and planeswalkers, as a sacrifice or an exile
-#: (Blot Out / End of the Hunt "exiles", Flare of Malice / Soul Shatter / Break Under Pressure "sacrifices"). A tie is
-#: the chosen player's pick among the tied leaders (`SacrificeEffect.greatest`).
-_SACRIFICE_GREATEST_POWER_RE = compile_clause(
-    r"(?P<who>each opponent|target opponent|target player) (?P<verb>sacrifices|exiles) a "
-    r"(?P<what>creature|creature or planeswalker) "
-    r"(?:with the greatest (?P<stat>power|mana value) among (?P<pool>creatures|creatures and planeswalkers) "
-    r"(?:they|that player) controls?"
-    r"|they control with the greatest (?P<stat2>power|mana value) among (?P<pool2>creatures|creatures and planeswalkers) "
-    r"they control"
-    r"|they control with the greatest power)"
-)
-
-
-def _sacrifice_greatest_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    groups = m.groupdict()
-    stat = groups["stat"] or groups["stat2"] or "power"
-    pool = groups["pool"] or groups["pool2"] or ("creatures" if groups["what"] == "creature" else None)
-    # The "among …" pool must be the picked type: "creature" ↔ "creatures", "creature or planeswalker" ↔ both.
-    if pool is not None and (pool == "creatures") != (groups["what"] == "creature"):
-        return None
-    if groups["verb"] == "exiles" and m.group("who") == "each opponent":
-        return None  # an exile edict printed on every opponent is not a card yet
-    params: dict = {
-        "what": "creature" if groups["what"] == "creature" else "creature_or_planeswalker", "count": 1,
-        "greatest": stat.replace(" ", "_"),
-    }
-    if groups["verb"] == "exiles":
-        params["action"] = "exile"
-    if m.group("who") == "each opponent":
-        params["selector"] = "each_opponent"
-    else:
-        params["target_kind"] = "player"
-    return [EffectSpec("sacrifice", params)]
-
-
 #: "Create a number of 1/1 red Warrior creature tokens equal to the number of creatures target player
 #: controls." (Will of the Mardu) — the count is taken *as that player* (`effect_amounts`' ``of: "target"``),
 #: so the player is announced by a bare `choose_targets` and the token count bound to their creatures.
@@ -1467,6 +1594,22 @@ def _tokens_per_target_player_creature(m: re.Match[str]) -> Optional[list[Effect
     ]
 
 
+#: PAR-284 milestone 23 / RULE 601.2c: "Choose target opponent." / "Choose any number of target players." -- an
+#: announcement with no effect of its own; the next sentence reads the chosen player(s) as "that player" / "those
+#: opponents" (`referents.produces` hands them on, `where_x._relative_player_amount` measures as them).
+_CHOOSE_TARGET_PLAYERS_RE = compile_clause(
+    r"choose (?P<any>any number of )?target (?P<who>player|opponent)s?"
+)
+
+
+def _choose_target_players(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("any"):
+        return [EffectSpec("choose_targets", {
+            "kinds": [m.group("who")], "count": ANY_NUMBER_TARGET_CAP, "optional": True,
+        })]
+    return [EffectSpec("choose_targets", {"kinds": [m.group("who")]})]
+
+
 #: "Any number of target opponents each sacrifice a creature with the greatest power among creatures that
 #: player controls and lose N life." (Will of the Abzan) — the targets are announced by a bare
 #: `choose_targets` ("any number" is a RULE 601.2c declinable count), then a loop over exactly those
@@ -1489,23 +1632,6 @@ def _any_opponents_sacrifice_lose(m: re.Match[str]) -> list[EffectSpec]:
             {"type": "lose_life", "params": {"amount": int(m.group("n")), "target_kind": "player"}},
         ]}),
     ]
-
-
-#: "Sacrifice a creature." (Inevitable End's quoted upkeep ability) — an
-#: untargeted RULE 701.17 choice made by the ability's controller.  This is
-#: an effect body, not the superficially identical activated/casting *cost*;
-#: those are peeled by the segmenter before this catalogue is consulted.
-_SACRIFICE_CONTROLLER_RE = compile_clause(
-    r"sacrifice (?P<count>a|an|\d+) (?P<what>creature|artifact|land|permanent)s?"
-)
-
-
-def _sacrifice_controller(m: re.Match[str]) -> list[EffectSpec]:
-    count_word = m.group("count")
-    return [EffectSpec("sacrifice", {
-        "selector": "controller", "what": m.group("what"),
-        "count": 1 if count_word in ("a", "an") else int(count_word),
-    })]
 
 
 #: "Each player loses N life unless they discard a card."/"...unless they
@@ -1539,6 +1665,53 @@ def _each_player_lose_life_unless(m: re.Match[str]) -> list[EffectSpec]:
     if m.groupdict().get("or_sac"):
         params["sacrifice_or_discard"] = True
     return [EffectSpec("each_player_pay_or", params)]
+
+
+# RULE 608.2c / 101.4: finish one APNAP payment sweep for each counter.
+_COUNTER_PAY_OR_LOSE_RE = compile_clause(
+    r"put a (?P<counter>[a-z-]+) counter on it\. then for each (?P=counter) counter on it, "
+    r"each opponent loses (?P<n>\d+) life unless that player sacrifices a nonland permanent "
+    r"of their choice or discards a card"
+)
+
+
+def _counter_pay_or_lose(m: re.Match[str]) -> list[EffectSpec]:
+    counter = m.group("counter")
+    return [
+        EffectSpec("add_counters", {"kind": counter, "amount": 1}),
+        EffectSpec("for_each", {
+            "over": {"repeat": {"kind": "counters", "counter": counter, "of": "source"}},
+            "effects": [{"type": "each_player_pay_or", "params": {
+                "scope": "each_opponent", "sacrifice_or_discard": True,
+                "effects": [{"type": "lose_life", "params": {
+                    "amount": int(m.group("n")), "target_kind": "player",
+                }}],
+            }}],
+        }),
+    ]
+
+
+_SACRIFICE_SUBTYPE_DRAIN_RE = compile_clause(
+    r"target player loses (?P<base>\d+) life plus (?P<per>\d+) life for each "
+    r"(?P<subtype>[a-z-]+) sacrificed this way\. you gain that much life"
+)
+
+
+def _sacrifice_subtype_drain(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    from .....models.cards.creature_types import CREATURE_SUBTYPES
+
+    subtype = m.group("subtype")
+    if subtype not in CREATURE_SUBTYPES:
+        return None
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": {"kind": "this_way_count", "pool": "sacrificed", "subtype": subtype,
+                   "multiply": int(m.group("per")), "plus": int(m.group("base"))},
+        "effects": [
+            {"type": "lose_life", "params": {"amount": "$n", "target_kind": "player"}},
+            {"type": "gain_life", "params": {"amount": "$n"}},
+        ],
+    })]
 
 
 #: "Discard a card and sacrifice a creature, an artifact, and a land."
@@ -1720,6 +1893,17 @@ def _players_cant_cast_types_until(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+#: PAR-315 / RULE 601.3a + 611.2: "defending player can't cast spells this turn" (Xantid Swarm). "that player" is the seam's reading
+#: of the same words; both are only claimable under a combat head (the marker below), where the event names the defender.
+_DEFENDING_PLAYER_CANT_CAST_RE = compile_clause(r"(?:defending|that) player can't cast spells this turn")
+
+
+def _defending_player_cant_cast(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("restrict_target_player_this_turn", {
+        "selector": "defending_player", EVENT_PLAYER_EVENTS_KEY: list(DEFENDING_PLAYER_COMBAT_EVENTS),
+    })]
+
+
 #: Consuming Tide's tail: "then you draw a card for each opponent who has more cards in their hand than you."
 #: Anchored to the controller ("you"/subject-less, the singular verb): the builder emits a plain controller `draw`
 #: and "than you" in the count is relative to the controller, so a third-person "each opponent / target player /
@@ -1735,6 +1919,25 @@ def _draw_per_opponent_with_more_cards(m: re.Match[str]) -> list[EffectSpec]:
 
 
 ROWS: list[EffectHandler] = [
+    EffectHandler(
+        "opponent_offer_draw_or_put_dying_toughness",
+        compile_clause(r"target opponent may have you draw a card\. if they don'?t, "
+                       r"you may put a creature card with equal or lesser toughness from your hand onto the battlefield"),
+        lambda m: [EffectSpec("bind", {
+            "name": "toughness", "amount": {"kind": "trigger_event", "field": "toughness"},
+            "effects": [{"type": "pay_cost_then", "params": {
+                "cost": "{0}", "payer": "target", "target_kind": "opponent",
+                "prompt": "Den Gegner eine Karte ziehen lassen?",
+                "effects": [{"type": "draw", "params": {"count": 1}}],
+                "else_effects": [{"type": "put_from_hand_onto_battlefield", "params": {
+                    "criteria": {"type": "creature", "max_toughness": "$toughness"},
+                }}],
+            }}],
+        })],
+        requires=ClauseReading(group_subject=True),
+    ),
+    # "defending player can't cast spells this turn." (Xantid Swarm, RULE 601.3a)
+    EffectHandler("defending_player_cant_cast", _DEFENDING_PLAYER_CANT_CAST_RE, _defending_player_cant_cast),
     # MEC-27: the draw/gain-life/lose-life verb families `{DEVOTION}` had
     # never reached — always the ability's own controller, unlike the mass
     # "each player/opponent loses life" row below.
@@ -1773,18 +1976,21 @@ ROWS: list[EffectHandler] = [
         _DRAW_THAT_MANY_RE,
         _draw_that_many,
     ),
-    EffectHandler("sacrifice_greatest_power", _SACRIFICE_GREATEST_POWER_RE, _sacrifice_greatest_power),
     EffectHandler(
         "tokens_per_target_player_creature", _TOKENS_PER_TARGET_PLAYER_CREATURE_RE,
         _tokens_per_target_player_creature,
     ),
+    EffectHandler("choose_target_players", _CHOOSE_TARGET_PLAYERS_RE, _choose_target_players),
     EffectHandler(
         "any_opponents_sacrifice_lose", _ANY_OPPONENTS_SACRIFICE_LOSE_RE, _any_opponents_sacrifice_lose,
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
     EffectHandler("may_shuffle_hand_graveyard_draw", _MAY_SHUFFLE_HAND_GRAVEYARD_RE, _may_shuffle_hand_graveyard),
+    EffectHandler("draw_then_discard_that_many", _DRAW_THEN_DISCARD_THAT_MANY_RE, _draw_then_discard_that_many),
+    EffectHandler("shuffle_graveyard_mill_that_many", _SHUFFLE_GRAVEYARD_MILL_THAT_MANY_RE, _shuffle_graveyard_mill_that_many),
     EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
+    EffectHandler("shuffle_hand_draw_that_many", _SHUFFLE_HAND_DRAW_THAT_MANY_RE, _shuffle_hand_draw_that_many),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
                   lambda m: [EffectSpec("discard", {
@@ -1864,6 +2070,7 @@ ROWS: list[EffectHandler] = [
     EffectHandler("linked_exile_play", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+exiled with (?:~|it)[^.]*\.?"),
                   lambda m: parse_linked_play(m.group(0))),
     EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
+    EffectHandler("exile_random_graveyard_card", _EXILE_RANDOM_GRAVEYARD_RE, _exile_random_graveyard),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive
     # draw (Runestone Caverns/Bonehoard Dracosaur/Painter's Studio-shaped).
@@ -1893,12 +2100,19 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
     EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
+    # "that player" is the firing event's player only under the source's own trigger (the gate's `_that_player_head_ok`
+    # proves the head names one); the event reading is what `DigUntilEffect.digger="event_player"` resolves.
+    EffectHandler(
+        "dig_cast_free_event_player", _DIG_CAST_FREE_RE, _dig_cast_free_event_player,
+        requires=ClauseReading(self_subject=True),
+    ),
     EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
     EffectHandler(
         "cheat_creature_from_hand",
         _CHEAT_CREATURE_FROM_HAND_RE,
         _cheat_creature_from_hand,
     ),
+    EffectHandler("group_hand_entry", _GROUP_HAND_ENTRY_RE, _group_hand_entry),
     # ENG-33: "you may put a <type> card from your hand onto the
     # battlefield" (Dr. Eggman — a villainous-choice option body).
     EffectHandler(
@@ -1956,6 +2170,11 @@ ROWS: list[EffectHandler] = [
         _MANA_VALUE_XX_TOKEN_RE,
         _mana_value_xx_token,
     ),
+    EffectHandler(
+        "sacrificed_power_xx_token",
+        _SACRIFICED_POWER_XX_TOKEN_RE,
+        _sacrificed_power_xx_token,
+    ),
     # "you discard a card" / "discard 2 cards" / "target player discards a
     # card" / "…discards a card at random" (RULE 701.8d — Black Cat /
     # Hypnotic Specter / Bottomless Pit's "that player" via the
@@ -1966,6 +2185,11 @@ ROWS: list[EffectHandler] = [
         _that_many_player_discards,
     ),
     EffectHandler("discard_unless", _DISCARD_UNLESS_RE, _discard_unless),
+    # RULE 701.8f: "<player> discards (all the cards in) their hand, then draws that many cards." (Robber Fly, Shocker,
+    # Barbed Shocker, Collective Defiance, Incendiary Command) -- one whole-hand discard whose draw reads that
+    # same player's own hand size.
+    EffectHandler("discard_hand_draw_that_many", _DISCARD_HAND_DRAW_RE, _discard_hand_draw_that_many),
+    EffectHandler("discard_hand_fraction", _DISCARD_HAND_FRACTION_RE, _discard_hand_fraction),
     # "Untap up to three lands." (Frantic Search, Cloud of Faeries, Palinchron, Peregrine Drake) — an untargeted pick
     # (`choose_objects` with the ``untap`` action), unlike "untap up to two **target** lands" (RULE 115).
     EffectHandler(
@@ -1981,7 +2205,7 @@ ROWS: list[EffectHandler] = [
         "discard",
         compile_clause(
             r"(?P<who>you|target player|target opponent|each player|each opponent|defending player)?\s*"
-            rf"discards? {COUNT} cards?(?P<at_random> at random)?"
+            rf"discards? {COUNT_X} cards?(?P<at_random> at random)?"
         ),
         _discard,
     ),
@@ -2038,30 +2262,12 @@ ROWS: list[EffectHandler] = [
     # PAR-13: "each player loses N life unless they discard a card/sacrifice
     # a creature, artifact, or land of their choice." — Veils of Fear/
     # Sandfall Cell's own APNAP mass "unless".
+    EffectHandler("counter_pay_or_lose", _COUNTER_PAY_OR_LOSE_RE, _counter_pay_or_lose),
+    EffectHandler("sacrifice_subtype_drain", _SACRIFICE_SUBTYPE_DRAIN_RE, _sacrifice_subtype_drain),
     EffectHandler(
         "each_player_lose_life_unless",
         _EACH_PLAYER_LOSE_LIFE_UNLESS_RE,
         _each_player_lose_life_unless,
-    ),
-    # "each player/opponent sacrifices a[n] [nontoken] creature/artifact/
-    # land/permanent of their choice" (Accursed Marauder/Liliana, Dreadhorde
-    # General's -4 mass edict).
-    EffectHandler(
-        "sacrifice_edict",
-        _SACRIFICE_EDICT_RE,
-        _sacrifice_edict,
-    ),
-    # ENG-33: "target player/opponent sacrifices a <what> of their choice"
-    # (Diabolic Edict-shaped, and villainous/vote's *other* option).
-    EffectHandler(
-        "target_player_edict",
-        _TARGET_PLAYER_EDICT_RE,
-        _target_player_edict,
-    ),
-    EffectHandler(
-        "sacrifice_controller",
-        _SACRIFICE_CONTROLLER_RE,
-        _sacrifice_controller,
     ),
     # PAR-13: "discard a card and sacrifice a creature, an artifact, and a
     # land." — Oubliette's own compound mandatory punishment.

@@ -34,6 +34,7 @@ def _earths_mightiest_heroes() -> list[AbilitySpec]:
                     "count": 8, "action": "library_to_battlefield",
                     "filter": {"is_creature": True},
                     "rest_destination": "graveyard",
+                    "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
                     "optional": True,
                     "max_picks": 1, "max_picks_if_teamwork": 8,
                     "prompt": "Kreaturenkarte auf das Schlachtfeld legen",

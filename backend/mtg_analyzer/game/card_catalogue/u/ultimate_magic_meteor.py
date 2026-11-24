@@ -20,7 +20,7 @@ def _ultimate_magic_meteor() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("damage", {"amount": _METEOR_DAMAGE, "selector": "each_creature"}),
+                EffectSpec("damage", {"amount": _METEOR_DAMAGE, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
                 EffectSpec("destroy_artifact_or_land_per_opponent", {}, condition={"kind": "flag", "flag": "cast_from_exile", "of": "source"}),
             ],
         ),

@@ -25,7 +25,7 @@ def _porcelain_gallery() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             'static',
-            [EffectSpec('pt_set', {"affects": 'creatures_you_control', "power_count": 'creatures_you_control', "toughness_count": 'creatures_you_control'})],
+            [EffectSpec('pt_set', {"affects": {'zone': 'battlefield', 'of': 'you', 'filter': {'card_type': 'creature'}}, "power_count": 'creatures_you_control', "toughness_count": 'creatures_you_control'})],
             raw_text='',
         ),
     ]

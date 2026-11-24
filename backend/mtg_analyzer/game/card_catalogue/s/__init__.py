@@ -78,7 +78,6 @@ from . import sisay_weatherlight_captain  # noqa: F401
 from . import skyclave_apparition  # noqa: F401
 from . import slaughter_the_strong  # noqa: F401
 from . import slithermuse  # noqa: F401
-from . import sm_agol_helpful_guide  # noqa: F401
 from . import smart_ass  # noqa: F401
 from . import smite_the_deathless  # noqa: F401
 from . import smokestack  # noqa: F401
@@ -155,6 +154,7 @@ from . import sword_of_forge_and_frontier  # noqa: F401
 from . import sword_of_hearth_and_home  # noqa: F401
 from . import sword_of_light_and_shadow  # noqa: F401
 from . import sword_of_once_and_future  # noqa: F401
+from . import sword_of_the_ages  # noqa: F401
 from . import sword_of_the_animist  # noqa: F401
 from . import sword_of_truth_and_justice  # noqa: F401
 from . import swords_to_plowshares  # noqa: F401
@@ -231,3 +231,21 @@ from . import sonar_strike  # noqa: F401
 from . import spirit_flare  # noqa: F401
 from . import sweet_gum_recluse  # noqa: F401
 from . import spry_and_mighty  # noqa: F401
+
+from . import skyway_robber  # noqa: F401
+
+from . import sasaya_orochi_ascendant_sasaya_s_essence  # noqa: F401
+
+from . import student_of_elements_tobita_master_of_winds  # noqa: F401
+from . import shadow_the_hedgehog  # noqa: F401
+from . import savage_summoning  # noqa: F401
+from . import s_s_botany_bay  # noqa: F401
+from . import silver_scrutiny  # noqa: F401
+
+from . import stonespeaker_crystal  # noqa: F401
+
+from . import species_8472  # noqa: F401
+
+from . import sulu_heroic_helmsman  # noqa: F401
+from . import sylvia_tilly_joy_of_discovery  # noqa: F401
+from . import sphinx_of_the_chimes  # noqa: F401

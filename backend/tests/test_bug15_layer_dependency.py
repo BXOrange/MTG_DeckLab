@@ -45,11 +45,11 @@ def test_blood_moon_suppresses_urborg_in_either_order(moon_first):
 
     def moon():
         m = _put(eng, "Moon", "Enchantment")
-        _static(m, "type", "all_lands", {"set_subtypes": ["Mountain"], "nonbasic": True})
+        _static(m, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land", "nonbasic": True}}, {"set_subtypes": ["Mountain"]})
 
     def urborg():
         u = _land(eng, "Urborg")
-        _static(u, "type", "all_lands", {"add_subtypes": ["Swamp"]})
+        _static(u, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}, {"add_subtypes": ["Swamp"]})
         return u
 
     if moon_first:
@@ -69,7 +69,7 @@ def test_blood_moon_suppresses_urborg_in_either_order(moon_first):
 def test_urborg_still_applies_without_blood_moon():
     eng = _engine()
     u = _land(eng, "Urborg")
-    _static(u, "type", "all_lands", {"add_subtypes": ["Swamp"]})
+    _static(u, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}, {"add_subtypes": ["Swamp"]})
     other = _land(eng, "Other Land")
     _recompute(eng)
     assert continuous.has_subtype(other, "Swamp")
@@ -84,7 +84,7 @@ def test_effect_changing_what_another_applies_to_goes_first(animator_newer):
 
     def zombie_lord():
         z = _put(eng, "Necro", "Enchantment")
-        _static(z, "type", "all_creatures", {"add_subtypes": ["Zombie"]})
+        _static(z, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"add_subtypes": ["Zombie"]})
 
     def animate():
         nonlocal gizmo
@@ -109,8 +109,8 @@ def test_dependency_loop_falls_back_to_timestamp_order(plains_first):
     eng = _engine()
     first = _land(eng, "First")
     second = _land(eng, "Second")
-    _static(first, "type", "all_lands", {"set_subtypes": ["Plains" if plains_first else "Island"]})
-    _static(second, "type", "all_lands", {"set_subtypes": ["Island" if plains_first else "Plains"]})
+    _static(first, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}, {"set_subtypes": ["Plains" if plains_first else "Island"]})
+    _static(second, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land"}}, {"set_subtypes": ["Island" if plains_first else "Plains"]})
     third = _land(eng, "Third")
     _recompute(eng)
     winner, loser = ("Plains", "Island") if plains_first else ("Island", "Plains")
@@ -134,7 +134,7 @@ def test_probe_leaves_no_animation_pt_behind(monkeypatch):
     manland = _land(eng, "Manland")
     _static(manland, "type", "self", {"add_types": ["creature"], "power": 3, "toughness": 3})
     moon = _put(eng, "Moon", "Enchantment")
-    _static(moon, "type", "all_lands", {"set_subtypes": ["Mountain"], "nonbasic": True})
+    _static(moon, "type", {"zone": "battlefield", "of": "any", "filter": {"card_type": "land", "nonbasic": True}}, {"set_subtypes": ["Mountain"]})
     _recompute(eng)
     assert manland.instance_id not in seen
     assert not manland.is_creature
@@ -147,11 +147,11 @@ def _creature(eng, name, flying=False):
 
 def _humility(eng):
     h = _put(eng, "Humility", "Enchantment")
-    _static(h, "ability", "all_creatures", {"lose_all_abilities": True})
+    _static(h, "ability", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"lose_all_abilities": True})
 
 
 def _flying_grant(source):
-    _static(source, "ability", "all_creatures", {"keywords": ["flying"]})
+    _static(source, "ability", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"keywords": ["flying"]})
 
 
 @pytest.mark.parametrize("humility_first", [True, False])
@@ -191,11 +191,11 @@ def test_power_filtered_anthem_depends_on_a_same_sublayer_pump(filtered_first):
 
     def filtered():
         f = _put(eng, "Small Boost", "Enchantment")
-        _static(f, "pt_mod", "all_creatures", {"power": 1, "toughness": 1, "object_filter": {"max_power": 2}})
+        _static(f, "pt_mod", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 1, "toughness": 1, "object_filter": {"max_power": 2}})
 
     def pump():
         g = _put(eng, "Big Boost", "Enchantment")
-        _static(g, "pt_mod", "all_creatures", {"power": 2, "toughness": 2})
+        _static(g, "pt_mod", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 2, "toughness": 2})
 
     if filtered_first:
         filtered(); pump()

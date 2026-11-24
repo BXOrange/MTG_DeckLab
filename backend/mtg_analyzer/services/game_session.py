@@ -467,6 +467,11 @@ def _redact_hidden_zones(
     # it names, but the controller of that player's turn/combat while a
     # window is active (`GameState.decider_for`, resolved by the caller).
     decider = choice_decider_id or (pending.get("player_id") if pending else None)
+    if pending and (pending.get("group_hand_entry") is not None or
+                    (pending.get("battlefield_batch") or {}).get("hand_entry") is not None):
+        # RULE 101.4a: earlier players' selections are private until entry.
+        pending = state_dict["pending_choice"] = {key: value for key, value in pending.items()
+            if key not in {"group_hand_entry", "hand_entry_visits", "battlefield_batch"}}
     if pending and decider != perspective:
         state_dict["pending_choice"] = None
         state_dict["waiting_on_choice"] = {
@@ -1055,7 +1060,15 @@ class GameSession:
             owner_id = state.pending_choice["player_id"]
             if active.id != owner_id or (actor is not None and actor.id != state.decider_for(owner_id)):
                 raise GameRefusal("choice_not_resolution_answerer")
-        if state.pending_choice and kind not in ("choose", "decline") and not resolution_play:
+        choice = state.pending_choice or {}
+        payment_mana = (choice.get("kind") == "amount_payment" and choice.get("resource") == "mana"
+                        and kind in self.engine.rules.AMOUNT_PAYMENT_MANA_ACTIONS)
+        if payment_mana:
+            owner_id = choice["player_id"]
+            if actor is not None and actor.id != _physical_choice_decider(state, choice):
+                raise ValueError("only the payer can activate mana abilities during this payment")
+            active = state.player_by_id(owner_id)
+        if choice and kind not in ("choose", "decline") and not (resolution_play or payment_mana):
             raise GameRefusal("choice_pending")
 
         # MEC-51 (RULE 724): a choice addressed to a player whose turn/combat
@@ -1072,7 +1085,11 @@ class GameSession:
                 decider = _physical_choice_decider(state, state.pending_choice)
                 # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
                 # priority, must not be able to answer it by posting the choice themselves.
-                if (state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
+                payment_choice = choice.get("kind") == "amount_payment" or any(
+                    frame.get("kind") == self.engine.rules.DEFERRED_AMOUNT_PAYMENT
+                    for frame in state.deferred_effects
+                )
+                if (payment_choice or state.pending_choice.get("kind") in OPPONENT_CHOICE_KINDS
                         or state.pending_choice.get("kind") in {"physical_property_measurement", "physical_environment_measurement",
                                                                      "physical_card_story", "landfill_land_type", "landfill_covered_report", "ask_player"}) and actor.id != decider:
                     raise GameRefusal("choice_not_your_pick", name=actor.name)
@@ -1089,7 +1106,7 @@ class GameSession:
         # choice (nobody holds priority while the game is blocked on one).
         if (
             self.interactive_priority
-            and not resolution_play
+            and not (resolution_play or payment_mana)
             and kind not in ("declare_blockers", "choose", "decline", "set_yield")
             and state.priority_player is not None
             and active is not state.priority_player
@@ -1126,8 +1143,16 @@ class GameSession:
         blight_choice = action.get("blight_choice") if kind in ("cast_spell", "activate_ability") else None
         self.engine.state.blight_cost_choice = int(blight_choice) if blight_choice is not None else None
         try:
+            if payment_mana:
+                self.engine.rules._begin_amount_payment_mana_action()
             handler(self, action, active)
+            if payment_mana:
+                # Resume this payer without granting priority or resolving another object.
+                while not state.pending_choice and self.engine.rules.resume_deferred_effects():
+                    pass
         except (ValueError, KeyError, TypeError, GameActionError) as exc:
+            if payment_mana:
+                raise ValueError(str(exc)) from exc
             if outside:
                 raise _BlindSideboardCastError("Sideboard casting announcement is not legal") from None
             raise
@@ -1225,6 +1250,7 @@ class GameSession:
             active, self._object(action), option_index, ability_index, tap_choices,
             color_split=color_split, sacrifice_choice=sacrifice_choice,
             x=int(action.get("x", 0) or 0),
+            cost_land=action.get('cost_land'),
         )
 
     def _dispatch_activate_hand_mana(self, action: dict[str, Any], active: Player) -> None:
@@ -1237,6 +1263,16 @@ class GameSession:
             active, self._object(action), option_index, ability_index,
             color_split=color_split,
         )
+
+    @staticmethod
+    def _announced_kicked(action: dict[str, Any]) -> Any:
+        """RULE 702.33b/d (ENG-62): the announced ``kicked`` -- an int count (Kicker 0/1,
+        Multikicker N; on a card with two kicker costs, the first N costs) or a list of kicker-cost
+        indices naming exactly which of two costs are paid (`game/kicker_costs.py`)."""
+        raw = action.get("kicked", 0)
+        if isinstance(raw, (list, tuple)):
+            return tuple(int(i) for i in raw)
+        return int(raw or 0)
 
     def _dispatch_auto_tap_for(self, action: dict[str, Any], active: Player) -> None:
         # "Mana-Potenzial" auto-tap (`game/mana_potential.py`'s
@@ -1256,7 +1292,7 @@ class GameSession:
             self.engine.auto_tap_for(
                 active, source=self._object(action),
                 x=int(action.get("x", 0) or 0),
-                kicked=int(action.get("kicked", 0) or 0),
+                kicked=self._announced_kicked(action),
                 kicker_x=int(action.get("kicker_x", 0) or 0),
             )
 
@@ -1284,7 +1320,7 @@ class GameSession:
         # RULE 702.33: how many times Kicker was paid — round-trips from
         # `legal_actions`' `has_kicker`/`kicker_multi`/`max_kicker` the
         # same way `x` round-trips from `has_x`/`max_x`.
-        kicked = int(action.get("kicked", 0))
+        kicked = self._announced_kicked(action)
         # RULE 702.33b/PAR-7: Kicker's own {X} (Emblazoned Golem-shaped) —
         # round-trips from `legal_actions`' `kicker_has_x`/`kicker_max_x`
         # the same way `kicked` round-trips from `has_kicker`/`max_kicker`.
@@ -1313,6 +1349,7 @@ class GameSession:
             graveyard_exile_choices=(None if action.get("graveyard_exile_choices") is None
                                     else [int(i) for i in action["graveyard_exile_choices"]]),
             discard_choices=discard_choices,
+            hand_card_choices=self._resolve_hand_card_choices(action.get("hand_card_choices")),
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),
@@ -1342,6 +1379,10 @@ class GameSession:
             # each per-opponent "cast + promise a gift" offer.
             gift_opponent_id=action.get("gift_opponent_id"),
             splice_ids=[int(value) for value in action["splice_ids"]] if action.get("splice_ids") else None,
+            replicate=action.get("replicate"),
+            # ENG-65: the permanents an alternative cost returns/sacrifices; omitted, the engine opens the choice.
+            alt_cost_choices=([int(i) for i in action["alt_cost_choices"]]
+                              if action.get("alt_cost_choices") is not None else None),
         )
 
     def _dispatch_roll_planar_die(self, action: dict[str, Any], active: Player) -> None:
@@ -1350,6 +1391,9 @@ class GameSession:
         # happen. Silent outside a Planechase game: `can_roll_planar_die`
         # refuses without a planar deck.
         self.engine.roll_planar_die(active)
+
+    def _dispatch_plot(self, action: dict[str, Any], active: Player) -> None:
+        self.engine.plot(active, self._object(action))
 
     def _dispatch_foretell(self, action: dict[str, Any], active: Player) -> None:
         """RULE 702.143a's special action; it does not use the stack."""
@@ -1369,7 +1413,7 @@ class GameSession:
         # so unlike `cast_spell` there's nothing to respond to and the
         # board shows the real card the instant this returns.
         self.engine.turn_face_up(
-            active, self._object(action), int(action.get("option_index", 0))
+            active, self._object(action), int(action.get("option_index", 0)), x=int(action.get("x", 0))
         )
 
     def _dispatch_pay_search_exemption(self, action: dict[str, Any], active: Player) -> None:
@@ -1394,6 +1438,8 @@ class GameSession:
         hand_card_choices = self._resolve_hand_card_choices(action.get("hand_card_choices"))
         if action.get("graveyard_exile_choices") is not None:
             hand_card_choices = self._resolve_hand_card_choices(action["graveyard_exile_choices"])
+        if action.get("opponent_exile_choices") is not None:
+            hand_card_choices = self._resolve_hand_card_choices(action["opponent_exile_choices"])
         self.engine.activate_ability(
             active, self._object(action), index, targets, x, tap_choices,
             mode=mode,
@@ -1409,13 +1455,16 @@ class GameSession:
             picks = action["declarations"]
             if not isinstance(picks, list) or any(not isinstance(p, dict) for p in picks):
                 raise GameRuleRefusal("attack_invalid_declarations")
+            if any(not isinstance(p.get("enlist_ids", []), list) for p in picks):
+                raise ValueError("invalid enlist choices")
             ids = [int(p["instance_id"]) for p in picks]
             if len(set(ids)) != len(ids):
                 raise GameRuleRefusal("attack_duplicate")
             self.engine.declare_attackers(active, [
                 {"attacker": self._object_by_id(iid),
                  "defender": self._resolve_defender(pick.get("defender")),
-                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True))}
+                 "pay_attack_tax": bool(pick.get("pay_attack_tax", True)),
+                 "enlist": [self._object_by_id(int(i)) for i in pick.get("enlist_ids", [])]}
                 for iid, pick in zip(ids, picks)
             ])
             return
@@ -1493,6 +1542,7 @@ class GameSession:
         "auto_tap_for": _dispatch_auto_tap_for,
         "cast_spell": _dispatch_cast_spell,
         "foretell": _dispatch_foretell,
+        "plot": _dispatch_plot,
         "unlock_door": _dispatch_unlock_door,
         "suspend": _dispatch_suspend,
         "roll_planar_die": _dispatch_roll_planar_die,
@@ -2390,6 +2440,10 @@ class GameSession:
                             "instance_id": opt.get("instance_id"),
                         }
                     )
+            if pending.get("kind") == "amount_payment" and pending.get("resource") == "mana":
+                payer = state.player_by_id(pending["player_id"])
+                if perspective is None or perspective == _physical_choice_decider(state, pending):
+                    actions.extend(self.engine.mana_actions(payer))
             if pending.get('free_text'):
                 # Naming a card already accepts any text through the browser
                 # choice UI. Expose that parameterized action to bots too,

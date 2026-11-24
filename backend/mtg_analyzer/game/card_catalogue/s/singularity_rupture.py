@@ -9,7 +9,7 @@ def _singularity_rupture() -> list[AbilitySpec]:
     'Destroy all creatures, then any number of target players each mill half their library, rounded down.'
     return [
         AbilitySpec("spell_effect", [
-            EffectSpec("destroy", {"selector": "all_creatures"}),
+            EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
             EffectSpec("mill", {"target_kind": "player", "any_number_of_players": True, "half": "down"}),
         ]),
     ]

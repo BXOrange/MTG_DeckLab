@@ -7,7 +7,7 @@ from ...card_registry.core import register
 
 def _bane_of_progress() -> list[AbilitySpec]:
     return [AbilitySpec("triggered", [
-        EffectSpec("destroy", {"selector": "all_artifacts_and_enchantments"}),
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type_any": ["artifact", "enchantment"]}}}),
         EffectSpec("bind", {
             "amount": {"kind": "this_way", "tally": "permanents_destroyed_this_way"},
             "effects": [{"type": "add_counters", "params": {

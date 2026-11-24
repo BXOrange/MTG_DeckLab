@@ -43,14 +43,14 @@ def _drana_and_linvala() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("activation_prohibition", {"affects": "creatures_opponents_control"})],
+            [EffectSpec("activation_prohibition", {"affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}}})],
         ),
         AbilitySpec(
             "static",
             [EffectSpec("grant_borrowed_activated_ability", {
                 "affects": "self",
                 "source_mode": "group",
-                "source_affects": "creatures_opponents_control",
+                "source_affects": {"zone": "battlefield", "of": "opponents", "filter": {"card_type": "creature"}},
             })],
         ),
         AbilitySpec(

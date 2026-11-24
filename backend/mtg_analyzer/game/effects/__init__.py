@@ -7,7 +7,6 @@ from . import piles as _piles  # noqa: F401
 from . import mill_recover_card as _mill_recover_card  # noqa: F401
 from . import copy_sacrificed as _copy_sacrificed  # noqa: F401
 from . import exile_graveyard_modal as _exile_graveyard_modal  # noqa: F401
-from . import devour_token as _devour_token  # noqa: F401
 from . import sacrificed_counters_damage as _sacrificed_counters_damage  # noqa: F401
 from . import paradigm as _paradigm  # noqa: F401
 from . import target_player_creates as _target_player_creates  # noqa: F401
@@ -25,3 +24,15 @@ def bootstrap() -> type[EffectRegistry]:
 bootstrap()
 
 from . import name_reference as _name_reference  # noqa: F401
+
+from . import concerted_effort as _concerted_effort  # noqa: F401
+
+from . import bound_trigger_doubler as _bound_trigger_doubler  # noqa: F401
+
+from . import player_attack_prohibition as _player_attack_prohibition  # noqa: F401
+from . import exchange_top_library_permissions as _exchange_top_library_permissions  # noqa: F401
+from . import exile_opponent_top_cast_then_bottom as _exile_opponent_top_cast_then_bottom  # noqa: F401
+from . import exile_opponents_choose_lands as _exile_opponents_choose_lands  # noqa: F401
+from . import next_undaunted as _next_undaunted  # noqa: F401
+from . import opponent_free_cast_copy_or_draw as _opponent_free_cast_copy_or_draw  # noqa: F401
+from . import shuffle_exile_grant_copy as _shuffle_exile_grant_copy  # noqa: F401

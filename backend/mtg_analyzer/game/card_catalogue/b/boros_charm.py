@@ -23,7 +23,7 @@ def _boros_charm() -> list[AbilitySpec]:
                 "choose": 1,
                 "options": [
                     [EffectSpec("damage", {"amount": 4, "target_kind": "player"})],
-                    [EffectSpec("pump", {"selector": "permanents_you_control", "keywords": ["indestructible"]})],
+                    [EffectSpec("pump", {"selector": {"zone": "battlefield", "of": "you", "filter": {}}, "keywords": ["indestructible"]})],
                     [EffectSpec("pump", {"target_kind": "creature", "keywords": ["double_strike"]})],
                 ],
                 "descriptions": [

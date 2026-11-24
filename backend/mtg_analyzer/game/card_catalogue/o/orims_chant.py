@@ -20,7 +20,7 @@ def _specs() -> list[AbilitySpec]:
                     {
                         'static': {
                             'type': 'grant_keyword',
-                            'params': {'affects': 'all_creatures', 'keywords': ['cant_attack']},
+                            'params': {'affects': {'zone': 'battlefield', 'of': 'any', 'filter': {'card_type': 'creature'}}, 'keywords': ['cant_attack']},
                         },
                         'duration': 'end_of_turn',
                         'target_kind': None,

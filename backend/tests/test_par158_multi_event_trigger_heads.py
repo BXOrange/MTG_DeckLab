@@ -8,7 +8,7 @@ from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.models.game.events import EventType, GameEvent
 from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.gate import parse_oracle
-from mtg_analyzer.parser.oracle.segmenter import _compound_trigger_heads
+from mtg_analyzer.parser.oracle.segmenter.keyword_and_trigger_conditions import _compound_trigger_heads
 
 
 def _card(head, body="you gain 1 life."):

@@ -208,9 +208,12 @@ def test_whale_retains_defending_player_scope_after_duration_delegation():
 
 
 def test_duration_scope_reuse_does_not_crash_on_unrelated_conditional_regeneration_rider():
-    # Necrite's sacrifice antecedent is outside the immediate destruction
-    # sentence; the regeneration modifier must fail closed rather than crash.
-    assert not parse_oracle(_db_card('Necrite')).modeled
+    # Necrite's sacrifice antecedent is outside the immediate destruction sentence; the regeneration modifier must
+    # not crash, and (PAR-316) reads the payoff sentence after a certain antecedent as the destruction it qualifies.
+    result = parse_oracle(_db_card('Necrite'))
+    assert result.modeled
+    assert [e.type for e in result.specs[0].effects] == ['sacrifice_self', 'destroy']
+    assert result.specs[0].effects[1].params['can_be_regenerated'] is False
 
 
 def test_giant_does_not_trigger_for_another_attackers_blocker():

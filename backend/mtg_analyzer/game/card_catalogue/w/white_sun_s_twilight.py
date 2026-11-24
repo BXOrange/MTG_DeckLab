@@ -11,7 +11,7 @@ def _card() -> list[AbilitySpec]:
             "toughness": 1, "colors": [], "subtypes": ["Phyrexian", "Mite"], "is_artifact": True,
             "parametric_keywords": [{"name": "toxic", "n": 1}], "keywords": ["cant_block"],
             "oracle_text": "Toxic 1\nThis token can't block."}),
-        EffectSpec("destroy", {"selector": "all_creatures", "exclude_created": True},
+        EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "exclude_created": True},
                    condition={"kind": "x_paid", "min": 5}),
     ])]
 

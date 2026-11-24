@@ -14,7 +14,7 @@ def _secret_arcade_dusty_parlor() -> list[AbilitySpec]:
     return [
         AbilitySpec(
             "static",
-            [EffectSpec("type_change", {"affects": "nonland_permanents_you_control", "add_types": ["enchantment"]})],
+            [EffectSpec("type_change", {"affects": {"zone": "battlefield", "of": "you", "filter": {"without_card_type": "land"}}, "add_types": ["enchantment"]})],
         ),
     ]
 

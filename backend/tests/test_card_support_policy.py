@@ -86,3 +86,12 @@ def test_deadhead_physical_hand_contact_is_a_permanent_exclusion():
     assert result.coverage == NEVER_SUPPORTED
     assert result.unsupported_reason == 'physical_action'
     assert not unsupported_reason(card('Target opponent reveals their hand.'))
+
+
+def test_ante_cards_are_permanently_unsupported():
+    # RULE 407: every ante card names the mechanic in its own text.
+    removal = "Remove Jeweled Bird from your deck before playing if you're not playing for ante."
+    assert unsupported_reason(card(removal + '\n{T}: Ante Jeweled Bird.')) == 'ante'
+    assert unsupported_reason(card('Each player antes the top card of their library.')) == 'ante'
+    # Not a whole word: "anteater", "Dante", "antechamber".
+    assert not unsupported_reason(card('Create a 1/1 green Anteater creature token.'))

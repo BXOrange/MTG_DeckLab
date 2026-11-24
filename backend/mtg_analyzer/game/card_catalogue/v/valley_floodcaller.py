@@ -32,11 +32,11 @@ def _valley_floodcaller() -> list[AbilitySpec]:
             "triggered",
             [
                 EffectSpec("pump", {
-                    "power": 1, "toughness": 1, "selector": "creatures_you_control",
+                    "power": 1, "toughness": 1, "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                     "subtypes": ["bird", "frog", "otter", "rat"],
                 }),
                 EffectSpec("tap", {
-                    "selector": "creatures_you_control", "untap": True,
+                    "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "untap": True,
                     "subtypes": ["bird", "frog", "otter", "rat"],
                 }),
             ],

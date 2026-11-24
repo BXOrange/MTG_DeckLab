@@ -41,8 +41,8 @@ def test_counter_lord_parses():
     ) == [
         EffectSpec("grant_keyword", {
             "keywords": ["flying"],
-            "affects": "creatures_you_control",
-            "has_counter_kind": "+1/+1",
+            "affects": {"zone": "battlefield", "of": "you",
+                        "filter": {"card_type": "creature", "has_counter_kind": "+1/+1"}},
         })
     ]
     # multi-keyword
@@ -182,7 +182,7 @@ def test_quoted_fixed_color_group_protection_is_generic_and_temporary():
     assert granted.type == "grant_triggered_ability"
     assert granted.params["grant_effects"] == [{
         "type": "grant_fixed_protection_group",
-        "params": {"selector": "creatures_you_control", "color": "B"},
+        "params": {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "color": "B"},
     }]
 
 
@@ -338,7 +338,7 @@ def test_quoted_type_choice_composes_existing_generic_effects():
     )
     spec = parse_oracle(card).specs[0].effects[0]
     assert spec.type == "grant_activated_ability"
-    assert spec.params["subtype"] == "Wizard"
+    assert spec.params["affects"]["filter"]["subtype"] == "Wizard"
     assert spec.params["grant_effects"][0]["type"] == "_request_choose_creature_type_grant"
 
 

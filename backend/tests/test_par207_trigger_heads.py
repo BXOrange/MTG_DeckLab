@@ -128,9 +128,10 @@ def test_reflexive_row_parses_a_certain_antecedent_into_a_gated_reflexive_trigge
 
 def test_reflexive_row_refuses_what_it_cannot_bind():
     reading = ClauseReading(self_subject=True)
-    # The payoff's "it" would be the returned creature, which nothing here can name.
-    assert match_clause("return target creature card from your graveyard to the battlefield. when you do, "
-                        "it fights up to 1 target creature you don't control", reading=reading) is None
+    # The payoff's "it" would be the drawn card's object, which nothing here can name (PAR-286: a made / returned /
+    # amassed object can, see `test_par286_carried_antecedent.py`).
+    assert match_clause("draw a card. when you do, it fights up to 1 target creature you don't control",
+                        reading=reading) is None
     # An antecedent with no observable footprint (exert) cannot be told apart from "did nothing".
     assert match_clause("you may exert ~ as it attacks. when you do, prevent all combat damage that would be "
                         "dealt to it this turn", reading=reading) is None

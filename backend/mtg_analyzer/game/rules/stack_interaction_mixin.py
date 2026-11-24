@@ -16,6 +16,10 @@ from .. import continuations
 COUNTERED_CAUSE = "countered"
 
 
+#: `GrantCantBeCounteredEffect` scopes that cover spells of every controller (not just the granting permanent's own).
+UNCOUNTERABLE_ANY_CONTROLLER_SCOPES = frozenset({"creature_spells", "subtype_spells"})
+
+
 class StackInteractionMixin:
     """Retarget, mutate, counter and move spells and abilities."""
     def _stack_item_for(self, target: Any) -> Optional[StackItem]:
@@ -71,7 +75,9 @@ class StackInteractionMixin:
         )
         if effect is None:
             return
-        options = legal_targets(self.state, item.controller_id, effect.target_spec, source=stack_source)
+        from dataclasses import replace
+        spec = replace(effect.target_spec, ability_source=item.kind != "spell")
+        options = legal_targets(self.state, item.controller_id, spec, source=stack_source)
         if not options:
             return
         if redirect_to_source:
@@ -165,9 +171,9 @@ class StackInteractionMixin:
         "The creature on top plus all abilities from under it": the host
         takes on ``mutating``'s printed characteristics (name, P/T, types)
         while its own previous oracle text is banked on
-        `GameObject.merged_oracle_text` and folded back in when abilities are
-        re-derived — so the pile keeps accumulating abilities as further
-        creatures mutate onto it, which is the mechanic's whole point.
+        `GameObject.merged_oracle_text` and folded into the text displayed on
+        the top card. The host keeps its bound abilities and gains those of
+        the incoming component.
 
         ``under=True`` is the other half of RULE 702.140b's "over **or
         under**": the pile keeps the *host's* characteristics and gains the
@@ -179,7 +185,8 @@ class StackInteractionMixin:
         of the merged permanent and must not linger on the battlefield or in
         a graveyard as a second permanent.
         """
-        from ..binding.core import bind_from_catalogue  # function-scoped: avoid cycle
+        from ..binding.core import attach_to_object  # function-scoped: avoid cycle
+        from ..card_registry import specs_for
 
         # Whichever card ends up *under* contributes only its abilities; the
         # one on top supplies the printed face the pile shows.
@@ -212,13 +219,10 @@ class StackInteractionMixin:
         host.card = top_card
         host._front_card = top_card
         host.merged_oracle_text = merged
-        # Re-derive the merged pile's abilities through the ordinary bind
-        # path, so nothing about mutate needs its own ability-construction
-        # code. Both halves of "abilities" have to carry: the oracle text
-        # (parsed into triggered/activated/static abilities) *and* the RULE
-        # 702 keyword list, which the keyword catalogue reads directly
-        # rather than off the text.
-        bind_from_catalogue(host)
+        # RULE 702.140e: keep the abilities already bound to the host and
+        # add the incoming component's abilities with the host as their source.
+        attach_to_object(host, specs_for(mutating.card))
+        host.times_mutated += 1
 
         owner = self.state.player_by_id(mutating.owner_id)
         self._remove_from_current_zone(owner, mutating)
@@ -235,7 +239,7 @@ class StackInteractionMixin:
             )
         )
     def break_illegal_soulbond_pairs(self) -> bool:
-        """RULE 702.94c: a pair breaks the moment either creature leaves the
+        """RULE 702.95e: a pair breaks the moment either creature leaves the
         battlefield, stops being a creature, or the two stop sharing a
         controller. Swept as a state-based action so nothing has to remember
         to tear a pair down at each of those sites."""
@@ -251,11 +255,15 @@ class StackInteractionMixin:
                 and partner.is_creature
                 and obj.is_creature
                 and partner.controller_id == obj.controller_id
+                and partner.paired_with == obj.instance_id
+                and (obj.paired_controller_id is None or obj.controller_id == obj.paired_controller_id)
             )
             if not still_legal:
                 obj.paired_with = None
+                obj.paired_controller_id = None
                 if partner is not None:
                     partner.paired_with = None
+                    partner.paired_controller_id = None
                 changed = True
         return changed
     def _exile_instead_of_leaving_stack(self, obj: Any) -> bool:
@@ -296,10 +304,13 @@ class StackInteractionMixin:
         owner = self.state.player_by_id(obj.owner_id)
         if self._exile_instead_of_leaving_stack(obj):
             return True
-        if obj.is_token or destination == "exile":
+        if destination == 'exile':
+            # RULE 406/400.7: record a genuine zone move, including EXILE,
+            # before off-stack spell copies cease to exist at the next SBA.
+            self.exile(obj)
+            return True
+        if obj.is_token:
             obj.zone = Zone.EXILE
-            if not obj.is_token:
-                owner.add_to_zone(obj, Zone.EXILE)
             return True
         if destination in ("library_top", "library_bottom"):
             # "…puts it on their choice of the top or bottom of their library." (Endless Detour) — a copy/token has
@@ -325,6 +336,10 @@ class StackInteractionMixin:
         CounteredEffect` — Hexing Squelcher's "Spells you control can't be
         countered.")?
         """
+        if obj is None:
+            return False  # RULE 603.7: a delayed ability may have no live permanent source.
+        if obj.cast_uncounterable:
+            return True
         effects = list(getattr(obj, "spell_effects", []) or [])
         effects += list(getattr(obj, "static_effects", []) or [])
         if any(isinstance(e, CantBeCounteredEffect) for e in effects):
@@ -350,7 +365,21 @@ class StackInteractionMixin:
                     # "Spells can't be countered." (Lier, Disciple of the Drowned) — every
                     # spell, whoever controls it or the permanent.
                     return True
+                if effect.scope in UNCOUNTERABLE_ANY_CONTROLLER_SCOPES:
+                    # PAR-290: "Creature spells can't be countered." (Gaea's Herald) / "Sliver spells can't be
+                    # countered." (Root Sliver) cover every player's matching spells, not only the permanent's
+                    # controller's (RULE 101.2).
+                    if effect.scope == "creature_spells" and is_creature:
+                        return True
+                    if effect.scope == "subtype_spells" and effect.subtype and obj.has_subtype(effect.subtype):
+                        return True
+                    continue
                 if permanent.controller_id != obj.controller_id:
+                    continue
+                if effect.scope == "instant_sorcery_spells_you_control" and not (
+                    "instant" in (getattr(obj, "type_words", None) or set())
+                    or "sorcery" in (getattr(obj, "type_words", None) or set())
+                ):
                     continue
                 if effect.scope == "creature_spells_you_control" and not is_creature:
                     continue

@@ -19,8 +19,8 @@ def _sidar_kondo_of_jamuraa() -> list[AbilitySpec]:
     return [
         AbilitySpec("static", [EffectSpec("combat_restriction", {
             "kind": "cant_block_filtered", "filter": {"max_power": _MAX_BLOCKED_POWER},
-            "affects": "creatures_opponents_control",
-            "object_filter": {"without_keyword": ["flying", "reach"]},
+            "affects": {'zone': 'battlefield', 'of': 'opponents', 'filter': {'card_type': 'creature', 'without_keyword': ['flying', 'reach']}},
+            
         })]),
     ]
 

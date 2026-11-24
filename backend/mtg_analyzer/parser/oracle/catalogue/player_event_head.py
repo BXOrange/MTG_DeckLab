@@ -13,6 +13,7 @@ import re
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .spell_phrase import parse_spell_phrase
 from .trigger_context import PHASE_TAILS, consume
 
 #: Actor words → the condition that scopes the acting player. "You" keeps the long-standing
@@ -70,8 +71,17 @@ _COMPOUND_VERBS: dict[str, list[str]] = {
     "cycle or discard another card": ["CYCLED", "DISCARD_CARD"],
     "discard or cycle a card": ["DISCARD_CARD", "CYCLED"],
     "discard or cycle another card": ["DISCARD_CARD", "CYCLED"],
+    # RULE 119.1 / 603.2: gaining life and losing life are separate events; either one triggers the ability
+    # (Moonstone Harbinger, Wax-Wane Witness).
+    "gain or lose life": ["LIFE_GAINED", "LIFE_LOST"],
+    "lose or gain life": ["LIFE_LOST", "LIFE_GAINED"],
+    # RULE 305.1 / 601.2a: "play" a card is playing a land or casting a spell (PAR-286: Null Profusion, Recycle, Juju Bubble).
+    "play a card": ["LAND_PLAYED", "SPELL_CAST"],
 }
+_PLAY_OR_CAST_FROM_EXILE = "play a land from exile or cast a spell from exile"
 _PLAY_LAND_NOT_FROM_HAND = "play a land from anywhere other than your hand"
+_PLAY_LAND_STATUS = re.compile(r"^plays? an? (?P<q>nonbasic|basic) land$")
+PLAYED_LAND_BASIC_STATUS_KEY = "played_land_basic_status"
 _GRAVEYARD_ABILITY = "activate an ability of a card in your graveyard"
 #: Trigger keys read by the binder: the played land / activated ability's origin (PAR-236).
 NOT_FROM_HAND_KEY = "not_played_from_hand"
@@ -81,6 +91,10 @@ _NTH_DRAW = re.compile(
     rf"^(?:draw|draws) (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) card (?:each turn|in a turn)$"
 )
 _ONCE = "for the first time each turn"
+#: RULE 706 (PAR-286): "you roll your third die each turn" (Resolute Veggiesaur), "you roll a natural 20" (Critical Hit).
+_NTH_DIE = re.compile(rf"^rolls? (?:your|their) (?P<n>{'|'.join(_ORDINALS)}) die each turn$")
+NATURAL_TWENTY = 20  # a natural 20 is the highest face of a twenty-sided die (the d20 of the D&D-flavoured cards)
+_NATURAL_TWENTY = re.compile(rf"^rolls? a natural {NATURAL_TWENTY}$")
 _DRAW_EXCEPT = re.compile(
     r"^(?:draw|draws) a card except the first (?P<n>\d+|one) "
     r"(?:they|you) draw in each of (?:their|your) draw steps$"
@@ -100,6 +114,10 @@ _DIE_RESULT_HEAD = re.compile(
     r"^rolls? an? (?:(?P<lo>\d+)(?: or (?P<cmp>higher|more|greater|lower|less|fewer|(?P<hi>\d+)))?"
     r"(?: on a die)?|die'?s highest natural result)$"
 )
+#: "you tap an untapped creature an opponent controls" (Hylda of the Icy Crown, Icewrought Sentry, Solitary Sanctuary).
+_TAP_UNTAPPED = re.compile(r"^tap an untapped (?P<type>creature|artifact|land) an opponent controls$")
+#: Trigger key read by the binder: the `TAPPED` event's tapper is this ability's controller (ENG-63).
+TAPPER_IS_YOU_KEY = "tapper_is_you"
 _MANA_TAP = re.compile(r"^taps? (?:an?|another) (?P<object>.+) for mana$")
 
 _PLAYER_ATTACKS = re.compile(r"^attacks?(?: with (?P<n>\d+) or more creatures)?$")
@@ -144,9 +162,32 @@ def _declaration_keys(phrase: str, actor: str, trigger: dict[str, Any]) -> dict[
     return trigger
 
 
+#: RULE 701.5a: the `SPELL_COUNTERED` heads. "A spell or ability you control counters a spell" (Lullmage Mentor) keys
+#: the event's countering controller (`player_id`, the "you" subject); "a spell you've cast is countered" (Multani's
+#: Presence) keys the countered spell's own controller, whoever countered it, through its own trigger gate.
+_COUNTERS_A_SPELL = "a spell or ability you control counters a spell"
+_YOUR_SPELL_COUNTERED = re.compile(r"^a spell you(?:'ve| have)? cast is countered$")
+#: Trigger key read by the binder: the countered spell's controller is this ability's controller (RULE 701.5a).
+COUNTERED_SPELL_IS_YOURS_KEY = "countered_spell_is_yours"
+#: RULE 707.10: "you copy an instant spell" (Kalamax) -- a `SPELL_COPIED`, with the copied spell's own object filter.
+_COPY_A_SPELL = re.compile(r"^you copy (?P<phrase>an? .+ spell)$")
+#: RULE 702.33b: "a player kicks a spell" is "a player casts a kicked spell" (Saproling Infestation).
+_KICK_A_SPELL = re.compile(r"^(?:kick|kicks) a spell$")
+
+
 def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], dict[str, Any]]]:
     """``(event, condition, trigger keys)`` for a player-event head, or ``None``."""
     cond = cond.strip().lower()
+    if cond == _COUNTERS_A_SPELL:
+        return "SPELL_COUNTERED", {"subject": "you"}, {}
+    if _YOUR_SPELL_COUNTERED.fullmatch(cond):
+        return "SPELL_COUNTERED", {"subject": "global"}, {COUNTERED_SPELL_IS_YOURS_KEY: True}
+    copied = _COPY_A_SPELL.fullmatch(cond)
+    if copied is not None:
+        keys = parse_spell_phrase(copied.group("phrase"))
+        if keys is None or set(keys) - {"spell_filter"}:
+            return None  # a cast-context key (origin, ordinal ...) is not a property of a copy
+        return "SPELL_COPIED", {"subject": "you"}, keys
     if cond == "the ring tempts you":
         return "RING_TEMPTED", {"subject": "you"}, {}
     if cond == "you unlock this door":
@@ -167,6 +208,11 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if rest.endswith(" " + _ONCE):
         trigger["limit"] = True
         rest = rest[: -len(_ONCE) - 1].strip()
+    if _KICK_A_SPELL.fullmatch(rest):
+        return "SPELL_CAST", condition, {**trigger, "spell_filter": {"kicked": True}}
+    if m.group("actor") == "you" and rest == _PLAY_OR_CAST_FROM_EXILE:
+        # RULE 305.1 / 601.2a: both `LAND_PLAYED` and `SPELL_CAST` stamp ``from_exile`` (Pia Nalaar, Consul of Revival).
+        return ["LAND_PLAYED", "SPELL_CAST"], condition, {**trigger, "filter": {"from_exile": True}}
     if m.group("actor") == "you" and rest in _COMPOUND_VERBS:
         return _COMPOUND_VERBS[rest], condition, trigger
     if m.group("actor") == "you" and re.fullmatch(r"behold(?: an?\s+\w+)?", rest):
@@ -176,6 +222,9 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
             trigger.update(keys)
             rest = rest[: -len(phrase) - 1].strip()
             break
+    if m.group("actor") == "you" and rest in _COMPOUND_VERBS and trigger:
+        # "whenever you gain or lose life during your turn": the compound verb keeps its phase tail.
+        return _COMPOUND_VERBS[rest], condition, trigger
     excluded = _DRAW_EXCEPT.fullmatch(rest)
     if excluded:
         n = excluded.group("n")
@@ -242,6 +291,23 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
             "subject": "group", "controller": controller, "filter": parsed[0],
             "other": rest.startswith("tap another ") or rest.startswith("taps another "),
         }, trigger
+    tap = _TAP_UNTAPPED.fullmatch(rest)
+    if tap is not None and m.group("actor") == "you":
+        # RULE 701.26a (ENG-63): "you tap" = the controller of the tapping effect / the player paying the tap
+        # cost (`TAPPED.tapper_id`); "untapped" is implicit (only an untapped -> tapped transition fires `TAPPED`);
+        # "an opponent controls" scopes the tapped permanent's controller, not the tapper.
+        return "TAPPED", {"subject": "group", "type": tap.group("type"), "controller": "not_you"}, {
+            **trigger, TAPPER_IS_YOU_KEY: True,
+        }
+    nth_die = _NTH_DIE.fullmatch(rest)
+    if nth_die is not None:
+        trigger["is_nth_die_rolled_this_turn"] = _ORDINALS[nth_die.group("n")]
+        return "DIE_RESULT", condition, trigger
+    natural = _NATURAL_TWENTY.fullmatch(rest)
+    if natural is not None:
+        # "a natural 20": the d20's own face, before any modifier (RULE 706.4); one `DIE_RESULT` per kept die.
+        trigger["filter"] = {"natural_result": NATURAL_TWENTY, "sides": NATURAL_TWENTY}
+        return "DIE_RESULT", condition, trigger
     nth = _NTH_DRAW.match(rest)
     if nth is not None:
         trigger["is_nth_draw_this_turn"] = _ORDINALS[nth.group("n")]
@@ -249,6 +315,11 @@ def parse_player_event_head(cond: str) -> Optional[tuple[str, dict[str, Any], di
     if m.group("actor") == "you" and rest == _PLAY_LAND_NOT_FROM_HAND:
         # RULE 305.1 / 601.2a: playing a land from anywhere other than the hand (Shadow of the Goblin).
         trigger[NOT_FROM_HAND_KEY] = True
+        return "LAND_PLAYED", condition, trigger
+    land_status = _PLAY_LAND_STATUS.fullmatch(rest)
+    if land_status is not None:
+        # RULE 205.4a: "plays a nonbasic land" (Hidden Herd) -- `LAND_PLAYED` filtered on the land's supertype.
+        trigger[PLAYED_LAND_BASIC_STATUS_KEY] = "nonbasic" if land_status.group("q") == "nonbasic" else "basic"
         return "LAND_PLAYED", condition, trigger
     if rest == _GRAVEYARD_ABILITY:
         trigger["filter"] = {"from_zone": "graveyard"}

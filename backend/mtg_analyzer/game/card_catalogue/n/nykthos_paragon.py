@@ -18,7 +18,7 @@ def _nykthos_paragon() -> list[AbilitySpec]:
                 "name": "n",
                 "amount": {"kind": "trigger_event", "field": "amount"},
                 "effects": [{"type": "add_counters", "params": {
-                    "amount": "$n", "kind": "+1/+1", "selector": "each_creature_you_control",
+                    "amount": "$n", "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }}],
             })],
             trigger={"event": EventType.LIFE_GAINED, "condition": {"subject": "you"}, "limit": True},

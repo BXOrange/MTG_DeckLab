@@ -382,9 +382,11 @@ def test_explicit_source_optional_targeted_pump(accept):
     assert all(o["id"] != "decline" for o in eng.state.pending_choice["options"])
     eng.rules.resolve_choice(str(target.instance_id))
     assert eng.state.stack
-    eng.rules.blink(source)
+    # The source leaves the battlefield (a blink would re-trigger its own enters ability, RULE 603.6a),
+    # so the pending pump must read its last known power, not the card's current one.
+    eng.rules.exile(source)
     eng.recompute_continuous_effects()
-    assert source.power == 2
+    assert source.zone == Zone.EXILE
     clone = GameEngine(eng.state.clone())
     clone.resolve_until_stable()
     assert clone.state.pending_choice["kind"] == "composite_optional"
@@ -485,6 +487,6 @@ def test_inline_source_search_quantity_survives_departure_and_clone():
     assert sum(o.is_land for o in clone.state.battlefield) == 2
 
 
-@pytest.mark.parametrize("name", ["Emergent Woodwurm", "Fatal Frenzy", "Ravenous Gigantotherium", "Rip, Spawn Hunter", "Self-Destruct"])
+@pytest.mark.parametrize("name", ["Fatal Frenzy", "Ravenous Gigantotherium", "Rip, Spawn Hunter", "Self-Destruct"])
 def test_independent_body_grammar_stays_fail_closed(name):
     assert not parse_oracle(_named(name)).modeled

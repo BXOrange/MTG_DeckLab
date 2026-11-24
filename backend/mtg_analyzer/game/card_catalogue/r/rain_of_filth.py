@@ -26,7 +26,7 @@ def _rain_of_filth() -> list[AbilitySpec]:
                     "params": {
                         "mana": [{"color": "B", "amount": 1}],
                         "cost": {"sacrifice": "self"},
-                        "affects": "lands_you_control",
+                        "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "land"}},
                     },
                 },
                 "duration": "end_of_turn",

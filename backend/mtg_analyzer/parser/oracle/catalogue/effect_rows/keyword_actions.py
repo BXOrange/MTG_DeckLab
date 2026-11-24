@@ -20,6 +20,7 @@ from ..subgrammars import (
     TARGET,
     target_kind_allowed,
 )
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec
 from .shared import (
     compile_clause,
@@ -184,10 +185,10 @@ def _fateseal(m: re.Match[str]) -> list[EffectSpec]:
 # The Wolverine, Fierce Fighter "…is healed" *replacement* clause is a
 # separate recognizer (`replacements._HEAL_OTHERS_ON_DAMAGE_RE`).
 _HEAL_GROUP_SELECTOR = {
-    "each creature you control": "creatures_you_control",
-    "creatures you control": "creatures_you_control",
-    "each creature": "all_creatures",
-    "all creatures": "all_creatures",
+    "each creature you control": battlefield_group(OF_YOU),
+    "creatures you control": battlefield_group(OF_YOU),
+    "each creature": battlefield_group(OF_ANY),
+    "all creatures": battlefield_group(OF_ANY),
 }
 _HEAL_RE = compile_clause(
     r"(?:heal all damage (?:from|dealt to|marked on)|(?:all )?damage (?:already )?dealt to) "
@@ -1687,7 +1688,7 @@ def _support_x(m: re.Match[str]) -> list[EffectSpec]:
 # untargeted mass form (RULE 601.2c), the same selector shape
 # `_tap_selector`/`_add_counters_selector` use.
 def _goad_selector(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("goad", {"selector": "creatures_opponents_control"})]
+    return [EffectSpec("goad", {"selector": battlefield_group(OF_OPPONENTS)})]
 
 
 # "For each opponent, goad up to one target creature that player controls."

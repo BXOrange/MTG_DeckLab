@@ -52,6 +52,9 @@ from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
 _REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
+_TOKEN_REGISTRY: dict[tuple[str, str], Callable[[], list[AbilitySpec]]] = {}
+_ENTRY_COUNTER_OVERRIDES: dict[str, dict[str, Any]] = {}
+_ABILITY_LINE_REGISTRY: dict[str, Callable[[], list[AbilitySpec]]] = {}
 
 
 #: Keywords a registered card must *not* get from Scryfall's ``keywords`` array: that array lists a keyword the card only
@@ -61,16 +64,35 @@ _SUPPRESSED_KEYWORDS: dict[str, frozenset[str]] = {}
 
 def register(
     name: str, factory: Callable[[], list[AbilitySpec]], suppress_keywords: tuple[str, ...] = (),
+    entry_counters: Optional[dict[str, Any]] = None,
 ) -> None:
     """Register a card's ability specs under its (case-insensitive) name.
 
     ``suppress_keywords`` names keyword slugs the card's own authored specs grant (conditionally) and the keyword
-    catalogue's fold-in must therefore skip for this card.
+    catalogue's fold-in must therefore skip for this card. ``entry_counters``
+    supplies trusted entry metadata when the printed clause has an unsupported
+    rider; it is copied on registration and on every read.
     """
     key = name.strip().lower()
     _REGISTRY[key] = factory
+    if entry_counters is not None:
+        _ENTRY_COUNTER_OVERRIDES[key] = copy.deepcopy(entry_counters)
     if suppress_keywords:
         _SUPPRESSED_KEYWORDS[key] = frozenset(suppress_keywords)
+
+
+def register_token(name: str, oracle_text: str, factory: Callable[[], list[AbilitySpec]]) -> None:
+    """Author a token definition without granting its abilities to same-named tokens.
+
+    RULE 111.3/707.2: name and printed rules text travel with copies; binding
+    the definition again must recover its intrinsic abilities.
+    """
+    _TOKEN_REGISTRY[(name.strip().lower(), oracle_text.strip())] = factory
+
+
+def register_ability_line(line: str, factory: Callable[[], list[AbilitySpec]]) -> None:
+    """Bind an exact hand-authored RULE 707.9a ability on later copies too."""
+    _ABILITY_LINE_REGISTRY[line.strip()] = factory
 
 
 def registry_signature() -> str:
@@ -130,7 +152,8 @@ def is_registered(name: str) -> bool:
 
 def suppressed_keywords_for(card: Any) -> frozenset[str]:
     """The keyword slugs ``card``'s registration says Scryfall's ``keywords`` array must not grant (see ``register``)."""
-    return _SUPPRESSED_KEYWORDS.get((getattr(card, "name", "") or "").strip().lower(), frozenset())
+    name = getattr(card, "copy_ability_name", None) or getattr(card, "name", "") or ""
+    return _SUPPRESSED_KEYWORDS.get(name.strip().lower(), frozenset())
 
 
 def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
@@ -151,8 +174,10 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     from ...models.cards.support_policy import unsupported_reason
     if unsupported_reason(card):
         return []
-    name = (getattr(card, "name", "") or "").strip().lower()
+    name = (getattr(card, "copy_ability_name", None) or getattr(card, "name", "") or "").strip().lower()
     factory = _REGISTRY.get(name)
+    if factory is None:
+        factory = _TOKEN_REGISTRY.get((name, str(getattr(card, "oracle_text", "") or "").strip()))
     if getattr(card, "is_split", False) and getattr(card, "back_name", "") and "//" in name:
         # RULE 709.3/709.4: the printed card exposes its front half until a fused face is selected.
         factory = _REGISTRY.get(name.split("//")[0].strip(), factory)
@@ -170,7 +195,8 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
         for s in specs
         if s.ability_kind == "keyword" and s.keyword
     }
-    suppressed = _SUPPRESSED_KEYWORDS.get(name, frozenset()) if registered else frozenset()
+    suppressed = (_SUPPRESSED_KEYWORDS.get(name, frozenset()) if registered else frozenset())
+    suppressed = suppressed | frozenset(getattr(card, "copy_removed_keywords", ()))
     for kw_spec in parse_keywords(card):
         if kw_spec.keyword and (kw_spec.keyword.get("name") in authored or kw_spec.keyword.get("name") in suppressed):
             continue
@@ -191,14 +217,18 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     # ability the line as its description.
     for line in tuple(getattr(card, "granted_ability_lines", ()) or ()) if include_granted else ():
         specs.extend(granted_line_specs(card, line))
-    return specs
+    return [spec for spec in specs if not (spec.keyword and spec.keyword.get("name")
+            in getattr(card, "copy_removed_keywords", ()))]
 
 
 def granted_line_specs(card: Any, line: str) -> list[AbilitySpec]:
-    """The specs one RULE 707.9a granted ability ``line`` parses to on ``card`` (``[]`` unless it is fully modeled).
+    """Fresh specs for an exact registered or fully parsed RULE 707.9a ability line.
 
     Shared by `specs_for` and by `copy_mechanics.keep_as_copiable`, so a line is only ever stored in a copy's copiable
     values when binding it back will really produce the ability."""
+    factory = _ABILITY_LINE_REGISTRY.get(line.strip())
+    if factory is not None:
+        return factory()
     extra = copy.copy(card)
     extra.oracle_text = line
     extra.keywords = []
@@ -260,11 +290,12 @@ def entry_counters(card: Any) -> Optional[dict[str, Any]]:
     - ``{"is_x": False, "count": N, "counter_type": "ice"}`` — a fixed
       amount.
 
-    Delegates to `parser.oracle.catalogue.counters.entry_counters` (the
-    coverage gate's single source of truth for this clause shape), the same
+    Uses an explicitly registered entry override when present; otherwise
+    delegates to `parser.oracle.catalogue.counters.entry_counters`, the same
     split `land_tap_condition` uses for tapped-entry.
     """
-    return _entry_counters(card)
+    override = _ENTRY_COUNTER_OVERRIDES.get(str(getattr(card, "name", "")).strip().lower())
+    return copy.deepcopy(override) if override is not None else _entry_counters(card)
 
 
 def opening_hand_battlefield_permission(card: Any) -> bool:

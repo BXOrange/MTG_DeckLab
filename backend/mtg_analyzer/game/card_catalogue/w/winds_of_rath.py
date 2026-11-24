@@ -22,7 +22,7 @@ def _winds_of_rath() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [EffectSpec("destroy", {
-                "selector": "all_creatures", "filter": {"enchanted": False},
+                "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"enchanted": False},
                 "can_be_regenerated": False,
             })],
         ),

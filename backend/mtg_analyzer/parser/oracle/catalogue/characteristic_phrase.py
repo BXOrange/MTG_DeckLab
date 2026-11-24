@@ -56,6 +56,8 @@ COLOR_LETTERS: dict[str, str] = {
 #: `combat.matches_object_filter` (the new ones were added with this module).
 FLAG_WORDS: dict[str, dict[str, Any]] = {
     "multicolored": {"multicolored": True},
+    # PAR-319 (Defiler of Souls): RULE 105.2b a monocolored object is exactly one colour (colorless is not).
+    "monocolored": {"color_count": 1},
     "colorless": {"colorless": True},
     "legendary": {"legendary": True},
     "nonlegendary": {"nonlegendary": True},
@@ -67,6 +69,8 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "basic": {"basic": True},
     "nonbasic": {"nonbasic": True},
     "snow": {"snow": True},
+    # RULE 205.4g: snow is a supertype, so "nonsnow" negates it (`without_snow`); never a subtype named "snow".
+    "nonsnow": {"without_snow": True},
     "attacking": {"attacking": True},
     "blocking": {"blocking": True},
     # RULE 701.15b / 708.2: a designation and a status (PAR-119).
@@ -81,6 +85,8 @@ FLAG_WORDS: dict[str, dict[str, Any]] = {
     "face-down": {"face_down": True},
     # RULE 903.3: a commander is a designation, not a type or subtype.
     "commander": {"is_commander": True},
+    # RULE 903.3: "noncommander" is the negated designation, not a subtype called "Commander".
+    "noncommander": {"is_commander": False},
     # RULE 205.3m's collective terms: one word standing for several creature types
     # ("outlaw" = Assassin, Mercenary, Pirate, Rogue or Warlock), and RULE 700.6's
     # "historic" (an artifact, a legendary permanent or a Saga).
@@ -101,6 +107,8 @@ KEYWORD_WORDS: dict[str, str] = {
     "flashback": "flashback", "disturb": "disturb",
     # RULE 702.164: Toxic N is a keyword ability; `combat.has` reads its parametric value, so the bare word matches any N.
     "toxic": "toxic",
+    # PAR-282: the evasion/combat keywords the static blocker filters used to keep in a private table.
+    "flanking": "flanking", "horsemanship": "horsemanship", "indestructible": "indestructible", "hexproof": "hexproof",
 }
 
 _ALTERNATION = re.compile(r"\s*,\s*(?:(?:and/)?or\s+|and\s+)?|\s+(?:(?:and/)?or|and)\s+")
@@ -117,6 +125,9 @@ _PLURAL_AND_CONNECTIVE = re.compile(r"\sand\s")
 _WITH_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+) or (?P<dir>greater|less)$")
 #: RULE 202.3: "creature with mana value 1" -- the exact value (`exact_mana_value`), the unbounded sibling of the line above.
 _WITH_EXACT_MANA_VALUE = re.compile(r"^mana value (?P<n>\d+)$")
+#: RULE 608.2h (MEC-145): "creature with the same mana value as the sacrificed creature" -- refused at the gate unless the
+#: ability's own cost sacrifices (`gate._sacrificed_mv_filter_ok`).
+_WITH_SACRIFICED_MANA_VALUE = re.compile(r"^the same mana value as the sacrificed (?:creature|permanent|artifact)$")
 #: RULE 205.2: "a spell with 2 or more card types" -- how many of the main card types the object has.
 _WITH_CARD_TYPE_COUNT = re.compile(r"^(?P<n>\d+) or more card types$")
 #: RULE 201.2: "a creature you control named ~" -- only the source's own name is a supported operand.
@@ -129,6 +140,8 @@ _WITH_COUNTER = re.compile(
 #: negation the tail grammar already reads (RULE 122.1: a counter kind is a name, `without_counter_kind`).
 _WITH_NO_COUNTER_KIND = re.compile(r"^no (?P<kind>\+1/\+1|-1/-1|first strike|double strike|[a-z]+) counters on (?:it|them)$")
 _NON_SUBTYPE = re.compile(r"^non-?(?P<sub>[a-z]+)$")
+#: The negation keys whose filter value may be a list of excluded values (all of them excluded at once).
+STACKABLE_EXCLUSIONS: tuple[str, ...] = ("without_card_type", "without_color", "without_subtype")
 
 
 def _bound(key_stem: str, n: int, direction: str) -> dict[str, Any]:
@@ -203,13 +216,15 @@ def _conjunction(
         if fragment.get("card_type"):
             card_types.append(fragment["card_type"])
             continue
-        if "without_card_type" in fragment and "without_card_type" in filt:
-            # "noncreature, nonland" — stacked exclusions, every one applies.
-            previous = filt["without_card_type"]
+        stacked = next((k for k in STACKABLE_EXCLUSIONS if k in fragment and k in filt), None)
+        if stacked is not None:
+            # "noncreature, nonland" / "nonwhite, nonblack" — stacked exclusions, every one applies (RULE 105.2,
+            # 205.2a): `combat.matches_object_filter` reads each of these keys as a list of excluded values.
+            previous = filt[stacked]
             previous = previous if isinstance(previous, list) else [previous]
-            if fragment["without_card_type"] in previous:
+            if fragment[stacked] in previous:
                 return None
-            filt["without_card_type"] = previous + [fragment["without_card_type"]]
+            filt[stacked] = previous + [fragment[stacked]]
             continue
         if any(k in filt for k in fragment):
             return None  # two subtypes / two colours / a repeated word: not one object's phrase
@@ -271,6 +286,12 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
             # colour alternation stands alone.
             if noun == {} and last[1] in ("permanent", "permanents") and subs and set(subs) == {"color_any"}:
                 return subs
+        # PAR-286: "a Phyrexian creature or artifact creature" -- every alternative is a whole multi-word phrase with its
+        # own noun (RULE 700.5-style union), so each is read as its own stacked-adjective conjunction.
+        if len(parts) >= 2 and all(len(p.split()) >= 2 for p in parts):
+            whole = [_conjunction(p.split(), card_noun=False, plural=plural) for p in parts]
+            if all(f for f in whole) and all("card_type" in f or "card_type_all" in f for f in whole):
+                return {"any_of": whole}
         return None
     fragments = [_word_fragment(p, plural=plural) for p in parts]
     if any(f is None or not f for f in fragments):
@@ -296,6 +317,9 @@ def _alternation(parts: list[str], plural: bool = False) -> Optional[dict[str, A
     return {"any_of": fragments}
 
 
+_COLORS_THEN_TYPES = re.compile(r"(?P<colors>[a-z]+(?: or [a-z]+)+) (?P<types>[a-z]+(?: or [a-z]+)+)")
+
+
 def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
     """The adjective/type words before a noun — "" is the unfiltered phrase.
 
@@ -312,6 +336,15 @@ def parse_head(head: str, plural: bool = False) -> Optional[dict[str, Any]]:
         head, card_noun = "", True
     if not head:
         return {}
+    colors_then_types = _COLORS_THEN_TYPES.fullmatch(head)
+    if colors_then_types is not None:
+        # RULE 105.2 / 205.2: "white or blue instant or sorcery" -- a colour list followed by a card-type list is the
+        # colour alternative AND the type alternative (a white-or-blue object that is an instant or a sorcery).
+        colors = _alternation(colors_then_types.group("colors").split(" or "), plural=plural)
+        types = _alternation(colors_then_types.group("types").split(" or "), plural=plural)
+        if colors and types and set(colors) == {"color_any"} and set(types) == {"card_type_any"}:
+            return {**types, **colors}
+        return None
     if _OR_CONNECTIVE.search(head) or (plural and _PLURAL_AND_CONNECTIVE.search(head)):
         parts = [p for p in _ALTERNATION.split(head) if p]
         return _alternation(parts, plural=plural)
@@ -366,6 +399,8 @@ def parse_qualifier(qualifier: str) -> Optional[dict[str, Any]]:
     m = _WITH_EXACT_MANA_VALUE.match(qualifier)
     if m:
         return {"exact_mana_value": int(m.group("n"))}
+    if _WITH_SACRIFICED_MANA_VALUE.match(qualifier):
+        return {"exact_mana_value": "sacrificed_cost"}  # `combat.SACRIFICED_COST_MANA_VALUE` (parser has no game/ imports)
     m = _WITH_CARD_TYPE_COUNT.match(qualifier)
     if m:
         return {"min_card_types": int(m.group("n"))}

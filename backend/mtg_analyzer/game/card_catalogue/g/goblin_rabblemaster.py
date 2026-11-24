@@ -23,7 +23,7 @@ def _goblin_rabblemaster() -> list[AbilitySpec]:
         AbilitySpec(
             "static",
             [EffectSpec("grant_keyword", {
-                "affects": "other_creatures_you_control", "subtype": "goblin",
+                "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True, "subtype": "goblin"}},
                 "keywords": ["attacks_if_able"],
             })],
         ),

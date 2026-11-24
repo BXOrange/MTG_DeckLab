@@ -27,7 +27,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import GameState, StackItem
 from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
-from .. import combat, condition_query, continuous, durations, face_down, variants
+from .. import combat, combat_payments, condition_query, continuous, durations, face_down, variants
 from ...models.decks import formats as game_format
 from ...models.decks.formats import GameFormat, get_format
 from ..costs import (
@@ -68,6 +68,10 @@ from ..top_library import (
 )
 
 #: Maximum hand size enforced at cleanup (RULE 402.2 / 514.1).
+
+
+def _has_declaration_cost(obj, kind):
+    return any(entry.get("payment") or entry.get("amount") for entry in combat.combat_restrictions(obj, kind))
 
 
 class CombatMixin:
@@ -124,10 +128,11 @@ class CombatMixin:
         active = self.state.active_player
         for obj in self.state.permanents_controlled_by(active.id):
             if (
-                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id
+                (combat.has(obj, "attacks_if_able") or combat.is_goaded(obj) or obj.must_attack_player_id or obj.encore_defender_id
                  or combat.combat_restrictions(obj, "attacks_other_player_if_able"))
                 and not obj.attacking
-                and self._can_attack(active, obj)
+                and self._can_attack_without_payment(active, obj)
+                and self._has_required_attack_companions(active, obj)
             ):
                 # RULE 701.15b's first half: a goaded creature "attacks each
                 # combat if able" — the same requirement the flag keyword
@@ -136,6 +141,42 @@ class CombatMixin:
                 # `_enforce_goad_requirements`, since that can only be judged
                 # once the whole attack is declared.
                 raise ValueError(f"{obj.name} attacks each combat if able")
+    def _can_attack_without_payment(self, player, obj):
+        defenders = self.legal_defenders_for(player)
+        if _has_declaration_cost(obj, "attack_cost"):
+            return False
+        if not defenders:
+            return self._can_attack(player, obj) and not self._attack_tax_for(obj, {"kind": "player"})
+        return any(
+            self._can_attack(player, obj, self._defending_player(spec), defender_kind=spec["kind"])
+            and not self._attack_tax_for(obj, spec)
+            for spec in defenders
+        )
+
+    def _has_required_attack_companions(self, player, obj):
+        if not (combat.combat_restrictions(obj, "companion_attack") or
+                combat.combat_restrictions(obj, "cant_attack_alone")):
+            return True
+        candidates = [other for other in self.state.permanents_controlled_by(player.id)
+                      if other is obj or other.attacking or self._can_attack_without_payment(player, other)]
+        return combat.can_join_combat_group(obj, candidates, "attack")
+
+    def _attack_tax_for(self, obj, spec):
+        defender = self._defending_player(spec)
+        defender_id = defender.id if defender else None
+        return sum(continuous.attack_tax_per_creature_for(
+            self.state, defender_id, spec["kind"], attacker=obj, payment=payment
+        ) for payment in ("mana", "life"))
+
+    def _can_redirect_required_attack(self, obj, player, defender, spec):
+        kind = spec["kind"]
+        return (
+            self._attack_conditions_ok(obj, player, defender)
+            and not self._attack_tax_for(obj, spec)
+            and not continuous.defender_attack_prohibited(self.state, obj, defender.id, kind)
+            and (not combat.has_defender(obj) or self._defender_attack_permission(obj, player, defender, kind))
+        )
+
     def _enforce_must_attack_player(self) -> None:
         """"~ attacks that player this combat if able" (Territorial Hellkite): an attacker bound to a named
         defender (`GameObject.must_attack_player_id`) that was declared against someone else violates the
@@ -143,17 +184,17 @@ class CombatMixin:
         declared, like goad's second half (`_enforce_goad_requirements`)."""
         active = self.state.active_player
         for obj in self.state.battlefield:
-            wanted = obj.must_attack_player_id
+            wanted = obj.must_attack_player_id or obj.encore_defender_id
             if not wanted or not obj.attacking or obj.controller_id != active.id:
                 continue
             attacked = self._defending_player(obj.combat_defender)
-            if attacked is not None and attacked.id == wanted:
+            if (attacked is not None and attacked.id == wanted
+                    and (not obj.encore_defender_id or (obj.combat_defender or {}).get("kind") == "player")):
                 continue
             if any(
-                (defender := self._defending_player(spec)) is not None and defender.id == wanted
-                and self._attack_conditions_ok(obj, active, defender)
-                and (not combat.has_defender(obj) or self._defender_attack_permission(
-                    obj, active, defender, spec.get("kind", "player")))
+                (not obj.encore_defender_id or spec.get("kind") == "player")
+                and (defender := self._defending_player(spec)) is not None and defender.id == wanted
+                and self._can_redirect_required_attack(obj, active, defender, spec)
                 for spec in self.legal_defenders_for(active)
             ):
                 raise ValueError(f"{obj.name} must attack {self.state.player_by_id(wanted).name} if able")
@@ -190,8 +231,7 @@ class CombatMixin:
                 if any(
                     spec.get("kind", "player") == "player"
                     and (defender := self._defending_player(spec)) is not None and defender.id != avoid
-                    and self._attack_conditions_ok(obj, active, defender)
-                    and (not combat.has_defender(obj) or self._defender_attack_permission(obj, active, defender, "player"))
+                    and self._can_redirect_required_attack(obj, active, defender, spec)
                     for spec in self.legal_defenders_for(active)
                 ):
                     raise ValueError(f"{obj.name} must attack another player if able")
@@ -218,9 +258,7 @@ class CombatMixin:
                 for spec in self.legal_defenders_for(active)
                 if (defender := self._defending_player(spec)) is not None
                 and defender.id not in goaded_by
-                and self._attack_conditions_ok(obj, active, defender)
-                and (not combat.has_defender(obj) or self._defender_attack_permission(
-                    obj, active, defender, spec.get("kind", "player")))
+                and self._can_redirect_required_attack(obj, active, defender, spec)
             ]
             if alternatives:
                 raise ValueError(
@@ -259,6 +297,8 @@ class CombatMixin:
                 player_id=obj.controller_id,  # RULE 508.1a: the attacker's controller
                 instance_id=obj.instance_id,
                 object_types=sorted(obj.type_words),
+                # RULE 508.1b / 506.2: "attacks alone, defending player ..." names the one player it attacks (PAR-315).
+                defending_player_id=getattr(self._defending_player(obj.combat_defender), "id", None),
             )
         )
     def _fire_unblocked_events(self) -> None:
@@ -353,6 +393,31 @@ class CombatMixin:
                 )
             )
             announced.add(attacker_id)
+    def _can_block_without_payment(self, player, blocker, attacker):
+        if not self.can_block(player, blocker, attacker):
+            return False
+        if attacker.instance_id in combat.blocking_attacker_ids(blocker):
+            return True
+        return (
+            (combat.blocking_attacker_ids(blocker) or not continuous.block_tax_per_creature(self.state))
+            and not any(combat.block_cost_applies(self.state, blocker, attacker, entry)
+                        for entry in combat.combat_restrictions(blocker, "block_cost")
+                        if entry.get("payment") or entry.get("amount"))
+        )
+
+    def _required_block_is_possible(self, player, blocker, attacker):
+        if not self._can_block_without_payment(player, blocker, attacker):
+            return False
+        if not (combat.combat_restrictions(blocker, "companion_block") or
+                combat.combat_restrictions(blocker, "cant_block_alone")):
+            return True
+        candidates = [
+            other for other in self.state.permanents_controlled_by(player.id)
+            if other is blocker or combat.blocking_attacker_ids(other)
+            or any(self._can_block_without_payment(player, other, target) for target in self.attackers)
+        ]
+        return combat.can_join_combat_group(blocker, candidates, "block")
+
     def _enforce_block_requirements(self) -> None:
         """RULE 509.1c/d: a blocking *requirement* — the mirror image of the
         RULE 509.1a/b restrictions above — constrains the defending player's
@@ -390,7 +455,7 @@ class CombatMixin:
                 continue
             candidates = [
                 o for o in self.state.permanents_controlled_by(defender.id)
-                if self.can_block(defender, o, attacker)
+                if self._required_block_is_possible(defender, o, attacker)
             ]
             if must_all:
                 for candidate in candidates:
@@ -406,7 +471,7 @@ class CombatMixin:
             if combat.combat_restrictions(obj, "must_block_if_able") and not combat.blocking_attacker_ids(obj):
                 defender = self.state.player_by_id(obj.controller_id)
                 for attacker in self.attackers:
-                    if self.can_block(defender, obj, attacker):
+                    if self._required_block_is_possible(defender, obj, attacker):
                         raise ValueError(f"{obj.name} must block this turn if able")
             for entry in combat.combat_restrictions(obj, "must_block_target"):
                 attacker_id = (entry.get("filter") or {}).get("instance_id")
@@ -420,7 +485,7 @@ class CombatMixin:
                 ):
                     continue
                 defender = self.state.player_by_id(obj.controller_id)
-                if self.can_block(defender, obj, attacker):
+                if self._required_block_is_possible(defender, obj, attacker):
                     raise ValueError(
                         f"{obj.name} must block {attacker.name} this turn if able"
                     )
@@ -649,14 +714,26 @@ class CombatMixin:
             if obj is not None and obj in self.state.battlefield:
                 return obj
         return None
+
+    def enlist_options(self, player: Player, attacker: GameObject) -> list[GameObject]:
+        # RULE 702.154a: actual haste qualifies; permission to activate as
+        # though the creature had haste applies only to activated abilities.
+        if not combat.has(attacker, "enlist"):
+            return []
+        return [
+            obj for obj in self.state.permanents_controlled_by(player.id)
+            if obj is not attacker and obj.is_creature and not obj.tapped and not obj.attacking
+            and (not obj.summoning_sick or combat.has_haste(obj))
+        ]
+
     def declare_attackers(
-        self, player: Player, declarations: list[Any]
+        self, player: Player, declarations: list[Any], *, cost_choices: tuple[int, ...] = ()
     ) -> None:
         """Declare attackers (RULE 508), each against a chosen defender.
 
         Each entry is either a bare `GameObject` (the engine picks the
         defender when it is unambiguous) or a ``{"attacker": obj, "defender":
-        spec, "exert": bool, "pay_attack_tax": bool}`` dict, where ``spec`` is one of the entries
+        spec, "exert": bool, "pay_attack_tax": bool, "enlist": list[GameObject]}`` dict, where ``spec`` is one of the entries
         `legal_defenders_for` returns (or None for a bare swing). Declaring is
         *additive* — the UI declares creatures one at a time so each can pick
         its own target below it — so repeated calls accumulate the combat.
@@ -675,14 +752,25 @@ class CombatMixin:
         if self.state.current_step != "declare_attackers":
             raise ValueError("not in the declare-attackers step")
 
+        if any(isinstance(entry, dict) and entry.get("enlist") for entry in declarations):
+            self.recompute_continuous_effects()
         legal = self.legal_defenders_for(player)
         resolved: list[tuple[GameObject, Optional[dict[str, Any]], bool]] = []
         pay_attack_tax = True
+        enlistments: list[tuple[GameObject, GameObject]] = []
         for entry in declarations:
             if isinstance(entry, dict):
                 obj = entry["attacker"]
                 defender = entry.get("defender")
                 exert = bool(entry.get("exert"))
+                picks = entry.get("enlist", ())
+                if picks and len(picks) > combat.keyword_instances(obj, "enlist"):
+                    raise ValueError(f"{obj.name} cannot enlist that many creatures")
+                options = self.enlist_options(player, obj) if picks else ()
+                for enlisted in picks:
+                    if enlisted not in options:
+                        raise ValueError(f"{obj.name} cannot enlist that creature")
+                    enlistments.append((obj, enlisted))
                 # RULE 508.1g is a declaration-time choice. A client can
                 # explicitly decline it, which leaves this submitted attack
                 # illegal and, crucially, spends none of the player's mana.
@@ -712,6 +800,37 @@ class CombatMixin:
                 raise ValueError(f"{obj.name} cannot attack")
             resolved.append((obj, assigned, exert))
 
+        attacker_ids = {obj.instance_id for obj, _, _ in resolved}
+        enlisted_ids = {obj.instance_id for _, obj in enlistments}
+        if len(attacker_ids) != len(resolved):
+            raise ValueError("duplicate attacker")
+        if attacker_ids & enlisted_ids or len(enlisted_ids) != len(enlistments):
+            raise ValueError("an enlisted creature must be a distinct nonattacker")
+
+        combat.validate_combat_companions([obj for obj, _, _ in resolved], "attack")
+        entries = [entry for obj, _, _ in resolved for entry in combat.combat_restrictions(obj, "attack_cost")]
+        for obj, defender, _ in resolved:
+            defending = self._defending_player(defender)
+            protected_id = defending.id if defending else None
+            tax = continuous.attack_tax_per_creature_for(
+                self.state, protected_id, (defender or {}).get("kind", "player"), attacker=obj, payment="life"
+            )
+            if tax:
+                entries.append({"payment": "life", "count": tax})
+        draft = {
+            "verb": "attack",
+            "entries": [{"attacker": obj.instance_id, "defender": defender, "exert": exert,
+                         "enlist": [other.instance_id for source, other in enlistments if source is obj],
+                         "pay_attack_tax": pay_attack_tax}
+                        for obj, defender, exert in resolved],
+        }
+        life, slots = combat_payments.payment_slots(self, player, entries, attacker_ids | enlisted_ids)
+        if (life or slots) and not pay_attack_tax:
+            raise ValueError("attack costs declined")
+        payments = combat_payments.select_permanents(self, player, slots, draft, cost_choices)
+        if payments is None:
+            return
+
         # RULE 508.1g attack tax (Propaganda / Ghostly Prison / Windborn
         # Muse): "creatures can't attack you unless their controller pays {N}
         # for each creature they control that's attacking you." Summed over
@@ -724,18 +843,28 @@ class CombatMixin:
         tax_total = 0
         for _obj, _defender, _exert in resolved:
             defending = self._defending_player(_defender)
-            if defending is not None:
-                defender_kind = str((_defender or {}).get("kind", "player"))
-                tax_total += continuous.attack_tax_per_creature_for(
-                    self.state, defending.id, defender_kind, attacker=_obj
-                )
+            defender_kind = str((_defender or {}).get("kind", "player"))
+            tax_total += continuous.attack_tax_per_creature_for(
+                self.state, defending.id if defending else None, defender_kind, attacker=_obj
+            )
+        # RULE 508.1g: "can't attack unless its controller pays {N}" (Brainwash, Qal Sisma Behemoth) is the declaring
+        # player's own cost for that creature, paid in the same declaration as the tax above.
+        for _obj, _defender, _exert in resolved:
+            tax_total += combat.attack_cost_for(self.state, _obj)
         if tax_total > 0:
             if not pay_attack_tax:
                 raise ValueError("attack tax declined; those creatures cannot be declared as attackers")
             tax_cost = ManaCost.parse(f"{{{tax_total}}}")
             if not player.mana_pool.can_pay(tax_cost):
                 try:
-                    self.auto_tap_for(player, cost=tax_cost)
+                    self.auto_tap_for(
+                        player, cost=tax_cost,
+                        reserved_ids=enlisted_ids | {obj.instance_id for obj, _, _ in resolved
+                                                    if not combat.has_vigilance(obj)}
+                        | {obj.instance_id for payment, obj in payments if payment == "tap"},
+                        reserved_permanents=attacker_ids | enlisted_ids | {o.instance_id for _, o in payments},
+                        reserved_life=life,
+                    )
                 except ValueError:
                     raise ValueError(
                         f"cannot pay the {{{tax_total}}} attack tax to declare these attackers"
@@ -747,14 +876,30 @@ class CombatMixin:
             player.mana_pool.pay(tax_cost)
 
 
+        combat_payments.pay(self, player, life, payments)
+        # RULE 508.1k: a selected creature that left to pay a cost never becomes an attacker.
+        resolved = [(obj, defender, exert) for obj, defender, exert in resolved
+                    if obj.controller_id == player.id and obj in self.state.permanents()]
+        surviving = {obj.instance_id for obj, _, _ in resolved}
+        enlistments = [(obj, enlisted) for obj, enlisted in enlistments if obj.instance_id in surviving]
+
         # RULE 508.1: all attackers are declared at once, so every one is "attacking" before any ATTACKS event fires;
         # an "at least one other creature attacks" intervening-if (Glimmer Lens) must see the whole declaration.
         for obj, _defender, _exert in resolved:
             obj.attacking = True
+        # RULE 508.1f / 603.2c: the declaration taps every attacker at once, so "one or more permanents become tapped"
+        # sees them as one batch. Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
+        with self.state.simultaneous():
+            for obj, _defender, _exert in resolved:
+                if not combat.has_vigilance(obj):
+                    self.rules.set_tapped(obj, True)
+            for _, enlisted in enlistments:
+                self.rules.set_tapped(enlisted, True, reason="enlist", tapper_id=player.id)
+        if enlistments:
+            self.recompute_continuous_effects()
+            for attacker, enlisted in enlistments:
+                self.rules._queue_enlist(attacker, enlisted)
         for obj, defender, exert in resolved:
-            # Vigilance (RULE 702.21b): attacking doesn't cause it to tap.
-            if not combat.has_vigilance(obj):
-                self.rules.set_tapped(obj, True)
             obj.attacking = True
             obj.attacked_this_turn = True  # PAR-28 RULE 702.142a (Boast)
             obj.times_attacked_this_turn += 1
@@ -824,6 +969,11 @@ class CombatMixin:
             if o.attacking and o.controller_id == player.id and not (o.is_blocked or o.blocked_by)
         ]
 
+    def _ninjutsu_cost(self, obj):
+        printed = getattr(obj, "ninjutsu_cost", None)
+        granted = continuous.zone_keyword_cost(self.state, obj, "ninjutsu")
+        return printed or (ManaCost.parse(granted) if granted is not None else None)
+
     def ninjutsu(self, player: Player, ninja: GameObject, returned_attacker: GameObject) -> None:
         """RULE 702.49a Ninjutsu: an *activated* ability (RULE 602) that
         functions only while the card is in hand: "[cost], Reveal this card
@@ -839,7 +989,7 @@ class CombatMixin:
         attacking (RULE 702.49d, captured here).
         """
         # PAR-256: "ninjutsu abilities you activate cost {N} less to activate" (Silver-Fur Master).
-        cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
+        cost = self._keyword_cost_adjusted(self._ninjutsu_cost(ninja), "ninjutsu", player, ninja)
         if cost is None:
             raise ValueError(f"{ninja.name} has no ninjutsu")
         if ninja not in player.hand or ninja.owner_id != player.id:
@@ -853,7 +1003,8 @@ class CombatMixin:
         player.mana_pool.pay(cost)
         defender = returned_attacker.combat_defender  # RULE 702.49d, before leaving combat
         self.rules.return_to_hand(returned_attacker)  # RULE 702.49a's own cost
-        # RULE 702.49a: revealing the Ninja is a cost; it stays in hand.
+        # RULE 702.49a: reveal as part of paying the cost without moving the card.
+        self.state.reveal_card(ninja, player.id)
 
         from ..effects.ninjutsu import NinjutsuEffect  # function-scoped: effects import engine types
 
@@ -870,7 +1021,7 @@ class CombatMixin:
             GameEvent(
                 EventType.ACTIVATED_ABILITY,
                 player_id=player.id, controller_id=player.id,
-                instance_id=ninja.instance_id,
+                instance_id=ninja.instance_id, ability_keyword="ninjutsu",
                 object_types=sorted(ninja.type_words),
                 stack_id=item.stack_id,
             )
@@ -939,7 +1090,8 @@ class CombatMixin:
         actual chosen defender.
         """
         return (
-            obj.controller_id == player.id
+            player.id not in self.state.players_cant_attack_this_turn
+            and obj.controller_id == player.id
             and obj.is_creature
             and obj in self.state.permanents()  # RULE 702.26c: excludes a phased-out creature
             and not obj.tapped
@@ -986,7 +1138,7 @@ class CombatMixin:
             and not (
                 defending_player is not None
                 and continuous.defender_attack_prohibited(
-                    self.state, obj, defending_player.id, "player"
+                    self.state, obj, defending_player.id, defender_kind
                 )
             )
         )
@@ -1040,18 +1192,17 @@ class CombatMixin:
     #: string crossing the parser→engine boundary. Anything else is *not*
     #: silently treated as satisfied: `_combat_condition_met` returns False
     #: (the restriction bites), so a mis-parse fails closed toward "can't
-    #: attack" rather than quietly deleting the restriction.
+    #: attack" rather than quietly deleting the restriction. These are the
+    #: kinds that need a *defending/attacking player* (PAR-282); every other
+    #: board/hand/graveyard/history condition is the shared static vocabulary
+    #: and is answered by `static_conditions.condition_holds`.
     _COMBAT_CONDITIONS: frozenset[str] = frozenset(
         {
             "defending_player_controls", "not",
-            "you_control",
             "more_creatures_than_opponent",
             "more_lands_than_opponent",
-            "cards_in_graveyard",
-            "cards_in_hand",
             "opponent_is_monarch",
             "opponent_is_poisoned",
-            "creature_died_this_turn",
             "opponent_attacked_you_last_turn",
         }
     )
@@ -1074,14 +1225,37 @@ class CombatMixin:
         one it isn't.
         """
         kind = str(condition.get("kind", ""))
+        if kind == "did_not_attack_previous_turn":
+            return not any(
+                event.type == EventType.ATTACKS and event.get("declared")
+                and event.get("instance_id") == obj.instance_id
+                and event.get("zone_incarnation") == obj.zone_incarnation
+                for event in self.state.events_during_players_previous_turn(obj.controller_id)
+            )
+        if kind in ("as_defending_player", "defending_player_has_more"):
+            # PAR-315 / RULE 508.1c + 506.2: at declaration the attacker has no ``combat_defender`` yet, so the shared
+            # "you" predicate is read for the candidate defender itself ("can't attack unless defending player has ...");
+            # with no defender (or a block restriction) nothing can answer it.
+            if defending_player is None or attacker is not obj:
+                return False
+            from .. import static_conditions  # function-scoped: see below
+            return static_conditions._defender_condition_holds(
+                condition, self.state, obj, obj.controller_id, None, defending_player.id)
         if kind not in self._COMBAT_CONDITIONS:
-            return False
+            # PAR-282: the shared static vocabulary (``control_count``, hand size, turn history, ...) with the
+            # restricted creature as source and its controller as "you" -- unknown kinds fail closed there too.
+            from .. import static_conditions  # function-scoped: static_conditions imports engine-side modules
+            return static_conditions.condition_holds(
+                condition, self.state, source=obj, controller_id=obj.controller_id)
         if kind == 'not':
             # RULE 508.1c/509.1b: "can't ... if C" is "can't ... unless not C".
             # Unknown nested conditions must still fail closed before negation.
             inner = condition.get('condition')
-            return bool(isinstance(inner, dict) and inner.get('kind') in self._COMBAT_CONDITIONS
-                        and not self._combat_condition_met(obj, inner, defending_player, attacker))
+            from .. import static_conditions  # function-scoped: see below
+            known = isinstance(inner, dict) and (
+                inner.get('kind') in self._COMBAT_CONDITIONS
+                or inner.get('kind') in static_conditions.STATIC_CONDITION_KINDS)
+            return bool(known and not self._combat_condition_met(obj, inner, defending_player, attacker))
         try:
             controller = self.state.player_by_id(obj.controller_id)
         except KeyError:
@@ -1102,14 +1276,6 @@ class CombatMixin:
                 combat.matches_object_filter(o, condition.get("filter"))
                 for o in self.state.permanents_controlled_by(opponent.id)
             )
-        if kind == "you_control":
-            filt = condition.get("filter")
-            matches = [
-                o for o in mine
-                if combat.matches_object_filter(o, filt, reference=obj)
-                and not (condition.get("other") and o is obj)
-            ]
-            return len(matches) >= int(condition.get("min", 1))
         if kind in ("more_creatures_than_opponent", "more_lands_than_opponent"):
             if opponent is None:
                 return False
@@ -1120,32 +1286,12 @@ class CombatMixin:
                 if getattr(o, attr, False)
             )
             return ours > theirs
-        if kind == "cards_in_graveyard":
-            return self._count_in_range(len(controller.graveyard), condition)
-        if kind == "cards_in_hand":
-            return self._count_in_range(len(controller.hand), condition)
         if kind == "opponent_is_monarch":
             return opponent is not None and self.state.monarch_id == opponent.id
         if kind == "opponent_is_poisoned":
             # RULE 122/704.5c's "poisoned" — one or more poison counters.
             return opponent is not None and opponent.poison >= 1
-        if kind == "creature_died_this_turn":
-            # RULE 700.4-adjacent history question no live board can answer —
-            # see `GameState.creatures_died_this_turn`. "under your control"
-            # scopes it to the restricted creature's own controller.
-            return self.state.creatures_died_this_turn.get(controller.id, 0) >= 1
         return False
-    @staticmethod
-    def _count_in_range(value: int, condition: dict[str, Any]) -> bool:
-        """A ``min``/``max`` window over a counted quantity ("seven or more
-        cards in your graveyard", "one or fewer cards in hand")."""
-        minimum = condition.get("min")
-        maximum = condition.get("max")
-        if minimum is not None and value < int(minimum):
-            return False
-        if maximum is not None and value > int(maximum):
-            return False
-        return True
     def _attacking_alone(self, obj: GameObject) -> bool:
         """RULE 506.5-adjacent "attacking alone": ``obj`` is attacking and no
         other creature is (used by both the "can't attack alone" restriction
@@ -1169,7 +1315,10 @@ class CombatMixin:
             obj.is_creature and obj.summoning_sick and not combat.has_haste(obj)
             and not continuous.activates_as_though_haste(self.state, obj)
         )
-    def declare_blockers(self, player: Player, assignments: list[Any], *, pay_block_tax: bool = True) -> None:
+    def declare_blockers(
+        self, player: Player, assignments: list[Any], *, pay_block_tax: bool = True,
+        cost_choices: tuple[int, ...] = (),
+    ) -> None:
         """Declare ``player``'s creatures as blockers (RULE 509).
 
         ``player`` is a *defending* player (not the active/attacking one).
@@ -1195,6 +1344,9 @@ class CombatMixin:
                 raise ValueError(f"{blocker.name} cannot block {attacker.name}")
             resolved.append((blocker, attacker))
 
+        assignment_ids = {(b.instance_id, a.instance_id) for b, a in resolved}
+        if len(assignment_ids) != len(resolved):
+            raise ValueError("duplicate block assignment")
         # Menace (RULE 702.111b): a blocked menacing attacker must be blocked
         # by two or more creatures — and its printed-in-full siblings, "~
         # can't be blocked except by three or more creatures" (a higher
@@ -1251,19 +1403,53 @@ class CombatMixin:
         # in. Per newly declared blocker, so an additive second call only
         # pays for its own blockers.
         new_blockers = {b.instance_id for b, _ in resolved if not combat.blocking_attacker_ids(b)}
+        combat.validate_combat_companions(
+            [obj for obj in self.state.permanents_controlled_by(player.id)
+             if obj.instance_id in projected_blockers], "block"
+        )
+        cost_entries = {}
+        for blocker, attacker in resolved:
+            if blocker.instance_id not in new_blockers:
+                continue
+            for index, entry in enumerate(combat.combat_restrictions(blocker, "block_cost")):
+                if combat.block_cost_applies(self.state, blocker, attacker, entry):
+                    cost_entries[(blocker.instance_id, index)] = entry
+        life, slots = combat_payments.payment_slots(self, player, cost_entries.values(), projected_blockers)
+        if (life or slots) and not pay_block_tax:
+            raise ValueError("block costs declined")
+        draft = {
+            "verb": "block", "pay_tax": pay_block_tax,
+            "entries": [(b.instance_id, a.instance_id) for b, a in resolved],
+        }
+        payments = combat_payments.select_permanents(self, player, slots, draft, cost_choices)
+        if payments is None:
+            return
+
         block_tax = continuous.block_tax_per_creature(self.state) * len(new_blockers)
+        # RULE 509.1c: "can't block unless you pay {N}" (Qal Sisma Behemoth, Hipparion) -- each declared pairing's own cost.
+        block_tax += sum(combat.block_cost_for(self.state, b, a) for b, a in resolved)
         if block_tax > 0:
             if not pay_block_tax:
                 raise ValueError("block tax declined; those creatures cannot be declared as blockers")
             tax_cost = ManaCost.parse(f"{{{block_tax}}}")
             if not player.mana_pool.can_pay(tax_cost):
                 try:
-                    self.auto_tap_for(player, cost=tax_cost)
+                    self.auto_tap_for(
+                        player, cost=tax_cost,
+                        reserved_ids={obj.instance_id for payment, obj in payments if payment == "tap"},
+                        reserved_permanents=projected_blockers | {o.instance_id for _, o in payments},
+                        reserved_life=life,
+                    )
                 except ValueError:
                     raise ValueError(f"cannot pay the {{{block_tax}}} block tax to declare these blockers")
             if not player.mana_pool.can_pay(tax_cost):
                 raise ValueError(f"cannot pay the {{{block_tax}}} block tax to declare these blockers")
             player.mana_pool.pay(tax_cost)
+
+        combat_payments.pay(self, player, life, payments)
+        # RULE 509.1g: a selected creature that left to pay a cost never becomes a blocker.
+        resolved = [(b, a) for b, a in resolved
+                    if b.controller_id == player.id and b in self.state.permanents()]
 
         # RULE 702.130/702.45/702.23 (afflict/bushido/rampage): capture, before
         # any mutation, which attackers are transitioning from unblocked to
@@ -1313,6 +1499,14 @@ class CombatMixin:
                     final_block=seen_by_blocker[blocker.instance_id] == len(blocked_by_blocker[blocker.instance_id]),
                 )
             )
+
+            # RULE 509: "becomes blocked by a creature" triggers per blocker,
+            # unlike the aggregate "becomes blocked" transition below.
+            self.state.fire_event(GameEvent(EventType.BECOMES_BLOCKED_BY,
+                instance_id=attacker.instance_id, instance_zone_incarnation=attacker.zone_incarnation,
+                player_id=attacker.controller_id, object_types=sorted(attacker.type_words),
+                related_ids=[blocker.instance_id],
+                related_incarnations={blocker.instance_id: blocker.zone_incarnation}))
 
         for attacker in newly_blocked:
             blocker_count = len(attacker.blocked_by)
@@ -1392,6 +1586,13 @@ class CombatMixin:
             # "~ can't be blocked as long as it's attacking alone." — a
             # conditional evasion, so it's re-asked per block declaration
             # rather than baked in at recompute time.
+            return False
+        if combat.combat_restrictions(attacker, "cant_be_blocked_unless") and not self._combat_restrictions_allow(
+            attacker, "cant_be_blocked_unless", defending_player=player, attacker=attacker
+        ):
+            # PAR-318 / RULE 509.1b + 506.2: "~ can't be blocked unless defending player controls ..." -- the condition
+            # is read for the player whose creature would block, which is the attacker's own defending player, so each
+            # attacker (Tanglewalker's whole team) answers for the player it attacks.
             return False
         if not combat.blocker_allowed(attacker, blocker, state=self.state):
             # RULE 509.1b's *qualified* restrictions ("can't be blocked by

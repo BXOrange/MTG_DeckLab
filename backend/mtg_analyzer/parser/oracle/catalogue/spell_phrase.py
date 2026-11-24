@@ -68,6 +68,9 @@ _QUALIFIER = re.compile(
 #: RULE 702: "another spell **that has flash**" -- a keyword the spell object itself has (`combat.has` reads the cast
 #: object's keywords), the relative-clause spelling of the "with <keyword>" qualifier.
 _THAT_HAS_KEYWORD = re.compile(rf"^that has (?P<kw>{'|'.join(re.escape(k) for k in KEYWORD_WORDS)})(?=$| from | you )")
+#: RULE 105.2: "a spell that's one or more colors" (Ancient Cornucopia) -- not colorless, the ``not_color_count`` of 0
+#: (`combat.matches_object_filter`).
+_THATS_COLORED = re.compile(r"^that's (?:1|one) or more colors(?=$| from | you )")
 #: PAR-236: the wider "that targets ..." clause -- "only", players, "~", "an opponent controls", "A or B" alternatives.
 _TARGETS_CLAUSE = re.compile(r"^that targets (?P<only>only )?(?P<body>.+)$")
 _TARGET_CONTROL = re.compile(r"^(?P<noun>.+?)(?: (?P<ctrl>you control|an opponent controls|you don't control))?$")
@@ -86,6 +89,10 @@ _CONTEXT_TAILS: list[tuple[str, dict[str, Any]]] = [
     ("from anywhere other than your hand", {"spell_not_cast_from_hand": True}),
     ("from anywhere other than their hand", {"spell_not_cast_from_hand": True}),
     ("you don't own", {"spell_not_owned": True}),
+    # RULE 205.3m (Volo, Guide to Monsters): the cast spell has no creature type in common with any creature the caster
+    # controls or any creature card in the caster's graveyard (`binding.core` `spell_shares_no_creature_type_with_yours`).
+    ("that doesn't share a creature type with a creature you control or a creature card in your graveyard",
+     {"spell_shares_no_creature_type_with_yours": True}),
     *PHASE_TAILS,
 ]
 
@@ -154,9 +161,29 @@ def _parse_targets_clause(tail: str) -> Optional[dict[str, Any]]:
     return {SPELL_TARGET_CLAUSE_KEY: {"alternatives": alternatives, "only": only}}
 
 
+#: PAR-286: "a noncreature spell **or a Dragon spell**" -- each side is a whole spell phrase with its own article.
+_SPELL_UNION = re.compile(r"^(?P<a>an? [a-z' -]*?\bspell) or (?P<b>an? [a-z' -]*?\bspell)$")
+
+
+def _parse_spell_union(phrase: str) -> Optional[dict[str, Any]]:
+    """RULE 601.2: "a <phrase> spell or a <phrase> spell" -> one ``spell_filter`` that is either side's filter (RULE
+    700.5-style union on the cast object). Only plain object filters combine: a side that sets a cast-context key (origin,
+    ordinal, targets ...) has no single-event reading as a union, so the whole phrase fails closed."""
+    m = _SPELL_UNION.match(phrase)
+    if m is None:
+        return None
+    sides = [parse_spell_phrase(m.group("a")), parse_spell_phrase(m.group("b"))]
+    if any(side is None or set(side) != {"spell_filter"} for side in sides):
+        return None
+    return {"spell_filter": {"any_of": [side["spell_filter"] for side in sides]}}
+
+
 def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
     """``phrase`` (the words between "cast" and the comma) → trigger keys, or ``None``."""
     phrase = phrase.strip().lower()
+    union = _parse_spell_union(phrase)
+    if union is not None:
+        return union
     if _FIRST_X_SPELL.fullmatch(phrase):
         return {"first_x_spell": True, "spell_has_x": True}
     typed = _ORDINAL_TYPED_SPELL.fullmatch(phrase)
@@ -203,6 +230,9 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
         obj_filter["card_type_any"] = list(_PERMANENT_TYPES)
     keys: dict[str, Any] = dict(ordinal_keys)
     tail = m.group("tail").strip()
+    # PAR-286: "an instant or sorcery spell that has the same name as a card in your graveyard" (Pyromancer Ascension)
+    # is the "with the same name as ..." qualifier in relative-clause spelling.
+    tail = re.sub(r"^that has (?=the same name as )", "with ", tail)
     while tail:
         if tail.startswith("with {x} in its mana cost"):
             if "spell_has_x" in keys:
@@ -224,6 +254,12 @@ def parse_spell_phrase(phrase: str) -> Optional[dict[str, Any]]:
                 return None
             obj_filter["keyword"] = KEYWORD_WORDS[has_kw.group("kw")]
             tail = tail[has_kw.end():].strip()
+            continue
+        if _THATS_COLORED.match(tail):
+            if "not_color_count" in obj_filter:
+                return None
+            obj_filter["not_color_count"] = 0
+            tail = tail[_THATS_COLORED.match(tail).end():].strip()
             continue
         if tail.startswith("that targets "):
             target_keys = _parse_targets_clause(tail)

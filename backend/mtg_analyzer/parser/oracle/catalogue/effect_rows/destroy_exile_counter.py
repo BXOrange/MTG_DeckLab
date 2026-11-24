@@ -11,7 +11,6 @@ from ..clause_reading import COUNTERED_REFERENT, ClauseReading
 from ..static_handlers import quoted_ability_grant_effects, static_effect_specs
 from ..subgrammars import (
     target_is_optional,
-    all_permanent_type_selector,
     CANT_BE_COUNTERED_RE,
     COLOR_LETTERS,
     COLOR_WORD_ALT,
@@ -28,6 +27,7 @@ from ..subgrammars import (
     THAT_PLAYER_TAIL,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec
 from .shared import (
     ANY_NUMBER_TARGET_CAP,
@@ -446,16 +446,12 @@ _destroy_multi_target = _multi_target_builder("destroy")
 #: MEC-40) both reach the same "all_nonland_permanents" selector
 #: (`_mass_selector_objects`, built for `_return_all_nonland`'s bounce
 #: sibling) this way for free.
-_MASS_DESTROY_NOUNS: dict[str, str] = {
-    pluralize_permanent_type(w): all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
-}
+_MASS_DESTROY_NOUNS: dict[str, str] = {pluralize_permanent_type(w): w for w in PERMANENT_TYPE_WORDS}
 #: "Destroy **each** artifact with mana value X or less." (Meltdown) —
 #: the singular-noun/"each" phrasing of the same mass wipe, alongside the
-#: far more common plural-noun/"all" one above; same selector targets, just
+#: far more common plural-noun/"all" one above; same group, just
 #: matched against a singular noun word.
-_MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {
-    w: all_permanent_type_selector(w) for w in PERMANENT_TYPE_WORDS
-}
+_MASS_DESTROY_NOUNS_SINGULAR: dict[str, str] = {w: w for w in PERMANENT_TYPE_WORDS}
 
 
 _DESTROY_ALL_RE = compile_clause(
@@ -464,28 +460,30 @@ _DESTROY_ALL_RE = compile_clause(
     rf"(?P<opp> your opponents control)?{MASS_DESTROY_FILTER}"
 )
 
-#: "Destroy all enchantments **your opponents control**." (Spring Cleaning)
-#: — the opponent-scoped `_mass_selector_objects` sibling exists only for
-#: artifacts/enchantments so far (no card needs "destroy all lands your
-#: opponents control" &c. yet), so an ``opp`` scope on any other noun
-#: fails closed.
-_DESTROY_ALL_OPP_SELECTORS = {
-    "all_enchantments": "opponents_enchantments",
-    "all_artifacts": "opponents_artifacts",
-    # PAR-128: "destroy all creatures your opponents control" (Dread Cacodemon) —
-    # `opponents_creatures` already served Llawan's bounce.
-    "all_creatures": "opponents_creatures",
-}
+#: "Destroy all enchantments **your opponents control**." (Spring Cleaning), the artifact sibling and "destroy all
+#: creatures your opponents control" (Dread Cacodemon): the opponent-scoped board wipes exist for these three nouns
+#: only (no card needs "destroy all lands your opponents control" yet), so an ``opp`` scope on any other noun fails
+#: closed.
+_DESTROY_ALL_OPP_NOUNS = frozenset({"enchantment", "artifact", "creature"})
+
+
+def _mass_noun_group(word: str, of: str) -> dict:
+    """The structured group for a `PERMANENT_TYPE_WORDS` member: a card type, "permanent" (any) or "nonland
+    permanent" (RULE 205.2: not a land)."""
+    if word == "permanent":
+        return battlefield_group(of, None)
+    if word == "nonland permanent":
+        return battlefield_group(of, None, without_card_type="land")
+    return battlefield_group(of, word)
 
 
 def _destroy_all(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     noun = m.groupdict().get("noun")
-    selector = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
-    if m.groupdict().get("opp"):
-        selector = _DESTROY_ALL_OPP_SELECTORS.get(selector)
-        if selector is None:
-            return None
-    params: dict = {"selector": selector}
+    word = _MASS_DESTROY_NOUNS[noun] if noun else _MASS_DESTROY_NOUNS_SINGULAR[m.group("noun_sg")]
+    opp = bool(m.groupdict().get("opp"))
+    if opp and word not in _DESTROY_ALL_OPP_NOUNS:
+        return None
+    params: dict = {"group": _mass_noun_group(word, OF_OPPONENTS if opp else OF_ANY)}
     filt = mass_destroy_filter_dict(m)
     if filt:
         params["filter"] = filt
@@ -508,10 +506,7 @@ _DESTROY_ALL_OTHER_RE = compile_clause(
 
 
 def _destroy_all_other(m: re.Match[str]) -> list[EffectSpec]:
-    params: dict = {
-        "selector": "other_creatures_you_control" if m.group("you_control")
-        else "all_other_creatures",
-    }
+    params: dict = {"group": battlefield_group(OF_YOU if m.group("you_control") else OF_ANY, other=True)}
     if m.group("no_regen"):
         params["can_be_regenerated"] = False
     return [EffectSpec("destroy", params)]
@@ -527,8 +522,10 @@ _MASS_GROUP_RE = compile_clause(
 )
 
 
-def _mass_group(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    params = mass_group_params(m.group("group"), m.group("quant"))
+def _mass_group(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
+    params = mass_group_params(
+        m.group("group"), m.group("quant"), group_clause=reading.group_clause, self_join=m.group("verb") == "destroy",
+    )
     if params is None:
         return None
     if m.group("no_regen"):
@@ -885,7 +882,7 @@ def _each_creature_sacrifices_unless(m: re.Match[str]) -> list[EffectSpec]:
         {"type": "sacrifice_controller_permanent", "params": {"what": "permanent"}}
     )
     return [EffectSpec("for_each", {
-        "over": {"selector": "all_creatures"},
+        "over": {"selector": battlefield_group(OF_ANY)},
         "effects": [{"type": "pay_cost_then", "params": {
             "cost": cost,
             "payer": "target_controller",
@@ -927,6 +924,54 @@ def _return_exiled_card(m: re.Match[str]) -> list[EffectSpec]:
     if m.groupdict().get("hand"):
         return [EffectSpec("return_linked_exile", {"destination": "hand"})]
     return [EffectSpec("return_linked_exile", {})]
+
+
+#: PAR-285 (class G): "exile up to three other target creatures from the battlefield and/or creature cards from
+#: graveyards." (Angel of Serenity) / "exile up to X other ..." (Aurelia's Vindicator) / "exile up to one other target
+#: creature from the battlefield or creature card from a graveyard." (Savior of Ollenbock) -- one RULE 115 pool of
+#: battlefield creatures plus creature cards in any graveyard (`creature_or_any_graveyard_creature`). The "other" is the
+#: shared "other target" marker (`_stamp_excludes_source`); the companion "return/put the exiled cards" line is
+#: `return_all_exiled_with` (`linked_pool_return_specs`), which makes `gate.parse_oracle` track the exile per source visit.
+_EXILE_CREATURES_BATTLEFIELD_OR_GRAVEYARD_RE = compile_clause(
+    r"exile up to (?P<n>\d+|x) (?:other )?target creatures? from the battlefield (?:and/or|or) "
+    r"creature cards? from (?:a graveyard|graveyards)"
+)
+
+
+def _exile_creatures_battlefield_or_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    params: dict = {"target_kind": "creature_or_any_graveyard_creature", "optional": True}
+    if m.group("n") == "x":
+        params.update({"count": ANY_NUMBER_TARGET_CAP, "count_selector": "source_x_paid"})
+    else:
+        params["count"] = int(m.group("n"))
+    return [EffectSpec("exile", params)]
+
+
+#: PAR-285 (class C): "remove two time counters from target permanent or suspended card." / "put X time counters on
+#: target permanent with a time counter on it or suspended card." (Shivan Sand-Mage, Timebender, Timecrafting) and the
+#: mass "...from each permanent and each suspended card." / "...on each permanent with a time counter on it and each
+#: suspended card." (Dust of Moments) -- one `time_counters` effect over a permanent-or-suspended-card pool (RULE 122.1,
+#: 702.62b). The pairing is exact (remove: any permanent; put: a permanent that already has one); another noun or an
+#: unpaired mode fails closed.
+_TIME_COUNTERS_RE = compile_clause(
+    r"(?:(?P<rm>remove) (?P<rn>\d+|x) time counters? from "
+    r"(?:(?P<rt>target permanent or suspended card)|(?P<rmass>each permanent and each suspended card))"
+    r"|(?P<add>put) (?P<an>\d+|x) time counters? on "
+    r"(?:(?P<at>target permanent with a time counter on it or suspended card)"
+    r"|(?P<amass>each permanent with a time counter on it and each suspended card)))"
+)
+
+
+def _time_counters(m: re.Match[str]) -> list[EffectSpec]:
+    adding = bool(m.group("add"))
+    amount = m.group("an" if adding else "rn")
+    params: dict = {"mode": "add" if adding else "remove", "count": amount if amount == "x" else int(amount)}
+    if m.group("rmass") or m.group("amass"):
+        params["mass"] = True
+    else:
+        params["target_kind"] = (
+            "permanent_with_time_counter_or_suspended_card" if adding else "permanent_or_suspended_card")
+    return [EffectSpec("time_counters", params)]
 
 
 #: PAR-249 / RULE 201.5: "return an exiled card named <<creating card>> to the battlefield under its owner's control"
@@ -1119,6 +1164,22 @@ ROWS: list[EffectHandler] = [
         _REGENERATE_ATTACHED_RE,
         _regenerate_attached,
     ),
+    # RULE 701.19a: the rider is bound to the shield created by this instruction.
+    EffectHandler(
+        "regenerate_self_then_counter",
+        compile_clause(r"regenerate ~\. when it regenerates this way, put a (?P<kind>[+\-]1/[+\-]1) counter on it"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": None, "counter_on_regeneration": m["kind"]})],
+    ),
+    EffectHandler(
+        "regenerate_target_then_control",
+        compile_clause(r"regenerate target creature\. you gain control of that creature if it regenerates this way"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": "creature", "take_control_on_regeneration": True})],
+    ),
+    EffectHandler(
+        "regenerate_self_then_opponent_draw",
+        compile_clause(r"choose target opponent\. regenerate ~\. when it regenerates this way, that player may draw a card"),
+        lambda m: [EffectSpec("regenerate", {"target_kind": None, "choose_opponent_draw": True})],
+    ),
     # "regenerate target creature" (RULE 701.16).
     EffectHandler(
         "regenerate",
@@ -1259,6 +1320,12 @@ ROWS: list[EffectHandler] = [
         _return_exiled_card,
     ),
     EffectHandler("return_exiled_named", _RETURN_EXILED_NAMED_RE, _return_exiled_named),
+    EffectHandler("time_counters", _TIME_COUNTERS_RE, _time_counters),
+    EffectHandler(
+        "exile_creatures_battlefield_or_graveyard",
+        _EXILE_CREATURES_BATTLEFIELD_OR_GRAVEYARD_RE,
+        _exile_creatures_battlefield_or_graveyard,
+    ),
     # Driftgloom Coyote: "if that creature had power N or less, put a +1/+1
     # counter on ~." — an O-Ring exile clause's own conditional after-tail.
     EffectHandler(
@@ -1283,7 +1350,7 @@ ROWS: list[EffectHandler] = [
     ),
     # PAR-128: "destroy all white permanents" / "exile all artifacts and enchantments your
     # opponents control" — primary over `destroy_all`/`destroy_all_other` (PAR-169 fallbacks).
-    EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group),
+    EffectHandler("mass_group", _MASS_GROUP_RE, _mass_group, reading_aware=True),
     # "destroy all other creatures[ you control]" / "…creatures other than
     # ~" — the self-excluding wipe, before the plain `destroy_all` (whose
     # ``all creatures`` noun row would otherwise consume the prefix and
@@ -1338,3 +1405,18 @@ ROWS: list[EffectHandler] = [
         _sacrifice_self, reading_aware=True,
     ),
 ]
+
+
+def _exile_below_revealed_mana_value(_match):
+    return [EffectSpec("bind", {
+        "name": "n", "amount": {"kind": "count_selector", "selector": "cost_referent_revealed_mana_value"},
+        "effects": [{"type": "exile", "params": {"group": {
+            "zone": "battlefield", "of": "any",
+            "filter": {"mana_value_below": "$n", "any_of": [{"card_type": "creature"}, {"card_type": "planeswalker"}]},
+        }}}],
+    })]
+
+
+ROWS.append(EffectHandler("exile_below_revealed_mana_value", compile_clause(
+    r"exile each creature and planeswalker with mana value less than the revealed card's mana value"
+), _exile_below_revealed_mana_value))

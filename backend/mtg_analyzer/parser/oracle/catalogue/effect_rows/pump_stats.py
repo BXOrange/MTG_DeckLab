@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 from typing import Optional
-from ..clause_hooks import parse_effect_body
-from ..clause_reading import ClauseReading
+from ..clause_hooks import match_clause, parse_effect_body
+from ..clause_reading import REVEALED_REFERENT, ClauseReading
 from ..clause_primitives import split_keywords_with_parametric
 from ..count_phrase import parse_count_phrase
 from ..dig import parse_criteria
@@ -22,6 +22,7 @@ from ..subgrammars import (
     target_kind_allowed,
 )
 from ...normalize import SELF
+from ..named_groups import OF_ANY, OF_OPPONENTS, OF_YOU, battlefield_group
 from ...spec import EffectSpec, GROUP_SUBJECT_KEY_SENTINEL
 from .shared import (
     COLOR_WORDS,
@@ -62,6 +63,16 @@ def _pump_x_power_only(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     state_filter = pump_target_creature_filter(m)
     if state_filter:
         params["creature_filter"] = {**(params.get("creature_filter") or {}), **state_filter}
+    return [EffectSpec("pump", params)]
+
+
+def _pump_x_toughness_only(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    """`_pump_x_power_only`'s toughness-only twin -- "+0/+x" (PAR-287, Subdue / Kry Shield: "That creature gets +0/+X
+    until end of turn, where X is its mana value", the X bound by `where_x` to the creature an earlier clause chose)."""
+    specs = _pump_x_power_only(m)
+    if specs is None:
+        return None
+    params = {**specs[0].params, "power": 0, "toughness": "x"}
     return [EffectSpec("pump", params)]
 
 
@@ -261,7 +272,7 @@ _DOUBLE_PRONOUN_RE = compile_clause(rf"(?P<mult>double|triple) its {_DOUBLE_STAT
 
 def _double_pt_of(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.groupdict().get("each_group"):
-        return _double_pump(m, {"selector": "creatures_you_control"})
+        return _double_pump(m, {"selector": battlefield_group(OF_YOU)})
     kind = resolve_target_kind(m.group("target"))
     if not target_kind_allowed(kind, _DOUBLE_PT_TARGET_KINDS):
         return None
@@ -353,6 +364,18 @@ _DONT_UNTAP_SUFFIX = (
     r" do(?:es)?n'?t untap during (?:its controller'?s|their controller'?s|their controllers'|your|the player'?s)"
     r" next untap steps?"
 )
+#: PAR-324 / RULE 115.4: "target creature can't be the target of spells or abilities your opponents control this turn"
+#: (Vines of Vastwood) is a targeting restriction, not the hexproof keyword (the card's rulings: the creature does not
+#: gain hexproof), so it is its own turn-scoped effect rather than a keyword grant.
+_CANT_BE_TARGETED_BY_OPPONENTS_RE = compile_clause(
+    r"target creature can'?t be the target of spells or abilities your opponents control this turn"
+)
+
+
+def _cant_be_targeted_by_opponents(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    return [EffectSpec("grant_cant_be_target_of_opponents", {"target_kind": "creature"})]
+
+
 _SKIP_UNTAP_TARGET_RE = compile_clause(
     rf"target (?P<what>creature|artifact|land|permanent)(?P<scope>{NOT_YOU_TAIL})?{_DONT_UNTAP_SUFFIX}"
 )
@@ -460,9 +483,9 @@ _GROUP_FIXED_PROTECTION_RE = compile_clause(
     r"(?:also )?gain protection from (?P<color>white|blue|black|red|green) until end of turn"
 )
 _GROUP_FIXED_PROTECTION_SELECTORS = {
-    "creatures you control": "creatures_you_control",
-    "all creatures": "all_creatures",
-    "creatures your opponents control": "creatures_opponents_control",
+    "creatures you control": battlefield_group(OF_YOU),
+    "all creatures": battlefield_group(OF_ANY),
+    "creatures your opponents control": battlefield_group(OF_OPPONENTS),
 }
 
 
@@ -483,9 +506,8 @@ def _group_fixed_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Bloodline Pretender-cycle, ~40 real cards.) `RulesEngine.dig_until` /
 #: `effects.DigUntilEffect` — the generalized cascade dig — is the engine
 #: primitive; this is its "reveal until a *type* predicate" recognition.
-#: **Documented simplification**: "in any order" is modeled as the engine's
-#: only bottoming mode, a *random* order — the player doesn't get to choose
-#: the sequence of the bottomed cards.
+#: RULE 401.4: "in any order" is `rest_destination: library_bottom_order` (the player orders the pile, BUG-80);
+#: only "in a random order" is `library_bottom_random`.
 _DIG_UNTIL_PRED = {
     "a land": {"type": "land"},
     "a basic land": {"type": "land", "basic": True},
@@ -506,7 +528,9 @@ _DIG_UNTIL_HIT = {
 #: revealed this way" / "the rest" / ", then shuffle" connector spellings
 #: don't each need a row.
 _DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"bottom of your library in (?:a random|any) order", re.I), "library_bottom_random"),
+    # RULE 401.4: "in any order" is the player's own ordering of the pile, "in a random order" is not.
+    (re.compile(r"bottom of your library in a random order", re.I), "library_bottom_random"),
+    (re.compile(r"bottom of your library in any order", re.I), "library_bottom_order"),
     (re.compile(r"shuffle .*?into your library", re.I), "library_shuffled"),
     (re.compile(r"(?:cards? .*?)?into your graveyard", re.I), "graveyard"),
 ]
@@ -517,6 +541,33 @@ _REVEAL_UNTIL_TYPE_RE = compile_clause(
     r"(?P<hit>onto the battlefield tapped and attacking|onto the battlefield tapped|onto the battlefield|into your hand)"
     r"(?P<rest>.+)"
 )
+
+
+#: PAR-284 (RULE 701.20): "Reveal cards from the top of your library until you reveal a nonland card. <body measuring
+#: that card>. Put the revealed cards on the bottom of your library in any order." (Goblin Machinist) -- the amount body
+#: reads the reveal's hit as its referent. `RevealUntilEffect` leaves the hit as `GameContext.revealed_card` when the
+#: hit stays in the library (``hit_destination: library_bottom_random``), the destination every revealed card takes here.
+_REVEAL_UNTIL_AMOUNT_RE = compile_clause(
+    r"reveal cards from the top of your library until you reveal an? (?P<pred>[a-z ,'-]+?) card\. "
+    r"(?P<body>[^.]+(?:where x is|equal to) (?:that card's|its) (?:mana value|power|toughness))\. "
+    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?P<order>a random|any) order"
+)
+
+
+def _reveal_until_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    criteria = _DIG_UNTIL_PRED.get(f'a {m.group("pred")}') or parse_criteria(f'{m.group("pred")} card')
+    if not criteria:
+        return None
+    body = parse_effect_body(m.group("body"), reading=ClauseReading(self_subject=True, referents=(REVEALED_REFERENT,)))
+    if not body or not any(s.type == "bind" and s.params["amount"].get("of") == "revealed" for s in body):
+        return None
+    return [EffectSpec("reveal_until", {
+        "criteria": dict(criteria), "count": 1,
+        # RULE 401.4: "in any order" is the player's own ordering (BUG-84), "in a random order" is not. The hit stays in
+        # the library either way, so it is still the body's referent.
+        "hit_destination": "library_bottom_random",
+        "rest_destination": "library_bottom_order" if m.group("order") == "any" else "library_bottom_random",
+    }), *body]
 
 
 #: PAR-75: "Reveal cards from the top of your library until you reveal a
@@ -545,6 +596,7 @@ def _dig_until_doctor_companion_vehicle(m: re.Match[str]) -> list[EffectSpec]:
         ]},
         "hit_destination": "hand",
         "rest_destination": "library_bottom_random",
+        "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 
@@ -621,7 +673,7 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("dig_until", {
         "criteria": dict(criteria), "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
-        "rest_destination": rest_dest,
+        "rest_destination": rest_dest, "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 
@@ -747,6 +799,15 @@ _EXILE_INSTEAD_OF_LEAVING_RE = compile_clause(
 
 def _exile_instead_of_leaving(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("exile_instead_of_leaving", {})]
+
+
+#: PAR-292 (RULE 701.24a): "shuffle your graveyard into your library" (Feldon's Cane, Gaea's Blessing, and the tail of
+#: Archangel's Light / The Mending of Dominaria) = the same `shuffle_graveyard_into_library`, acting for the controller.
+_SHUFFLE_OWN_GRAVEYARD_RE = compile_clause(r"shuffle your graveyard into your library")
+
+
+def _shuffle_own_graveyard(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle_graveyard_into_library", {})]
 
 
 #: PAR-139: "its owner shuffles their graveyard into their library" — the tail of "When ~ is put into a graveyard
@@ -1041,7 +1102,7 @@ def _gain_control_rich_prev_grant(m: re.Match[str]) -> Optional[list[EffectSpec]
 #:     turn" (Goatnap — "if that creature is a Goat, it also gets +3/+0");
 #:   * "if it's equipped, you may destroy all Equipment attached to that
 #:     creature" (Awaken the Sleeper — the "you may" isn't offered as an
-#:     interactive choice, see `_MASS_DESTROY_SELECTORS`).
+#:     interactive choice, see `_MASS_RELATIVE_SELECTORS`).
 _IF_PREV_SUBTYPE_PUMP_RE = compile_clause(
     r"if (?:that creature|it) is an? (?P<sub>[a-z][a-z-]+), "
     r"(?:it|that creature) (?:also )?gets (?P<p>[+\-−]\d+)/(?P<t>[+\-−]\d+) until end of turn"
@@ -1132,6 +1193,14 @@ ROWS: list[EffectHandler] = [
         _pump_x_power_only,
     ),
     EffectHandler(
+        "pump_x_toughness_only",
+        compile_clause(
+            rf"{SUBJECT} gets? \+0/\+x"
+            rf"(?: and gains? (?P<kw>[a-z, ]+?))? until end of turn"
+        ),
+        _pump_x_toughness_only,
+    ),
+    EffectHandler(
         "pump_subtype_target",
         _PUMP_SUBTYPE_TARGET_RE,
         _pump_subtype_target,
@@ -1214,6 +1283,7 @@ ROWS: list[EffectHandler] = [
     # "target/that/~ <permanent> doesn't untap during … next untap step"
     # (Barl's Cage + the ~95-card "Tap X. It doesn't untap …" family).
     EffectHandler("skip_next_untap_target", _SKIP_UNTAP_TARGET_RE, _skip_untap_target),
+    EffectHandler("cant_be_target_of_opponents", _CANT_BE_TARGETED_BY_OPPONENTS_RE, _cant_be_targeted_by_opponents),
     EffectHandler(
         "skip_next_untap_prev", _SKIP_UNTAP_PREV_RE, _skip_untap_prev,
         requires=ClauseReading(previous_subject=True),
@@ -1267,6 +1337,7 @@ ROWS: list[EffectHandler] = [
     # rest <bottom / graveyard / shuffle>." (Recross the Paths, Clifftop
     # Lookout, Atla Palani, … — `RulesEngine.dig_until`).
     EffectHandler("reveal_until_type", _REVEAL_UNTIL_TYPE_RE, _reveal_until_type),
+    EffectHandler("reveal_until_amount", _REVEAL_UNTIL_AMOUNT_RE, _reveal_until_amount),
     EffectHandler(
         "dig_until_doctor_companion_vehicle",
         _DIG_UNTIL_DOCTOR_COMPANION_VEHICLE_RE,
@@ -1303,6 +1374,7 @@ ROWS: list[EffectHandler] = [
         "owner_shuffles_graveyard", _OWNER_SHUFFLES_GRAVEYARD_RE, _owner_shuffles_graveyard,
         reading_aware=True,
     ),
+    EffectHandler("shuffle_own_graveyard", _SHUFFLE_OWN_GRAVEYARD_RE, _shuffle_own_graveyard),
     EffectHandler(
         "delayed_return_battlefield_previous", _DELAYED_RETURN_BATTLEFIELD_RE,
         _delayed_return_battlefield, requires=ClauseReading(previous_subject=True),

@@ -198,7 +198,7 @@ def test_another_target_legendary_creature_unblockable_parses():
 def test_bare_subtype_unblockable_parses():
     specs = match_clause("target merfolk can't be blocked this turn")
     assert specs == [EffectSpec("unblockable", {
-        "target_kind": "creature", "creature_filter": {"subtype": "Merfolk"},
+        "target_kind": "creature", "creature_filter": {"subtype": "merfolk"},
     })]
 
 
@@ -209,7 +209,7 @@ def test_bare_subtype_or_list_unblockable_parses():
     specs = match_clause("target goblin, orc, or pirate can't be blocked this turn")
     assert specs == [EffectSpec("unblockable", {
         "target_kind": "creature",
-        "creature_filter": {"subtype_any": ["Goblin", "Orc", "Pirate"]},
+        "creature_filter": {"subtype_any": ["goblin", "orc", "pirate"]},
     })]
 
 
@@ -232,7 +232,7 @@ def test_subtype_word_rejects_a_power_toughness_pattern():
     from mtg_analyzer.parser.oracle.catalogue.static_handlers import object_filter
 
     assert object_filter("1/1 creature") is None
-    assert object_filter("merfolk creature") == {"subtype": "Merfolk"}
+    assert object_filter("merfolk creature") == {"subtype": "merfolk", "card_type": "creature"}
 
 
 def test_bare_subtype_unblockable_executes():
@@ -245,7 +245,7 @@ def test_bare_subtype_unblockable_executes():
     eng.state.add_to_battlefield(merfolk)
     build_effects(
         [EffectSpec("unblockable", {
-            "target_kind": "creature", "creature_filter": {"subtype": "Merfolk"},
+            "target_kind": "creature", "creature_filter": {"subtype": "merfolk"},
         })],
         merfolk,
     )[0].apply(eng.rules.context, [merfolk])
@@ -279,7 +279,7 @@ def test_except_by_filter_parses():
     assert parse_effect_body(
         "~ can't be blocked this turn except by creatures with haste."
     ) == [EffectSpec("combat_restriction_this_turn", {
-        "restriction": {"kind": "only_blocked_by", "filter": {"keyword": "haste"}},
+        "restriction": {"kind": "only_blocked_by", "filter": {"card_type": "creature", "keyword": "haste"}},
     })]
 
 
@@ -288,7 +288,7 @@ def test_except_by_filter_on_a_real_target_parses():
         "another target creature you control can't be blocked this turn "
         "except by spirits."
     ) == [EffectSpec("combat_restriction_this_turn", {
-        "restriction": {"kind": "only_blocked_by", "filter": {"subtype": "Spirit"}},
+        "restriction": {"kind": "only_blocked_by", "filter": {"subtype": "spirit"}},
         "target_kind": "other_creature_you_control", "excludes_source": True,
     })]
 
@@ -306,10 +306,10 @@ def test_pt_delta_unblockable_now_accepts_controller_scoped_targets():
 
 def test_mass_form_parses():
     assert parse_effect_body("creatures can't be blocked this turn.") == [
-        EffectSpec("unblockable", {"selector": "all_creatures"}),
+        EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
     ]
     assert parse_effect_body("creatures you control can't be blocked this turn.") == [
-        EffectSpec("unblockable", {"selector": "creatures_you_control"}),
+        EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}}),
     ]
 
 
@@ -370,7 +370,7 @@ def test_except_by_filter_executes():
     eng.state.add_to_battlefield(slow_blocker)
     build_effects(
         [EffectSpec("combat_restriction_this_turn", {
-            "restriction": {"kind": "only_blocked_by", "filter": {"keyword": "haste"}},
+            "restriction": {"kind": "only_blocked_by", "filter": {"card_type": "creature", "keyword": "haste"}},
         })],
         attacker,
     )[0].apply(eng.rules.context, [attacker])
@@ -394,7 +394,7 @@ def test_mass_form_executes():
     eng.state.add_to_battlefield(b)
     source = GameObject(_card("Source", "Enchantment", ""), owner_id="p1", zone=Zone.BATTLEFIELD)
     build_effects(
-        [EffectSpec("unblockable", {"selector": "creatures_you_control"})],
+        [EffectSpec("unblockable", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})],
         source,
     )[0].apply(eng.rules.context, [])
     assert a.temp_unblockable is True
@@ -410,14 +410,14 @@ def test_mass_form_executes():
 def test_and_or_filter_parses_as_any_of():
     from mtg_analyzer.parser.oracle.catalogue.static_handlers import object_filter
     assert object_filter("artifact creatures and/or red creatures") == {
-        "any_of": [{"card_type": "artifact"}, {"color": "R"}],
+        "any_of": [{"card_type_all": ["artifact", "creature"]}, {"color": "R", "card_type": "creature"}],
     }
 
 
 def test_and_or_filter_recurses_through_every_existing_single_phrase_shape():
     from mtg_analyzer.parser.oracle.catalogue.static_handlers import object_filter
     assert object_filter("Walls and/or creatures with flying") == {
-        "any_of": [{"subtype": "Wall"}, {"keyword": "flying"}],
+        "any_of": [{"subtype": "wall"}, {"card_type": "creature", "keyword": "flying"}],
     }
 
 
@@ -434,7 +434,7 @@ def test_except_by_union_filter_on_the_resolve_time_form_parses():
     ) == [EffectSpec("combat_restriction_this_turn", {
         "restriction": {
             "kind": "only_blocked_by",
-            "filter": {"any_of": [{"card_type": "artifact"}, {"color": "R"}]},
+            "filter": {"any_of": [{"card_type_all": ["artifact", "creature"]}, {"color": "R", "card_type": "creature"}]},
         },
         "target_kind": "creature",
     })]
@@ -480,7 +480,7 @@ def test_any_of_filter_executes():
         _card("Green", "Creature — Bear", "", power=1, toughness=1, color_identity={"G"}),
         owner_id="p2", zone=Zone.BATTLEFIELD,
     )
-    filt = {"any_of": [{"card_type": "artifact"}, {"color": "R"}]}
+    filt = {"any_of": [{"card_type_all": ["artifact", "creature"]}, {"color": "R", "card_type": "creature"}]}
     assert combat.matches_object_filter(artifact_blocker, filt) is True
     assert combat.matches_object_filter(red_blocker, filt) is True
     assert combat.matches_object_filter(green_blocker, filt) is False

@@ -21,7 +21,7 @@ def _priest_of_the_crossing() -> list[AbilitySpec]:
                 "name": "n",
                 "amount": {"kind": "count_selector", "selector": "creatures_you_controlled_died_this_turn"},
                 "effects": [{"type": "add_counters", "params": {
-                    "kind": "+1/+1", "amount": "$n", "selector": "each_creature_you_control",
+                    "kind": "+1/+1", "amount": "$n", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 }}],
             })],
             trigger={"event": EventType.STEP_BEGIN, "filter": {"step": "end"}},

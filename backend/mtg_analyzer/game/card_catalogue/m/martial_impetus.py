@@ -26,7 +26,7 @@ def _martial_impetus() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": "other_attacking_creatures"})],
+            [EffectSpec("pump", {"power": 1, "toughness": 1, "selector": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature", "attacking": True, "not_reference": True}}})],
             trigger={"event": "ATTACKS", "condition": {"subject": "attached_permanent"}},
         ),
     ]

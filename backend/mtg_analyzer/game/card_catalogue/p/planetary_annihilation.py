@@ -22,7 +22,7 @@ def _planetary_annihilation() -> list[AbilitySpec]:
             "spell_effect",
             [
                 EffectSpec("sacrifice", {"selector": "each_player", "what": "land", "count": f"all_but_{_KEPT_LANDS}"}),
-                EffectSpec("damage", {"amount": 6, "selector": "each_creature"}),
+                EffectSpec("damage", {"amount": 6, "group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}}),
             ],
         ),
     ]

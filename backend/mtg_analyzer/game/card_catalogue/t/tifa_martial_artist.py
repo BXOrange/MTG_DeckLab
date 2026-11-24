@@ -57,7 +57,7 @@ def _tifa_martial_artist() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [
-                EffectSpec("tap", {"selector": "creatures_you_control", "untap": True}),
+                EffectSpec("tap", {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, "untap": True}),
                 EffectSpec("extra_combat_phase", {}, condition={"is_first_combat_phase": True}),
             ],
             trigger={

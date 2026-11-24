@@ -225,7 +225,7 @@ def test_counter_move_removes_nothing_when_destination_cannot_receive_counters()
     dst = filler(engine, 'To', power=2, toughness=2)
     src.add_counters('+1/+1', 1)
     from mtg_analyzer.game.effects.core import EffectRegistry
-    prohibition = EffectRegistry.create('counter_placement_prohibition', {'affects': 'all_creatures', 'counter_kind': 'all'})
+    prohibition = EffectRegistry.create('counter_placement_prohibition', {'affects': {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, 'counter_kind': 'all'})
     prohibition.source = defense
     defense.static_effects.append(prohibition)
     engine.recompute_continuous_effects()

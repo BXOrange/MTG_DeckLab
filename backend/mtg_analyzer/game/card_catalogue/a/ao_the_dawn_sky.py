@@ -32,7 +32,7 @@ def _ao_the_dawn_sky() -> list[AbilitySpec]:
             modes={"choose": 1, "options": [
                 [EffectSpec("budget_dig_onto_battlefield", {"look": 7, "budget": 4})],
                 [EffectSpec("add_counters", {
-                    "amount": 2, "kind": "+1/+1", "selector": "creatures_you_control",
+                    "amount": 2, "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}},
                 })],
             ], "descriptions": ["graben", "marken"]},
         ),

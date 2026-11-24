@@ -8,11 +8,11 @@ to build. Paths are relative to `backend/mtg_analyzer/`.
 | The clause is… | File | Registered in |
 | --- | --- | --- |
 | a one-shot effect body ("destroy target …", "draw a card") | the family module in `parser/oracle/catalogue/effect_rows/` (damage, tokens, counters, …; helpers used by several families in `effect_rows/shared.py`) | that module's `ROWS`; `handlers.py` assembles them into `HANDLERS` in a fixed order pinned by `tests/parser/oracle/handler_row_order.txt` (order is semantics: update that file deliberately, and declare `fallback_for` when a row backs up another) |
-| a standing static ("creatures you control get +1/+1", a permission, a grant) | `parser/oracle/catalogue/static_handlers.py` | no single table — entry point `static_effect_specs(clause)`, built from `_FILTER_RES` / `_CONDITION_RES` / `_TAIL_RES` (plus `enter_choice_specs` for RULE 601.2b) |
+| a standing static ("creatures you control get +1/+1", a permission, a grant) | `parser/oracle/catalogue/static_handlers.py` (table `STATIC_MATCHERS`; helpers and row families in `catalogue/static_rows/`) | entry point `static_effect_specs(clause)`, built from `_FILTER_RES` / `_CONDITION_RES` / `_TAIL_RES` (plus `enter_choice_specs` for RULE 601.2b) |
 
 Ordered tables (first answer wins; order is pinned in `tests/parser/oracle/*_order.txt`, update the file when you add/move a row on purpose): `handlers.HANDLERS` (effect rows, `handler_row_order.txt`), `segmenter.LINE_MATCHERS` (whole-line shapes, `line_matcher_order.txt`), `static_handlers.STATIC_MATCHERS` (statics, `static_matcher_order.txt`; a matcher returns `DECLINE` to stop the search with `None`, plain `None` to fall through).
-| a **trigger condition** ("whenever ~ becomes monstrous") | `parser/oracle/segmenter.py` | `_TRIGGER_VERBS` / `_PHASE_STEP_WORDS` / `_PLAYER_TRIGGER_CONDITIONS` |
-| an activated-ability **cost** | `parser/oracle/segmenter.py` (+ `game/costs.py` for the engine side) | — |
+| a **trigger condition** ("whenever ~ becomes monstrous") | `parser/oracle/segmenter/` (`trigger_heads.py`) | `_TRIGGER_VERBS` / `_PHASE_STEP_WORDS` / `_PLAYER_TRIGGER_CONDITIONS` |
+| an activated-ability **cost** | `parser/oracle/segmenter/` (`activation_clauses.py`, `line_rows_abilities.py`) (+ `game/costs.py` for the engine side) | — |
 | a RULE 702 keyword | `parser/oracle/catalogue/keywords.py` | `KEYWORDS` |
 | a counter clause / RULE 614.1 entry counters | `catalogue/counters.py` | — |
 | modal ("choose one —") | `catalogue/modal.py` | — |
@@ -137,10 +137,10 @@ it collapses to a plain sequence). Don't model these as a second effect —
 that either double-applies something (double haste/untap) or invents a
 free-standing effect that isn't RAW. This idiom has been reinvented three
 times (`_NO_REGEN_SENTENCE_RE`, `_GAIN_CONTROL_HASTE_TAIL_RE`,
-`_SACRIFICE_THEN_WHEN_YOU_DO_RE`, all in `parser/oracle/segmenter.py`); reach
+`_SACRIFICE_THEN_WHEN_YOU_DO_RE`, all in `parser/oracle/segmenter/`); reach
 for it by name instead of re-deriving the shape.
 
-It lives in `segmenter.py`'s `parse_effect_body`, **not** `handlers.py` —
+It lives in the segmenter package's `parse_effect_body` (`segmenter/effect_body.py`), **not** `handlers.py` —
 this is a body-splitting concern (like the connector-split loop right below
 it), not a single-clause builder, because it needs to reach back into
 `before`'s *already-parsed specs* and mutate one, which a `HANDLERS`-table
@@ -200,7 +200,7 @@ Rules specific to this pattern (each paid for by a real near-miss):
   missing, or `after_specs is None` must all `return None`, not silently drop
   the tail or the after-text.
 - Put it in `HANDLERS`-adjacent naming (`_XXX_TAIL_RE`/`_XXX_SENTENCE_RE`) so
-  `grep '_.*_TAIL_RE\|_.*_SENTENCE_RE' segmenter.py` finds every instance of
+  `grep -r '_.*_TAIL_RE\|_.*_SENTENCE_RE' segmenter/` finds every instance of
   this pattern at once.
 
 ## A new effect *type* needs three registrations

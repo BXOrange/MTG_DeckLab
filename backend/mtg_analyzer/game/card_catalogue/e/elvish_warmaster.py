@@ -38,7 +38,7 @@ def _elvish_warmaster() -> list[AbilitySpec]:
             "activated",
             [EffectSpec("pump", {
                 "power": 2, "toughness": 2, "keywords": ["deathtouch"],
-                "selector": "creatures_you_control_of_type_elf",
+                "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype": "elf"}},
             })],
             cost={"text": "{5}{G}{G}"},
         ),

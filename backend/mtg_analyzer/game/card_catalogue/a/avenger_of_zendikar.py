@@ -27,8 +27,7 @@ def _avenger_of_zendikar() -> list[AbilitySpec]:
         AbilitySpec(
             "triggered",
             [EffectSpec("add_counters", {
-                "amount": 1, "kind": "+1/+1", "selector": "each_creature_you_control",
-                "subtypes": ["Plant"],
+                "amount": 1, "kind": "+1/+1", "group": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "subtype_any": ["Plant"]}},
             })],
             trigger={
                 "event": EventType.ENTERS_BATTLEFIELD,

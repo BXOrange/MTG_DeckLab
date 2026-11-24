@@ -44,7 +44,7 @@ def test_anthem_pumps_other_creatures_you_control():
     lord = put(eng.state, creature("Lord", power=2, toughness=2))
     bear = put(eng.state, creature("Bear", power=2, toughness=2))
     enemy = put(eng.state, creature("Enemy", power=2, toughness=2), controller="p2")
-    static("pt_mod", "other_creatures_you_control", {"power": 1, "toughness": 1}, lord)
+    static("pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, {"power": 1, "toughness": 1}, lord)
     continuous.recompute(eng.state)
     assert (bear.power, bear.toughness) == (3, 3)   # pumped
     assert (lord.power, lord.toughness) == (2, 2)   # "other" excludes itself
@@ -56,7 +56,7 @@ def test_anthem_stacks_with_counters_in_layer_order():
     lord = put(eng.state, creature("Lord"))
     bear = put(eng.state, creature("Bear", power=2, toughness=2))
     bear.add_counters("+1/+1", 2)
-    static("pt_mod", "other_creatures_you_control", {"power": 1, "toughness": 1}, lord)
+    static("pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, {"power": 1, "toughness": 1}, lord)
     continuous.recompute(eng.state)
     # base 2/2 + 2 counters (7c) + 1/1 anthem (7d) = 5/5.
     assert (bear.power, bear.toughness) == (5, 5)
@@ -67,7 +67,7 @@ def test_pt_set_applies_before_counters():
     src = put(eng.state, creature("Humility"))
     bear = put(eng.state, creature("Bear", power=5, toughness=5))
     bear.add_counters("+1/+1", 1)
-    static("pt_set", "all_creatures", {"power": 1, "toughness": 1}, src)
+    static("pt_set", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 1, "toughness": 1}, src)
     continuous.recompute(eng.state)
     # 7b set to 1/1, then 7c +1 counter → 2/2 (set wipes the printed 5/5).
     assert (bear.power, bear.toughness) == (2, 2)
@@ -104,7 +104,7 @@ def test_pt_switch_applies_after_anthem():
     eng = make_engine()
     lord = put(eng.state, creature("Lord"))
     bear = put(eng.state, creature("Bear", power=3, toughness=1))
-    static("pt_mod", "creatures_you_control", {"power": 1, "toughness": 0}, lord)
+    static("pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, {"power": 1, "toughness": 0}, lord)
     static("pt_switch", "self", {}, bear)
     continuous.recompute(eng.state)
     # 3/1 +1/0 anthem = 4/1, then 7e switch → 1/4.
@@ -127,7 +127,7 @@ def test_temp_pt_stacks_on_counters_and_anthem():
     lord = put(eng.state, creature("Lord"))
     bear = put(eng.state, creature("Bear", power=2, toughness=2))
     bear.add_counters("+1/+1", 1)                                   # 7c
-    static("pt_mod", "other_creatures_you_control", {"power": 1, "toughness": 1}, lord)  # 7d
+    static("pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, {"power": 1, "toughness": 1}, lord)  # 7d
     bear.temp_power, bear.temp_toughness = 2, 0                     # 7d (until EOT)
     continuous.recompute(eng.state)
     # base 2/2 + counter 1/1 + anthem 1/1 + pump 2/0 = 6/4.
@@ -228,7 +228,7 @@ def test_control_change_dependency_overrides_timestamp_order():
     # "You control creatures you control" (a no-op on its own, just re-stamps
     # p1's own creatures) reassigns to p2 — but only what's already p1's *at
     # the time it applies*.
-    static("control", "creatures_you_control", {"controller": "p2"}, scoped_source)
+    static("control", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, {"controller": "p2"}, scoped_source)
     # "Gain control of target creature" — steals `stolen` from p2 to p1.
     static("control", "self", {"controller": "p1"}, stolen)
 
@@ -497,8 +497,8 @@ def test_pt_set_uses_timestamp_order_within_layer():
     first = put(eng.state, creature("First"))
     second = put(eng.state, creature("Second"))
     # Two "set P/T" effects; the later-timestamped one wins (RULE 613.7b).
-    static("pt_set", "all_creatures", {"power": 1, "toughness": 1}, first)
-    static("pt_set", "all_creatures", {"power": 6, "toughness": 6}, second)
+    static("pt_set", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 1, "toughness": 1}, first)
+    static("pt_set", {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, {"power": 6, "toughness": 6}, second)
     continuous.recompute(eng.state)
     assert (bear.power, bear.toughness) == (6, 6)
 
@@ -511,7 +511,7 @@ def test_granted_flying_flows_into_combat():
     lord = put(eng.state, creature("Wind Lord"))
     bear = put(eng.state, creature("Bear"))
     assert not combat.has_flying(bear)
-    static("ability", "creatures_you_control", {"keywords": ["flying"]}, lord)
+    static("ability", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, {"keywords": ["flying"]}, lord)
     continuous.recompute(eng.state)
     assert combat.has_flying(bear)  # anthem-granted flying is real in combat
     assert "Flying" in bear.to_dict()["keywords"]
@@ -540,8 +540,8 @@ def test_static_trace_records_each_layer():
     lord = put(eng.state, creature("Lord"))
     bear = put(eng.state, creature("Bear", power=2, toughness=2))
     bear.add_counters("+1/+1", 1)
-    static("ability", "creatures_you_control", {"keywords": ["flying"]}, lord)
-    static("pt_mod", "other_creatures_you_control", {"power": 2, "toughness": 0}, lord)
+    static("ability", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}, {"keywords": ["flying"]}, lord)
+    static("pt_mod", {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "not_reference": True}}, {"power": 2, "toughness": 0}, lord)
     continuous.recompute(eng.state)
     layers = [entry["layer"] for entry in bear.static_trace]
     assert 6 in layers and 7 in layers          # keyword grant + P/T changes
@@ -644,7 +644,7 @@ def test_self_cost_reduction_scales_with_an_artifact_count_selector():
                  mana_cost_string="{7}", converted_mana_cost=7, is_creature=True)
     obj = GameObject(spell, owner_id="p1", zone=Zone.HAND)
     p1.hand.append(obj)
-    static("cost", "self", {"generic": 1, "per": "artifacts_you_control"}, obj)
+    static("cost", "self", {"generic": 1, "per": {"zone": "battlefield", "of": "you", "filter": {"card_type": "artifact"}}}, obj)
     cost = eng.effective_cast_cost(p1, obj)
     assert cost.converted_mana_cost == 3  # {7} - {4} → {3}
 
@@ -679,7 +679,7 @@ def test_bind_and_attach_static_ability():
     attach_to_object(
         lord,
         [AbilitySpec("static", [EffectSpec("anthem", {"power": 2, "toughness": 2,
-                     "affects": "creatures_you_control"})], raw_text="+2/+2")],
+                     "affects": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}})], raw_text="+2/+2")],
     )
     assert lord.static_effects  # bound and attached, not refused
     continuous.recompute(eng.state)

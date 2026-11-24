@@ -65,6 +65,21 @@ slots (action, object, scope, duration, quantity, condition, reference, zone)
 and ranks slot *combinations* by open share against a 6000-card modelled
 baseline: `offene-fragmente-<date>-v<N>-slots.md`. It needs the card cache.
 
+`--axes` (module `fragment_axes.py`) assigns every open sentence to exactly one
+work package and writes `…-achsen.md` plus `…-zuordnung.jsonl`. Classes: `BIND`
+(claims with its predecessor), `HEAD` (only the trigger/cost head is missing),
+`MOD` (deleting one modifier repairs it), `REF` (a stand-in antecedent repairs
+it), `CORE` (no single-axis repair; filed under its operation family, or under
+singleton review when no family pattern matches). For `MOD` a substitution probe
+says whether the vocabulary is missing (`vokabel`: a known-good filler claims) or
+the row does not offer the slot at all (`slot`). The run exits non-zero if an
+open card is left without a package, so the packages always cover the scanned
+pool. Counts are upper bounds from deletion probes, not promised unlocks.
+
+`--all-cards` scans the whole card cache instead of the Commander-legal pool;
+its outputs carry `-vollpool` in the name. An empty card cache aborts the scan
+(reseed with `python scripts/import_bulk.py --reseed-only`).
+
 `scripts/generalization_matrix.py` is a separate probe of the parser itself:
 a verb × object-form grid showing which object phrases each verb row accepts.
 Empty columns are object forms the shared grammar lacks; re-run it after any

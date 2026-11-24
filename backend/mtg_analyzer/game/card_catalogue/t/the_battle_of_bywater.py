@@ -12,7 +12,7 @@ def _the_battle_of_bywater() -> list[AbilitySpec]:
         AbilitySpec(
             "spell_effect",
             [
-                EffectSpec("destroy", {"selector": "all_creatures", "filter": {"min_power": 3}}),
+                EffectSpec("destroy", {"group": {"zone": "battlefield", "of": "any", "filter": {"card_type": "creature"}}, "filter": {"min_power": 3}}),
                 EffectSpec("create_token", {"token_name": "Food", "count_selector": "creatures_you_control"}),
             ],
         ),

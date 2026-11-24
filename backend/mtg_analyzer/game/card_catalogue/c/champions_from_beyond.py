@@ -32,7 +32,7 @@ def _champions_from_beyond() -> list[AbilitySpec]:
         ),
         AbilitySpec(
             "triggered",
-            [EffectSpec("pump", {"power": 4, "toughness": 4, "selector": "attacking_creatures_you_control"})],
+            [EffectSpec("pump", {"power": 4, "toughness": 4, "selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature", "attacking": True}}})],
             trigger={
                 "event": EventType.ATTACKERS_DECLARED, "condition": {"subject": "you"},
                 "attackers_declared": {"filter": {"card_type": "creature"}, "min": 8},

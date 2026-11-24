@@ -155,6 +155,10 @@ class StackItem:
         #: and distinct between an object's different abilities. ``None`` for
         #: a spell, or an ability placed without one (it simply isn't counted).
         self.ability_key = ability_key
+        #: MEC-145 / RULE 608.2h: the cost stamps (what the activation's cost discarded / exiled / tapped / sacrificed)
+        #: of *this* activation, bound onto the source while it resolves (`game.cost_referents.bound_to_resolution`) so
+        #: a second activation paid meanwhile cannot overwrite them. ``None`` for a spell or a trigger.
+        self.cost_stamps: Optional[dict[str, Any]] = None
 
     def _derive_category(self) -> str:
         """Classify the item for display without importing `game/` types.
@@ -334,13 +338,21 @@ class TurnScopedTrigger:
 
     def __init__(self, ability: Any, install_turn: Optional[int], once: bool = False,
                  bound_object_id: Optional[int] = None, bound_incarnation: Optional[int] = None,
-                 bound_zone: Optional[str] = None) -> None:
+                 bound_zone: Optional[str] = None, ends_when_object_moves: bool = False,
+                 dealt_damage_visits: Optional[dict[int, int]] = None) -> None:
         self.ability = ability
         self.install_turn = install_turn
         self.once = once
         self.bound_object_id = bound_object_id
         self.bound_incarnation = bound_incarnation
         self.bound_zone = bound_zone
+        #: RULE 400.7: "whenever *that creature* <acts> this turn" names the object an earlier clause chose; once it
+        #: has changed zones it is a new object, so the trigger never fires for it (checked before the event is read).
+        self.ends_when_object_moves = ends_when_object_moves
+        #: "Whenever a creature dealt damage this way dies this turn" (RULE 603.7c): the set is fixed when the
+        #: spell resolves, as instance id -> battlefield visit (RULE 400.7). Only a ``DIES`` of one of those exact
+        #: visits can fire it; ``None`` means an ordinary unrestricted entry. Plain data, so clone/undo copy it.
+        self.dealt_damage_visits = dealt_damage_visits
 
     def __repr__(self) -> str:
         return f"TurnScopedTrigger(turn={self.install_turn}, once={self.once}, {self.ability.description!r})"
@@ -564,6 +576,8 @@ class GameState:
         # finish before SBAs/trigger placement/priority; IDs survive rewind.
         self.turn_based_draws: Optional[dict[str, Any]] = None
         self.turn_draw_pending_triggers: Optional[list[Any]] = None
+        self.pending_ability_triggers: list[Any] = []
+        self.pending_copied_mana_ability: Optional[dict[str, Any]] = None
         self.turn_draw_delayed_triggers: list[StackItem] = []
         self.pending_turn_step: Optional[dict[str, Any]] = None
         self.pending_dredge_return: Optional[dict[str, Any]] = None
@@ -591,6 +605,8 @@ class GameState:
         #: engine isn't blocked on a choice. Set/consumed by the rules
         #: engine (mtg_analyzer/game/rules_engine.py).
         self.pending_choice: Optional[dict[str, Any]] = None
+        # Counter-kind choices retain their effect and referents across clone/undo.
+        self.pending_counter_kind: Optional[dict[str, Any]] = None
         # RULE 702.21a/b: retain the exact stack item, caster and resolved cost
         # while Ward asks for payment. Deepcopy shares the cloned stack's item.
         self.pending_ward: Optional[dict[str, Any]] = None
@@ -605,6 +621,7 @@ class GameState:
         self.blight_cost_choice: Optional[int] = None
         # RULE 608.2: an optional energy payment suspends this resolution.
         # Keep source, targets and firing event in clone/undo's state graph.
+        self.pending_amount_payment: Optional[dict[str, Any]] = None
         self.pending_energy_payment: Optional[dict[str, Any]] = None
         # Target announcement is a serializable continuation, including its
         # partial groups and firing event, so clone/undo can resume it.
@@ -944,6 +961,7 @@ class GameState:
         #: RULE 500.7: the most recently inserted extra turn is taken first.
         #: The saved regular successor is retained across every inserted turn
         #: (including an opponent's) and deep-copies with clone/undo.
+        self.players_begun_extra_turn: set[str] = set()
         self.extra_turns: list[str] = []
         self.extra_turn_resume_player_id: Optional[str] = None
 
@@ -964,6 +982,7 @@ class GameState:
         #: RULE 500.9: state-owned inserted end steps survive cloning/undo.
         self.pending_extra_end_steps: int = 0
         self.end_steps_this_turn: int = 0
+        self.main_phases_this_turn: int = 0  # RULE 505.1b: actual main phases begun, including inserted phases.
         #: RULE 103.8a: the first-turn draw skip covers the turn's one original draw step only; set once it has
         #: been skipped so an additional beginning phase's draw step (RULE 500.8) draws normally. Plain state, so
         #: clone/undo keep it; reset when a turn begins.
@@ -983,6 +1002,8 @@ class GameState:
         #: RULE 111.5 / 614.12: a token being created that waits on a pre-entry choice
         #: (``{"obj", "token_card", "controller_id", "remaining"}`` -- tokens of the batch still to create).
         self.pending_token_entry: Optional[dict[str, Any]] = None
+        #: Simultaneous token entrants, held outside zones until all pre-entry choices finish.
+        self.pending_token_batch: Optional[dict] = None
 
         #: RULE 500-adjacent "end the turn" (Day's Undoing/Time Stop-shaped
         #: reminder text) — the same "an effect can't reach `GameEngine.
@@ -1028,6 +1049,11 @@ class GameState:
         #: pass it doesn't also see freshly re-added first — see
         #: `continuous._apply_hand_cycling_grants`.
         self._hand_cycling_ability_cache: dict[tuple[int, int], Any] = {}
+
+        #: ENG-67's own identity-preservation cache for keyword grants onto non-battlefield cards ("Each creature card
+        #: in your graveyard has unearth {2}{B}", `continuous._apply_zone_keyword_grants`); keyed by ``(id(grant
+        #: ability), instance_id, zone_incarnation)``, so a card that leaves and re-enters the graveyard gets a new one.
+        self._zone_keyword_ability_cache: dict[tuple[int, int, int], Any] = {}
 
         #: MEC-21's own identity-preservation cache — "X have all activated
         #: abilities of all creature cards exiled with ~" (Agatha's Soul
@@ -1096,6 +1122,7 @@ class GameState:
         #: `GameEngine._can_attack` against the *assigned* defender only
         #: (offer-time, with no defender yet, stays permissive); cleared at
         #: cleanup (RULE 514.2).
+        self.players_cant_attack_this_turn: set[str] = set()
         self.no_attack_pairs_this_turn: set[tuple[str, str]] = set()
         #: ``(attacking player id, defending player id, planeswalker subtype)`` — "creatures they control can't attack
         #: Jaces you control this turn" (Jace, Multiverse Architect); swept at cleanup with `no_attack_pairs_this_turn`.
@@ -1141,6 +1168,7 @@ class GameState:
         #: unlike the `temp_*` `GameObject` fields `_step_cleanup` clears).
         self.next_spell_flash_grants: list[dict[str, Any]] = []
         self.next_spell_cascade_grants: list[dict[str, Any]] = []
+        self.next_undaunted_grants: list[dict[str, Any]] = []
         self.temp_flash_until_turn: dict[str, int] = {}
         #: PAR-124: "You may cast **sorcery** spells this turn as though
         #: they had flash." (Complete the Circuit) — the type-scoped sibling
@@ -1218,7 +1246,7 @@ class GameState:
         # characteristics (including granted lifelink), not a returned visit.
         self.zone_visit_sources: dict[tuple[int, int], GameObject] = {}
         # RULE 707.10c: copied stack items are held here until their targets are chosen.
-        self.copiable_stack_recipes: dict[int, StackItem] = {}
+        self.copiable_stack_recipes: dict[int, Optional[StackItem]] = {}
         self.pending_stack_copies: list[dict[str, Any]] = []
         self.ready_stack_copies: list[StackItem] = []
 
@@ -1279,6 +1307,9 @@ class GameState:
         MEC-8) — the two never collide since `Emblem.instance_id` shares
         `GameObject`'s own counter.
         """
+        for obj in (self.pending_token_batch or {}).get("objects", []):
+            if obj.instance_id == instance_id:
+                return obj
         if self.pending_permanent_entry:
             obj = self.pending_permanent_entry["obj"]
             if obj.instance_id == instance_id:
@@ -1554,6 +1585,13 @@ class GameState:
         # appending, since a trigger's condition scopes by `instance_id` and
         # `_collect_triggers` only scans currently-on-battlefield objects.
         if is_entering_saga:
+            # RULE 122.6a: the entrant's controller puts its initial lore counters.
+            self.fire_event(GameEvent(
+                EventType.COUNTER, target_id=obj.instance_id, kind="lore", amount=obj.counters["lore"],
+                source_controller_id=obj.controller_id, recipient_controller_id=obj.controller_id,
+                recipient_is_creature=obj.is_creature, recipient_is_artifact=obj.is_artifact,
+                recipient_is_planeswalker=obj.is_planeswalker, target_zone_incarnation=obj.zone_incarnation,
+            ))
             self.fire_event(
                 GameEvent(
                     EventType.SAGA_CHAPTER,
@@ -1575,6 +1613,14 @@ class GameState:
             )
 
     def remove_from_battlefield(self, obj: GameObject) -> None:
+        # RULE 702.95e: break the pair on departure, before a possible immediate return.
+        if obj.paired_with is not None:
+            partner = self.find_object(obj.paired_with)
+            if partner is not None:
+                partner.paired_with = None
+                partner.paired_controller_id = None
+            obj.paired_with = None
+            obj.paired_controller_id = None
         # RULE 400.7: the new object has not paid this permanent's blitz cost.
         # Departure events have already captured its last-known abilities.
         obj.blitz_cost_paid = False
@@ -1633,9 +1679,15 @@ class GameState:
         # Paused resolutions retain absolute event-log marks for "this way"
         # measurements. Pruning the prefix would move those marks (RULE 608.2h).
         preserve_resolution_history = bool(self.deferred_effects)
+        previous_turn_by_player = {}
+        for event in log:
+            if event.type == EventType.TURN_BEGIN and event.turn < turn:
+                previous_turn_by_player[event.get("player_id")] = event.turn
+        previous_turns = set(previous_turn_by_player.values())
         self._subscribers, self.event_log = [], [
             e for e in log
             if preserve_resolution_history or e.turn == turn or e.type in (EventType.TURN_BEGIN, EventType.ATTACKS)
+            or (e.turn in previous_turns and e.type in (EventType.SPELL_CAST, EventType.ENTERS_BATTLEFIELD))
         ]
         try:
             clone = copy.deepcopy(self)
@@ -1649,6 +1701,8 @@ class GameState:
         EventType.DISCARD_CARD, EventType.PUT_INTO_GRAVEYARD, EventType.SACRIFICE,
         EventType.DAMAGE, EventType.BATTLEFIELD_DEPARTED, EventType.EXILE,
         EventType.RETURNED_TO_HAND, EventType.PUT_INTO_LIBRARY,
+        # RULE 603.2c: "one or more permanents become tapped" counts one simultaneous tap action as one batch.
+        EventType.TAPPED,
     })
 
     @contextmanager
@@ -1857,6 +1911,7 @@ class GameState:
                     "power": int(event.get("power", departed.power) or 0),
                     "toughness": int(event.get("toughness", departed.toughness) or 0),
                     "mana_value": int(departed.mana_value or 0),
+                    "base_power": int(departed.base_power or 0),
                 }
                 snapshot = copy.copy(departed)
                 # Keep the printed card and bound behavior references; only
@@ -1951,6 +2006,22 @@ class GameState:
                 break
             yield event
 
+    def events_during_players_previous_turn(self, player_id: str) -> "Iterator[GameEvent]":
+        """RULE 500.1: an individual player's previous own turn, skipping intervening turns."""
+        events = reversed(self.event_log)
+        for event in events:
+            if (event.type == EventType.TURN_BEGIN and event.get("player_id") == player_id
+                    and event.turn < self.internal_turn.number):
+                turn = event.turn
+                break
+        else:
+            return
+        for event in reversed(self.event_log):
+            if event.turn < turn:
+                break
+            if event.turn == turn:
+                yield event
+
     def attacked_player_during_last_turn(self, attacker_id: str, defender_id: str) -> bool:
         """RULE 508.1/508.4: declarations in that player's latest own turn."""
         last_turn = next((event.turn for event in reversed(self.event_log)
@@ -2013,6 +2084,11 @@ class GameState:
     def spells_cast_this_turn(self) -> dict[str, int]:
         """Spells each player cast this turn (RULE 732.2; Damping Sphere)."""
         return turn_history.spells_cast(self.events_this_turn())
+
+    @property
+    def dice_rolled_this_turn(self) -> dict[str, int]:
+        """Dice each player rolled this turn (RULE 706.6; Resolute Veggiesaur's "your third die each turn")."""
+        return turn_history.dice_rolled(self.events_this_turn())
 
     @property
     def mana_spent_on_spells_this_turn(self) -> dict[str, int]:
@@ -2104,6 +2180,10 @@ class GameState:
         return turn_history.permanent_card_to_graveyard(self.events_this_turn())
 
     @property
+    def times_descended_this_turn(self) -> dict[str, int]:
+        return turn_history.times_descended(self.events_this_turn())
+
+    @property
     def bends_this_turn(self) -> dict[str, set[str]]:
         return turn_history.bends(self.events_this_turn())
 
@@ -2142,6 +2222,12 @@ class GameState:
     def opponents_attacked_this_turn(self) -> dict[str, set[str]]:
         """Defending players each attacker attacked this turn (Battlefront; RULE 508.1a)."""
         return turn_history.opponents_attacked(self.events_this_turn())
+
+    @property
+    def opponents_attacked_this_combat(self) -> dict[str, set[str]]:
+        """Defending players each attacker attacked in the combat phase in progress (RULE 506.1: "this combat";
+        Custodi Soulcaller, Melee). An extra combat phase starts a fresh window."""
+        return turn_history.opponents_attacked(self.events_this_combat())
 
     def to_dict(self) -> dict[str, Any]:
         self.internal_turn.player_id = self.active_player.id

@@ -13,9 +13,14 @@ def test_targeted_graveyard_shuffle_parses():
 
 
 def test_targeted_graveyard_shuffle_does_not_claim_the_own_graveyard_form():
+    # PAR-292 M13: the own-graveyard "up to N target cards" form is its own bounded optional pick (`return_from_graveyard`
+    # bottom + shuffle), never the player-targeted effect: nobody is targeted, the cards come from the controller's own.
     assert parse_effect_body(
         "shuffle up to 4 target cards from your graveyard into your library."
-    ) is None
+    ) == [EffectSpec("return_from_graveyard", {
+        "target_kind": "graveyard_card", "destination": "library_bottom", "shuffle_after": True,
+        "count": 4, "optional": True,
+    })]
 
 
 def test_dwell_on_the_past_is_modeled():

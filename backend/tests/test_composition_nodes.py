@@ -301,7 +301,7 @@ class TestForEach:
         _creature(eng.state, "p1", "A")
         _creature(eng.state, "p1", "B")
         _run(eng, [EffectSpec("for_each", {
-            "over": {"selector": "creatures_you_control"},
+            "over": {"selector": {"zone": "battlefield", "of": "you", "filter": {"card_type": "creature"}}},
             "effects": [{"type": "gain_life", "params": {"amount": 1}}],
         })], source=source)
         # Three creatures under p1's control, including the source itself.

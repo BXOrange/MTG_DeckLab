@@ -18,6 +18,7 @@ import re
 from typing import Any, Optional
 
 from .characteristic_phrase import parse_object_phrase
+from .clause_reading import STANDALONE, ClauseReading
 from .count_phrase import NUMBER_WORD_PATTERN, number_value
 from .object_trigger_head import parse_object_trigger_head
 from .spell_phrase import parse_spell_phrase
@@ -88,7 +89,10 @@ def _condition(trigger: dict[str, Any], low: Optional[int], high: Optional[int])
 
 def _object_event(text: str) -> Optional[dict[str, Any]]:
     """``[<quantity>] <object phrase> <past verb> [under whose control]`` → a condition."""
-    quantity = _quantity(text)
+    # RULE 603.2 reading of "another": a permanent other than the ability's source (Bristlebane Outrider, Swordsworn
+    # Cavalier); the predicate's ``other`` flag excludes the source's own entering event.
+    other = text.startswith("another ")
+    quantity = _quantity(("a " + text[len("another "):]) if other else text)
     if quantity is None:
         return None
     low, high, rest = quantity
@@ -114,7 +118,7 @@ def _object_event(text: str) -> Optional[dict[str, Any]]:
                 return None
             controller = control
         group: dict[str, Any] = {
-            "subject": "group", "controller": controller or "any", "other": False,
+            "subject": "group", "controller": controller or "any", "other": other,
         }
         if filt:
             group["filter"] = filt
@@ -232,3 +236,170 @@ def parse_history_condition(text: str) -> Optional[dict[str, Any]]:
     if _YOU.match(stripped):
         return _player_event(_YOU.sub("", stripped, count=1), negated=False)
     return _object_event(stripped)
+
+
+#: "<object> that <past verb> [under your control] this turn" / "<object> you've <past verb> this turn" -- the counted
+#: noun of a "for each" amount, the relative clause turned back into the sentence the history conditions read.
+_COUNT_THAT_RELATIVE = re.compile(r"^(?P<object>.+?) that (?P<rest>(?:died|entered|attacked|blocked|left)\b.*)$")
+#: PAR-292 M6: "land you had enter the battlefield under your control this turn" (Emergent Sequence) is the counted noun
+#: of the same entry event the "that entered the battlefield under your control" relative reads.
+_COUNT_YOU_HAD_ENTER = re.compile(r"^(?P<object>.+?) you had enter the battlefield under your control$")
+#: PAR-284: a spell count may name where the spell was cast from ("spell you've cast this turn from anywhere other
+#: than your hand", Surge of Brilliance), read as the spell phrase's own origin qualifier.
+_COUNT_YOUVE_RELATIVE = re.compile(
+    r"^(?P<object>[a-z-]+(?: [a-z-]+)*?) you've (?P<verb>discarded|cast|sacrificed)(?P<origin> from anywhere other than your hand)?$"
+)
+#: "instant and sorcery spell" is the union ("an instant or sorcery spell"): a spell is never both (RULE 205.2a).
+_AND_TYPE_UNION_RE = re.compile(r"\b(instant|sorcery|creature|artifact|enchantment) and (instant|sorcery|creature|artifact|enchantment)\b")
+#: "creature [card] put into your graveyard from the battlefield this turn" (Asmira, Fresh Meat): the owner-scoped
+#: dies trigger head, tallied.
+_COUNT_PUT_INTO_GRAVEYARD = re.compile(r"^(?P<object>.+?) put into your graveyard from the battlefield$")
+#: The filter keys an event's last-known snapshot answers (RULE 608.2h). A state that is read off the live object
+#: ("tapped", counters, attachments) is not the state it had when the event happened, so such a phrase stays open.
+_COUNT_EVENT_FILTER_KEYS = frozenset({"card_type", "subtype", "subtype_any", "nontoken", "token", "color", "negate"})
+_ARTICLE_FOR = {"a": "a", "e": "an", "i": "an", "o": "an", "u": "an"}
+
+
+def _with_article(noun_phrase: str) -> str:
+    return f"{_ARTICLE_FOR.get(noun_phrase[:1], 'a')} {noun_phrase}"
+
+
+def parse_history_count(phrase: str) -> Optional[dict[str, Any]]:
+    """The noun phrase of "for each <phrase>" read over this turn's event log (RULE 608.2h: re-measured when the
+    ability resolves) -> the trigger-shaped predicate `event_count` counts, or ``None``.
+
+    "creature that died this turn" is "a creature died this turn"; "card you've discarded this turn" is "you've
+    discarded a card this turn". The condition's own ``min`` is dropped: it is a tally, not a gate.
+    """
+    text = re.sub(r"^the (?:total )?number of ", "", phrase.strip().lower().rstrip("."))
+    text = re.sub(r"( this turn)( from anywhere other than your hand)$", r"\2\1", text)  # origin before the window
+    if not _THIS_TURN.search(text):
+        return None
+    body = _THIS_TURN.sub("", text)
+    relative = _COUNT_THAT_RELATIVE.match(body)
+    youve = _COUNT_YOUVE_RELATIVE.match(body)
+    graveyard = _COUNT_PUT_INTO_GRAVEYARD.match(body)
+    if graveyard is not None:
+        noun = _singular_object(graveyard.group("object")) or graveyard.group("object")
+        head = parse_object_trigger_head(f"{_with_article(noun)} is put into your graveyard from the battlefield")
+        if head is None or head.event != "DIES":
+            return None
+        return _snapshot_filters_only({"event": head.event, "condition": head.condition, **head.trigger})
+    if relative is not None:
+        noun = _singular_object(relative.group("object")) or relative.group("object")
+        sentence = f"{_with_article(noun)} {relative.group('rest')} this turn"
+    elif (had := _COUNT_YOU_HAD_ENTER.match(body)) is not None:
+        noun = _singular_object(had.group("object")) or had.group("object")
+        sentence = f"{_with_article(noun)} entered the battlefield under your control this turn"
+    elif youve is not None:
+        noun = youve.group("object")
+        origin = youve.group("origin") or ""
+        if youve.group("verb") == "cast":
+            noun = _AND_TYPE_UNION_RE.sub(r"\1 or \2", noun)
+        if noun.startswith("other "):
+            sentence = f"you've {youve.group('verb')} another {_singular_object(noun[6:]) or noun[6:]}{origin} this turn"
+        else:
+            sentence = f"you've {youve.group('verb')} {_with_article(_singular_object(noun) or noun)}{origin} this turn"
+    else:
+        return None
+    condition = parse_history_condition(sentence)
+    if condition is None or condition.get("kind") != "event_this_turn" or "max" in condition:
+        return None
+    return _snapshot_filters_only(condition["trigger"])
+
+
+#: PAR-284 milestone 23 / RULE 603.6c: the cards put into *another player's* graveyard this turn -- "the number of cards
+#: that were put into target player's graveyard from their library this turn" (Cruel Calculations), "nonland card in that
+#: player's graveyard that was put there from the battlefield this turn" (Wreck Hunter).
+_ARRIVAL_ORIGINS = {"their library": "library", "the battlefield": "battlefield"}
+_GRAVEYARD_ARRIVAL_COUNT_RE = re.compile(
+    r"^(?:the number of )?(?P<noun>(?:[a-z-]+ )?cards?) "
+    r"(?:that (?:was|were) put into (?P<who>target player|target opponent|that player)'s graveyard from (?P<origin>their library|the battlefield)"
+    r"|in (?P<who2>that player)'s graveyard that (?:was|were) put there from (?P<origin2>their library|the battlefield))"
+    r" this turn$"
+)
+
+
+def parse_graveyard_arrival_count(phrase: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """``(player phrase, trigger)`` of a count of the cards that arrived in one named player's graveyard this turn from
+    one origin zone, the trigger read for that player as "you" (the caller substitutes them: ``event_count`` with
+    ``of``), or ``None``. The graveyard owner is the event's group-subject key (`EventType.PUT_INTO_GRAVEYARD`)."""
+    m = _GRAVEYARD_ARRIVAL_COUNT_RE.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    noun = _singular_object(m.group("noun")) or m.group("noun")
+    head = parse_object_trigger_head(f"{_with_article(noun)} is put into your graveyard")
+    if head is None or head.event != "PUT_INTO_GRAVEYARD" or head.trigger:
+        return None
+    origin = _ARRIVAL_ORIGINS[m.group("origin") or m.group("origin2")]
+    trigger = {"event": head.event, "condition": head.condition, "filter": {"from_zone": origin}}
+    return (m.group("who") or m.group("who2")), trigger
+
+
+def _snapshot_filters_only(trigger: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """``trigger`` unless its object filter asks about live state an event snapshot does not carry."""
+    filt = (trigger.get("condition") or {}).get("filter") or {}
+    return trigger if set(filt) <= _COUNT_EVENT_FILTER_KEYS else None
+
+
+#: PAR-284 milestone 18 / RULE 122.1: "+1/+1 counter you've put on creatures under your control this turn" (Iridescent
+#: Hornbeetle) -- the `COUNTER` events the player's own effects caused on creatures they control, summed by amount
+#: (`event_count` ``sum_amount``): "put" is the placing of counters, not a count of the creatures that carry them.
+_COUNTERS_PUT_ON_OWN_CREATURES = re.compile(
+    r"^(?P<kind>\+1/\+1|-1/-1) counters? you've put on creatures under your control this turn$"
+)
+
+
+def parse_counters_put_count(phrase: str) -> Optional[dict[str, Any]]:
+    """The noun phrase of "for each +1/+1 counter you've put on creatures under your control this turn" -> the
+    trigger-shaped `COUNTER` predicate to sum, or ``None``."""
+    m = _COUNTERS_PUT_ON_OWN_CREATURES.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    return {
+        "event": "COUNTER",
+        "condition": {"subject": "group", "controller": "you", "other": False},
+        "filter": {"kind": m.group("kind"), "recipient_is_creature": True, "by_you": True},
+    }
+
+
+#: PAR-284 milestone 19 / RULE 120.3: "the damage dealt to your opponents this turn" (Notorious Throng), "the amount of
+#: damage dealt to it this turn" (Tangled Colony), "the damage dealt to you so far this turn by artifacts" (Reverse
+#: Polarity) -- the `DAMAGE` events of the turn aimed at that recipient, summed by amount (`event_count`
+#: ``sum_amount``) with the same trigger-shaped predicate "whenever <recipient> is dealt damage" reads. Only these
+#: recipients and source groups are modeled; a source qualifier beyond a bare card type ("by other sources named ~",
+#: "by a source") is not.
+_DAMAGE_TAKEN_RE = re.compile(
+    r"^(?:the )?(?:amount of )?damage dealt to (?P<who>~|it|you|your opponents|each opponent) "
+    r"(?:so far )?this turn(?: by (?P<by>artifact|creature|land|enchantment)s)?$"
+)
+_DAMAGE_RECIPIENTS: dict[str, dict[str, Any]] = {
+    "you": {"subject": "you", "recipient": True},
+    "your opponents": {"subject": "player", "scope": "not_you", "recipient": True},
+}
+
+
+def parse_damage_taken_count(phrase: str, *, reading: ClauseReading = STANDALONE) -> Optional[dict[str, Any]]:
+    """The noun phrase of a "damage dealt to <recipient> this turn" amount -> the `DAMAGE` trigger predicate to sum,
+    or ``None``. ``~`` / "it" name the host only under a self-subject head (``reading.self_subject``)."""
+    m = _DAMAGE_TAKEN_RE.match(phrase.strip().lower().rstrip("."))
+    if m is None:
+        return None
+    who = m.group("who")
+    if who in ("~", "it"):
+        if not reading.self_subject or m.group("by"):
+            return None
+        return {"event": "DAMAGE", "condition": {"subject": "self", "recipient": True}, "filter": {}}
+    if who == "each opponent":
+        who = "your opponents"
+    recipient = dict(_DAMAGE_RECIPIENTS[who])
+    if m.group("by"):
+        if who != "you":
+            return None
+        return {
+            "event": "DAMAGE",
+            "condition": {"subject": "group", "controller": "any", "other": False,
+                          "filter": {"card_type": m.group("by")}, "recipient_is_you": True},
+            "filter": {"is_player": True},
+        }
+    return {"event": "DAMAGE", "condition": recipient, "filter": {"is_player": True}}

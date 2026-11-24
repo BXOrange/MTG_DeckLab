@@ -56,6 +56,7 @@ def _lukka_coppercoat_outcast() -> list[AbilitySpec]:
                         "criteria": {"type": "Creature", "min_mana_value": "$floor"},
                         "hit_destination": "battlefield",
                         "rest_destination": "library_bottom_random",
+                        "reveal": True,  # RULE 701.20a: revealed cards stay in the library
                     }},
                 ],
             })],
