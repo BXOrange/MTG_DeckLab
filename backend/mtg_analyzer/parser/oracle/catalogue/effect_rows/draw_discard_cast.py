@@ -1095,6 +1095,9 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 # RULE 701.20 / 701.9: reveal/look, select a filtered card, then act on it.
 # The type-list grammar composes all supported printed card types rather than
 # growing one handler per Duress/Despise/Collective Brutality variant.
+#: BUG-72: both target-player pools ("target player", "target opponent": RULE 102.3 keeps the controller out of the latter).
+PLAYER_TARGET_KINDS = ("player", "opponent")
+
 _HAND_DISRUPTION_RE = compile_clause(
     r"(?:(?P<target>target opponent|target player) reveals their hand"
     r"|look at (?P<look>target opponent|target player)'s hand)"
@@ -1111,7 +1114,7 @@ _HAND_DISRUPTION_RE = compile_clause(
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("target") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     filt = m.group("filter")
     if filt in _HAND_DISRUPTION_FILTERS:
@@ -1181,7 +1184,7 @@ _HAND_PICK_RE = compile_clause(
 
 def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("reveal") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     destination = next(dest for pattern, dest in _HAND_PICK_TAILS.items() if re.fullmatch(pattern, m.group("tail")))
     if m.group("reveal") and destination != "library_third":

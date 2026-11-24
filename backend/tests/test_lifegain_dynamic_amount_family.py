@@ -73,7 +73,7 @@ def _etb(obj):
 
 def test_lose_life_that_much_parses_with_self_subject():
     specs = match_clause("target opponent loses that much life", reading=ClauseReading(self_subject=True))
-    assert specs == [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+    assert specs == [EffectSpec("lose_life", {"target_kind": "opponent", "amount_from_trigger_event": "amount"})]
 
 
 def test_add_counters_that_many_self_parses_with_self_subject():

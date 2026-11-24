@@ -353,7 +353,7 @@ def test_attach_handler_recognizes_an_equipments_own_etb_self_attach():
 def test_damage_handler_accepts_it_and_this_land_subjects():
     it_form = parse_effect_body("it deals 2 damage to target opponent")[0]
     assert it_form.type == "damage"
-    assert it_form.params == {"amount": 2, "target_kind": "player"}
+    assert it_form.params == {"amount": 2, "target_kind": "opponent"}
     land_form = parse_effect_body("this land deals 2 damage to any target")[0]
     assert land_form.params == {"amount": 2, "target_kind": "any"}
 

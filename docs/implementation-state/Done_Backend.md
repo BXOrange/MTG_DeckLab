@@ -1870,6 +1870,13 @@ to every gathered target. Resolution conditions can read the actual `cast_from_e
 - **Measured:** the marker step had 0 coverage changes, and 380 cards differ only by the marker. After the flip, 1917 requirements on 1772 cards offer their source. None of them is marked, uses an `other_*` kind or is an attachment kind. A graveyard and exile sweep found no ability that offers its source despite "other" text.
 - **Tests:** `tests/test_bug57_excludes_source_marker.py` (11), `tests/test_bug57_plain_target_offers_source.py` (15, real cards through `GameSession`, including undo).
 
+### Parsed "target opponent" names an opponent (RULE 102.3, 115.1, BUG-72, PARSER_VERSION 1055)
+
+- **What:** `subgrammars.resolve_target_kind("target opponent")` returned the plain `player` pool, so rows such as "~ deals 3 damage to target opponent" offered and accepted their own controller (Bulwark's upkeep trigger in two players). It now returns the engine's existing `opponent` pool, which excludes the controller and keeps every other seat. Rows that compared the resolved kind with `player` (look at / reveal target hand, "gains / loses that much life", "damage equal to its power") accept both pools instead of silently dropping cards.
+- **Corrected:** 52 MODELED cards, each a pure `player` -> `opponent` swap (Bulwark, Brash Taunter, Hedron Detonator, Hired Claw, Sanguine Bond, Keeper of Secrets, Massacre Girl, Most Wanted, Korvold and the Noble Thief, ...); 0 lost. Edict, hand-disruption and life-loss rows had emitted `opponent` themselves and are unchanged.
+- **Not done:** `cast_spell` still accepts an announced target outside the offered options (the spell then does nothing on resolution, RULE 608.2b); the engine has no team games, so teammates (RULE 102.3) need no exclusion yet.
+- **Validation:** `tests/test_bug72_target_opponent.py` (Bulwark in two players, a burn spell in three players, bot offers, parametrised IR checks; 8 of 10 fail on the old mapping); version-masked full IR diff 25,598 MODELED both sides. Fast suite 26,877 passed, 505 skipped.
+
 ### Target legality rechecked at resolution (RULE 608.2b, BUG-3/BUG-4)
 
 `casting_mixin._apply_stack_item` rechecks each battlefield target with `targeting.target_meets_restrictions`, which

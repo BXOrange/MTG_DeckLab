@@ -244,7 +244,7 @@ _CHOOSE_TARGETS_GROUP_RE = compile_clause(
     rf"{MULTI_TARGET_DISTINCT_CONTROLLERS}"
 )
 #: A bare "choose target player/opponent" belongs to `draw_discard_cast.choose_target_players` (RULE 109.5: it keeps
-#: the `opponent` kind, which `resolve_target_kind` would collapse to `player`), so this row declines it.
+#: the `opponent` kind, which a plain `target` row would collapse to `player`), so this row declines it.
 _CHOOSE_TARGET_SINGLE_RE = compile_clause(
     rf"choose (?!target (?:player|opponent)$){TARGET}(?: whose controller controls an? (?P<controls_land>island|forest|mountain|plains|swamp))?"
 )
@@ -262,7 +262,7 @@ _CHOOSE_TARGET_SINGLE_RE = compile_clause(
 #: land or an enchantment in this engine.
 _DAMAGE_RECIPIENT_KINDS: frozenset[str] = frozenset(
     {
-        "any", "creature", "creature_you_control", "creature_you_dont_control", "player",
+        "any", "creature", "creature_you_control", "creature_you_dont_control", "player", "opponent",  # BUG-72: RULE 102.3
         "player_or_planeswalker",
         # Sinstriker's Will: the combat-qualified creature is still a
         # creature recipient, with its legality supplied by TargetFrame.

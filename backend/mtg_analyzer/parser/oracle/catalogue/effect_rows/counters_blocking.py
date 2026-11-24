@@ -67,7 +67,7 @@ def _opponent_chooses_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("choose_objects", {
         "action": "select_referent", "what": m.group("what"), "count": 1,
         "player_selector": "target",
-        # `resolve_target_kind` reads "target opponent" as the broader "player"; an edict must keep the restriction.
+        # an edict keeps the opponent restriction (RULE 102.3).
         "target_kind": "opponent" if m.group("who") == "target opponent" else "player",
         "then": [{"type": "destroy", "params": {"previous_subject": True}}],
     })]
