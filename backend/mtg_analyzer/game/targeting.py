@@ -1505,6 +1505,29 @@ class TargetFrame:
     attached: str = ""
 
 
+#: Per-qualifier frame flag that makes `_legal_from_frame` honour it (a `TargetSpec` field -> `TargetFrame` attribute).
+#: The mana-value trio shares one flag: a frame that cares about a target's mana value at all cares about all three.
+FRAME_QUALIFIER_FLAGS: dict[str, str] = {
+    "color": "apply_color", "colors": "apply_color",
+    "max_mana_value": "apply_max_mana_value", "min_mana_value": "apply_max_mana_value",
+    "exact_mana_value": "apply_max_mana_value", "creature_filter": "apply_creature_filter",
+}
+
+
+def unhonoured_qualifiers(spec: TargetSpec) -> tuple[str, ...]:
+    """The qualifiers set on ``spec`` that its battlefield frame would silently ignore (BUG-87).
+
+    Empty for a kind with no frame (those branches read their own fields) and for a spec whose every bound the frame
+    applies. A non-empty result means an unbounded target is offered, so a parsed bound must never reach it."""
+    frame = TARGET_FRAMES.get(spec.kind)
+    if frame is None:
+        return ()
+    return tuple(
+        field for field, flag in FRAME_QUALIFIER_FLAGS.items()
+        if getattr(spec, field) not in (None, False) and not getattr(frame, flag)
+    )
+
+
 def _fp_nonbasic(o: "GameObject") -> bool:
     return bool(o.is_land) and not o.has_supertype("basic")
 
@@ -1635,7 +1658,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "incubator_token_you_control": TargetFrame("incubator_token", SCOPE_YOU),
     "token": TargetFrame("token"),
     "token_you_control": TargetFrame("token", SCOPE_YOU, exclude_source=False),
-    "artifact_you_control": TargetFrame("artifact", SCOPE_YOU, exclude_source=False),
+    "artifact_you_control": TargetFrame("artifact", SCOPE_YOU, exclude_source=False, apply_creature_filter=True),
     "noncreature_artifact_you_control": TargetFrame("noncreature_artifact", SCOPE_YOU, exclude_source=False),
     "nontoken_artifact_you_control": TargetFrame("nontoken_artifact", SCOPE_YOU, apply_max_mana_value=True),
     "enchantment_you_control": TargetFrame("enchantment", SCOPE_YOU, exclude_source=False),
@@ -1695,19 +1718,19 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
         "land", SCOPE_YOU, apply_color=True, apply_creature_filter=True, exclude_source=True),
     "creature_you_dont_control": TargetFrame(
         "creature", SCOPE_NOT_YOU, exclude_source=False,
-        apply_creature_filter=True, apply_max_mana_value=True),
+        apply_creature_filter=True, apply_max_mana_value=True, apply_color=True),
     "haunted_creature": TargetFrame("creature"),
     "werewolf_creature": TargetFrame("werewolf_creature", apply_creature_filter=True),
     "attacking_or_blocking_creature": TargetFrame("attacking_or_blocking_creature"),
     "artifact_you_dont_control": TargetFrame(
-        "artifact", SCOPE_NOT_YOU, exclude_source=False),
+        "artifact", SCOPE_NOT_YOU, exclude_source=False, apply_creature_filter=True),
     "enchantment_you_dont_control": TargetFrame(
         "enchantment", SCOPE_NOT_YOU, exclude_source=False,
         apply_color=True, apply_max_mana_value=True),
     "artifact_or_enchantment_you_dont_control": TargetFrame(
         "artifact_or_enchantment", SCOPE_NOT_YOU, exclude_source=False, apply_max_mana_value=True),
     "artifact_or_creature_you_dont_control": TargetFrame(
-        "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False),
+        "artifact_or_creature", SCOPE_NOT_YOU, exclude_source=False, apply_max_mana_value=True),
     "human_or_artifact_you_dont_control": TargetFrame(
         "human_or_artifact", SCOPE_NOT_YOU, exclude_source=False),
     "artifact_creature_or_enchantment_you_dont_control": TargetFrame(
@@ -1739,7 +1762,7 @@ TARGET_FRAMES: dict[str, TargetFrame] = {
     "artifact_creature_or_land_you_control": TargetFrame(
         "artifact_creature_or_land", SCOPE_YOU, exclude_source=False),
     "artifact_or_enchantment": TargetFrame("artifact_or_enchantment", apply_max_mana_value=True),
-    "artifact_or_creature": TargetFrame("artifact_or_creature", apply_max_mana_value=True),
+    "artifact_or_creature": TargetFrame("artifact_or_creature", apply_max_mana_value=True, apply_creature_filter=True),
     "artifact_or_creature_you_control": TargetFrame(
         "artifact_or_creature", SCOPE_YOU),
     "artifact_creature_or_enchantment": TargetFrame(

@@ -170,7 +170,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 ## BUG — Bugs
 
-- **BUG-87 · Target frames ignore a parsed mana-value bound.** Found in MEC-172: `TargetFrame`s without `apply_max_mana_value` drop a parsed `max_mana_value` silently, so the card stays MODELED with an unbounded target. Repro: Annex Sentry ("exile target artifact or creature an opponent controls with mana value 3 or less", frame `artifact_or_creature_you_dont_control`) parses MODELED but any artifact or creature is legal. Sweep every frame in `game/targeting.py` against the bounds the parser emits for it (mana value, colour, power, other qualifiers), apply or fail closed, report the corrected cards.
 
 ## REL — Release & deployment
 

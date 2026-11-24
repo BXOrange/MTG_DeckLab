@@ -2053,6 +2053,20 @@ when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
 - **What:** `DealDamageEffect(divided=True)` splits a total {X} pool evenly across the chosen targets, with an optional doubling threshold (`double_at`) — Shatterskull Smas…
 - **Files:** `game/effects/core.py`
 
+### Target frames honour every parsed bound (BUG-87)
+
+A `TargetFrame` applies a spec's colour, mana-value or quality filter only when its `apply_*` flag is on,
+so a frame without the flag offered an unbounded target while the card stayed MODELED (Annex Sentry's "mana
+value 3 or less" was ignored). A full-cache sweep of every `TargetSpec` the binder builds for covered cards,
+back halves included, found five such frames; each now sets the flag (shared filter machinery, no new
+path): `artifact_or_creature_you_dont_control` (mana value), `creature_you_dont_control` (colour),
+`artifact_or_creature`, `artifact_you_control`, `artifact_you_dont_control` (nontoken / token / card-type
+filter). Ten cards play correctly now (Annex Sentry, Slithery Stalker, Tidebinder Mage, The Measure of a Man,
+The Mighty Thor Jane Foster, Quicksmith Rebel, Quicksmith Spy, Tawnos Solemn Survivor, The Blackstaff of
+Waterdeep, Hyperion Blacksmith); no verdict changed. `targeting.unhonoured_qualifiers` names a dropped bound
+and the full-cache test `test_bug87_frame_bounds.py` fails when any covered card binds one, so a new frame
+or parser bound cannot reintroduce the gap.
+
 ### "Target creature with power/toughness/keyword" targeting filter
 
 **Two-word keyword spellings (BUG-70).** `combat._obj_keywords` folds every keyword source (printed, intrinsic, granted, suppressed, removed, temp-removed) to the underscore slug and `combat.has` normalizes the asked name, so "first strike" / "double strike" from the shared object-phrase grammar now match in `keyword`/`keyword_any`/`without_keyword` filters (a `without_keyword` filter used to match every creature), and hand-authored pump grants that store the spaced name (Chocobo Knights, Halvar, Kamiz, Angelic Destiny, Valor, Restless Spire, Ajani Steadfast, Quickening Licid) now really deal first-strike-step damage (RULE 702.4b/702.7b). Engine-only: parse output unchanged. Tests: `tests/test_bug70_multiword_keyword_filters.py`.
