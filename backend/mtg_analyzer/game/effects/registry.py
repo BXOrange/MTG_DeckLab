@@ -606,6 +606,8 @@ EffectRegistry.register(
         count=p.get("count", 1),
         up_to=bool(p.get("up_to", False)),
         destination=str(p.get("destination", "discard")),
+        shuffle_if_none=bool(p.get("shuffle_if_none", False)),
+        shuffle_condition=p.get("shuffle_condition"),
     ),
 )
 EffectRegistry.register(
@@ -3925,7 +3927,7 @@ EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
     lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
-EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id")))
 EffectRegistry.register(
     # RULE 701.20 — "shuffle your hand and graveyard into your library". The
     # wheel family's first sentence; the "then draws N cards" tail is a

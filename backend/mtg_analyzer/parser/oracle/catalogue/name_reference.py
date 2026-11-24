@@ -226,7 +226,10 @@ def _sweep_specs(body: str, reading: ClauseReading):
     if read[2]:
         # RULE 701.20 / 400.3: the exile is the pick's own action, done before the sweep reads the name.
         follow.insert(0, {"type": "exile", "params": {"target_kind": "previous_target", "previous_zone": "hand"}})
-    pick_params = {**read[1], "then_specs": [{"type": "seq", "params": {"effects": follow}}]}
+    # BUG-83, RULE 608.2c: "Then that player shuffles" does not depend on the pick finding anything.
+    pick_params = {**read[1], "then_specs": [{"type": "seq", "params": {"effects": follow}}], "shuffle_if_none": True}
+    if "condition" in params:
+        pick_params["shuffle_condition"] = dict(params["condition"])  # Pick the Brain's delirium gates the shuffle too
     return [EffectSpec("reveal_hand_choose_discard", pick_params)]
 
 

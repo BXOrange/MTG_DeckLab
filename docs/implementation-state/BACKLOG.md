@@ -173,7 +173,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 - **BUG-75 · Keywords without engine behaviour count as MODELED.** Audit the remaining recognised keywords against the binder and gameplay paths. Make the gate refuse keywords that lack behaviour and report the cards that drop to UNMODELED. MEC-152, MEC-167 and MEC-168 wired Outlast, Modular, Fabricate, Afterlife, Frenzy, Poisonous, Jump-start, Encore, Typecycling and Scavenge.
 
-- **BUG-83 · An empty same-name sweep skips "Then that player shuffles".** PAR-292 M16/M18: when the lead of a same-name sweep picks or exiles nothing (Lobotomy against an empty or all-basic hand, Reap Intellect with X = 0), `reveal_hand_choose_discard`'s `then_specs` never run, so the searched player's library is not shuffled. Lobotomy's ruling (2004-10-04) says you still search the library; Reap Intellect's (2013-04-15) is silent on the shuffle. Carry the revealed target player into the empty case (an `else_specs` shuffle) and test both cards.
 
 ## REL — Release & deployment
 
