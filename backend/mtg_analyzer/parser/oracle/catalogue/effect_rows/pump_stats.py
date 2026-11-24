@@ -550,7 +550,7 @@ _REVEAL_UNTIL_TYPE_RE = compile_clause(
 _REVEAL_UNTIL_AMOUNT_RE = compile_clause(
     r"reveal cards from the top of your library until you reveal an? (?P<pred>[a-z ,'-]+?) card\. "
     r"(?P<body>[^.]+(?:where x is|equal to) (?:that card's|its) (?:mana value|power|toughness))\. "
-    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?:a random|any) order"
+    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?P<order>a random|any) order"
 )
 
 
@@ -563,7 +563,10 @@ def _reveal_until_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("reveal_until", {
         "criteria": dict(criteria), "count": 1,
-        "hit_destination": "library_bottom_random", "rest_destination": "library_bottom_random",
+        # RULE 401.4: "in any order" is the player's own ordering (BUG-84), "in a random order" is not. The hit stays in
+        # the library either way, so it is still the body's referent.
+        "hit_destination": "library_bottom_random",
+        "rest_destination": "library_bottom_order" if m.group("order") == "any" else "library_bottom_random",
     }), *body]
 
 
