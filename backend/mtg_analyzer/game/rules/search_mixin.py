@@ -1846,6 +1846,7 @@ class SearchMixin:
             track_source_incarnation=choice.get("track_source_incarnation"),
             untap_if_lands_at_least=choice.get("untap_if_lands_at_least"),
             reveal=choice.get("reveal", False),
+            attach_host_id=self._entry_attach_host_id(choice),
         )
         # "…if you don't put a card … this way, <body>." (The Vast Scrier) —
         # the search finished and nothing was picked.
@@ -2045,6 +2046,7 @@ class SearchMixin:
         track_source_incarnation: Optional[int] = None,
         untap_if_lands_at_least: Optional[int] = None,
         reveal: bool = False,
+        attach_host_id: Optional[int] = None,
     ) -> None:
         """Move every chosen card to its destination, then shuffle the
         library (RULE 701.19e) — unless ``exile_rest`` suppresses it
@@ -2122,6 +2124,11 @@ class SearchMixin:
                 # without touching `obj.zone` itself, which still names
                 # where it came from, so putting it back there is a plain
                 # re-add rather than a real "return" move.
+                player.add_to_zone(obj, obj.zone)
+                continue
+            if dest in ("battlefield", "battlefield_tapped") and self._aura_cannot_enter_attached(obj, attach_host_id):
+                # RULE 303.4g: an Aura that would be put onto the battlefield attached to ~ but can't legally enchant
+                # it stays in its current zone (already pulled out of the list above, so this is a plain re-add).
                 player.add_to_zone(obj, obj.zone)
                 continue
             if dest in ("battlefield", "battlefield_tapped") and continuous.uncast_creature_entry_exiled(
@@ -2235,6 +2242,26 @@ class SearchMixin:
             for obj in rest:
                 player.remove_from_zone(obj, obj.zone)
                 self._put_searched_card(player, obj, "exile")
+    @staticmethod
+    def _entry_attach_host_id(choice: dict[str, Any]) -> Optional[int]:
+        """The source's id when the search's follow-up attaches the found card to it ("...onto the battlefield
+        attached to ~", Boonweaver Giant), else None."""
+        for spec in choice.get("then_specs") or []:
+            params = spec.get("params") or {}
+            if spec.get("type") == "attach" and params.get("target_kind") == "source" and params.get("mover") == "created":
+                return choice.get("then_source_id")
+        return None
+
+    def _aura_cannot_enter_attached(self, obj: GameObject, host_id: Optional[int]) -> bool:
+        """RULE 303.4f/303.4g: an Aura put onto the battlefield attached to a given object must be able to enchant
+        it (attaching is not targeting, so hexproof is irrelevant; the Aura's own "enchant" restriction is)."""
+        if host_id is None or self._attachment_kind(obj) != "enchant":
+            return False
+        host = self.state.find_object(host_id)
+        if host is None or host not in self.state.permanents():
+            return True  # nothing to attach to
+        return not self._attachment_legal(obj, host)
+
     def _remove_search_hit(
         self, player: Player, instance_id: int, zones: list[str]
     ) -> Optional[GameObject]:
