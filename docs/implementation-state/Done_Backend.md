@@ -981,6 +981,21 @@ split-card verdict gap it exposed is BUG-86. `test_bug75_keyword_behaviour.py` f
 gains an engine consumer, so the set cannot go stale; tests of such cards' other text strip the keyword
 (`tests/support/cards.strip_inert_keywords`).
 
+### Every bound half counts toward a card's verdict (BUG-86, PARSER_VERSION 1064)
+
+`parse_oracle` judges the front face, but a split / aftermath / fuse, Adventure, modal DFC, transform or
+prepare card binds its other half as a card of its own when it is cast, played or transformed, so a
+MODELED front over an unbound back half counted the card as playable. `card_registry.card_coverage` is
+the one card-level rule: MODELED only when the front is and the back half (`gate.castable_back_half`) is
+hand-authored under its own name or parser-MODELED, carrying the back half's unclaimed lines otherwise;
+`is_card_covered` adds whole-card authoring. Rooms and flip cards already merged both halves inside
+`parse_oracle`. The card-list / saved-deck badge (`api/cards.coverage_for`), `coverage_report.py` and the
+other coverage scripts, `parser_probe` / `find_fragments` and the gap catalogue (`verdict=`) use it, and
+the coverage-ledger hash records whether the back half is registered. 123 cards dropped to UNMODELED
+(split 31 incl. the 20 Aftermath backs refused since 1062, transform 56, adventure 20, modal DFC 14,
+prepare 2), none gained. `parse_oracle(card).modeled` alone stays front-only: card-level callers use
+`card_coverage`. Tests: `test_bug86_every_half_verdict.py`.
+
 ### Zone-aware keyword grants (ENG-67, PARSER_VERSION 1013, +6)
 
 - **What:** "each <type> card in your graveyard has unearth <cost>" and "<cards> in your hand have miracle <cost>" are real grants. `grant_zone_keyword` (params `keyword`, `cost`, `card_types`, `subtypes`) is applied by `continuous._apply_zone_keyword_grants`, which stamps the printed Unearth ability (`binding.core.granted_graveyard_keyword_ability` → `_graveyard_keyword_activated_ability`, so haste, end-step exile and exile-instead come from the printed code) onto the grant controller's matching graveyard cards, keyed per grant, card and zone visit (`GameState._zone_keyword_ability_cache`), started and stopped with the source and separate from a printed Unearth (RULE 113.2c, 702.84a). `grant_miracle` takes `card_types` and a fixed `cost`, and the printed first-draw reveal runs for a granted card (RULE 702.94a). Parser row `zone_keyword_grant`.

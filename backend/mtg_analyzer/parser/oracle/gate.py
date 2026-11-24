@@ -84,7 +84,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1063"
+PARSER_VERSION = "1064"
 
 
 def parser_source_hash() -> str:
@@ -778,6 +778,23 @@ def _room_halves(card: Any) -> list[Any]:
     front.back_name = front.back_type_line = front.back_oracle_text = front.back_mana_cost_string = ""
     front.keywords = []
     return [front, back]
+
+
+#: Layouts whose second printed face is its own castable / playable / transformable characteristics set, bound
+#: separately from the front when it is cast, played or turned face up (RULE 709.3 split halves, RULE 712.8b modal
+#: DFC back, RULE 712.6 transform back, RULE 716.2b Adventure half, RULE 723.3c prepare spell). A Room (RULE 709.5)
+#: and a flip card (RULE 710) share fields with these but are merged by their own helpers above.
+_BACK_HALF_LAYOUTS = frozenset({"split", "adventure", "modal_dfc", "transform", "prepare"})
+
+
+def castable_back_half(card: Any) -> Any:
+    """The other half of a split / aftermath / fuse / Adventure / MDFC / transform / prepare card as a card of its own
+    (`Card.back_face`), or ``None`` when the card has one face only. The card-level verdict reads this half too
+    (``game.card_registry.card_coverage`): a card whose back half is unbound would otherwise count as playable on its
+    front alone. `parse_oracle` itself stays the front's verdict, since only the registry knows a hand-authored half."""
+    if getattr(card, "layout", "") not in _BACK_HALF_LAYOUTS or not hasattr(card, "back_face"):
+        return None
+    return card.back_face()
 
 
 def _flip_halves(card: Any) -> list[Any]:

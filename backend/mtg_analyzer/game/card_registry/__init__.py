@@ -23,9 +23,11 @@ fully executed.
 
 from .core import (
     _REGISTRY,
+    card_coverage,
     enters_tapped,
     entry_counters,
     is_authored_card,
+    is_card_covered,
     is_registered,
     kicker_x_mana_restriction,
     land_tap_condition,
@@ -44,6 +46,8 @@ from .. import card_catalogue  # noqa: F401
 
 __all__ = [
     "_REGISTRY",
+    "card_coverage",
+    "is_card_covered",
     "enters_tapped",
     "entry_counters",
     "is_registered",

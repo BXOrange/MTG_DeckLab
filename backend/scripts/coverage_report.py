@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.card_registry import is_authored_card  # noqa: E402
+from mtg_analyzer.game.card_registry import card_coverage, is_authored_card  # noqa: E402
 from mtg_analyzer.parser.oracle import NEVER_SUPPORTED, abstract_clause, parse_oracle  # noqa: E402
 from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH  # noqa: E402
 from mtg_analyzer.services import coverage_db as cov  # noqa: E402
@@ -56,7 +56,7 @@ def measure(cards, cov_db, use_ledger=True):
         else:
             parsed += 1
             authored = is_authored_card(card)
-            result = parse_oracle(card)
+            result = card_coverage(card)  # BUG-86: every half the engine binds
             source = "authored" if authored else "parser"
             if result.coverage == NEVER_SUPPORTED:
                 coverage = cov.NEVER_SUPPORTED

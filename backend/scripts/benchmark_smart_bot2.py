@@ -134,7 +134,7 @@ def run_job(job):
     from mtg_analyzer.services.bot_policies.greedy import GreedyBot
     from mtg_analyzer.services.smart_bot2.benchmark import run_match
     from mtg_analyzer.parser.oracle.gate import parse_oracle
-    from mtg_analyzer.game.card_registry.core import is_authored_card
+    from mtg_analyzer.game.card_registry.core import is_card_covered
     d,kind,seed,baseline,ab,tb=job
     policies={'smart1':SmartBot,'candidate':SmartBot2}
     if baseline:
@@ -151,7 +151,7 @@ def run_job(job):
         resolved=[Card.from_dict(c) for c in d['cards']]
         commanders=[Card.from_dict(c) for c in d['commanders']]
         unique={c.name:c for c in resolved+commanders}
-        unsupported=[c.name for c in unique.values() if c.oracle_text and not is_authored_card(c) and not parse_oracle(c).modeled]
+        unsupported=[c.name for c in unique.values() if c.oracle_text and not is_card_covered(c)]
         result=run_match(resolved, commanders,
                         policies[kind],seed=seed,seat=seed%2,opponent_cards=opponent,
                         opponent_policy=GreedyBot,action_budget=ab,turn_budget=tb,archetypes=d['archetypes'])

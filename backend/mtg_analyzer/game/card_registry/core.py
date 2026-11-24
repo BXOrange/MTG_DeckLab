@@ -47,7 +47,7 @@ from ...parser.oracle.catalogue.opening_hand import (
     PregameSetupPermission,
     pregame_setup_permission as _pregame_setup_permission,
 )
-from ...parser.oracle.gate import parse_oracle
+from ...parser.oracle.gate import UNMODELED, ParseResult, castable_back_half, parse_oracle
 from ...parser.oracle.spec import AbilitySpec, EffectSpec
 
 #: name (lowercased) → factory producing that card's specs, fresh each call.
@@ -132,6 +132,34 @@ def is_authored_card(card: Any) -> bool:
             and any(is_registered(half.name) for half in halves)
         )
     return is_registered(getattr(card, "name", "") or "")
+
+
+def card_coverage(card: Any) -> ParseResult:
+    """The parser's card-level verdict with every separately bound half counted (BUG-86).
+
+    ``parse_oracle`` reads the front face only, but a split / aftermath / fuse, Adventure, modal DFC, transform or
+    prepare card binds its other half through `specs_for` of that half as its own card when it is cast, played or turned
+    face up (RULE 709.3, 712.8b, 712.6, 716.2b, 723.3c); a front that is `MODELED` while that half is not left the card
+    counted as playable with an unbound half. The card is `MODELED` here only when the front is and the back half is
+    hand-authored (registered under its own name) or parser-`MODELED`; otherwise `UNMODELED`, carrying the back half's
+    unclaimed lines. Rooms (RULE 709.5) and flip cards (RULE 710) are merged inside ``parse_oracle`` already; a
+    hand-authored whole card is judged by `is_authored_card`, not here -- call `is_card_covered` for the full answer."""
+    from .. import rooms  # function-scoped: rooms imports the parser, this module is imported by the binder
+
+    result = parse_oracle(card)
+    if not result.modeled or rooms.has_doors(card):
+        return result
+    back = castable_back_half(card)
+    if back is None or is_registered(back.name) or parse_oracle(back).modeled:
+        return result
+    back_result = parse_oracle(back)
+    return ParseResult(specs=list(result.specs), coverage=UNMODELED, unclaimed=[*result.unclaimed, *back_result.unclaimed])
+
+
+def is_card_covered(card: Any) -> bool:
+    """Whether the engine plays ``card``: hand-`AUTHORED` (trusted wholesale), or parser-`MODELED` on every half
+    (`card_coverage`). The one rule behind the coverage report, the saved-deck / card-list badges and the probe."""
+    return is_authored_card(card) or card_coverage(card).modeled
 
 
 def is_registered(name: str) -> bool:

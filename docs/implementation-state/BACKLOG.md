@@ -176,7 +176,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 
 
-- **BUG-86 · Split-card verdict reads only the front half.** Found in BUG-75: a split / aftermath card's card-level coverage verdict comes from the front half alone (`parser_probe.py card "Claim // Fame"` → MODELED, specs of Claim only), so an unbound back half still counts the card as playable. Since parser 1062 the Aftermath keyword is refused, so the 20 aftermath back halves parse UNMODELED while their cards stay MODELED. Make the card verdict require every half, report the cards that change.
 
 
 ## REL — Release & deployment

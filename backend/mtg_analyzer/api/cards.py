@@ -46,7 +46,7 @@ def coverage_for(card: Any) -> dict[str, object]:
                 "source": "policy", "unclaimed": []}
     if card_registry.is_authored_card(card):
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
-    result = parse_oracle(card)
+    result = card_registry.card_coverage(card)  # every half the engine binds, not the front alone (BUG-86)
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
 
 

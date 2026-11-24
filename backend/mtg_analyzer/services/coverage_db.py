@@ -115,9 +115,13 @@ def content_hash(card: object, parser_version: str = PARSER_VERSION) -> str:
     the only workaround would be bumping `PARSER_VERSION` for a change the
     parser had no part in, invalidating all 34k rows to re-measure a handful.
     """
-    from ..game.card_registry import is_authored_card  # function-scoped: import cycle
+    from ..game.card_registry import is_authored_card, is_registered  # function-scoped: import cycle
+    from ..parser.oracle.gate import castable_back_half
 
     authored = "1" if is_authored_card(card) else "0"
+    # BUG-86: hand-authoring a card's other half changes the card-level verdict without touching a parsed field.
+    back = castable_back_half(card)
+    authored += "1" if back is not None and is_registered(back.name) else "0"
     key = (parser_version, authored) + tuple(str(part) for part in _parse_cache_key(card))
     return hashlib.sha1("␟".join(key).encode("utf-8")).hexdigest()
 
