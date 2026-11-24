@@ -351,6 +351,9 @@ def last_destroy_denying_regeneration(node: dict) -> Optional[dict]:
     composition may have wrapped in a target announcement or iteration (`seq` / `for_each`)."""
     if node.get("type") == "destroy":
         return {**node, "params": {**(node.get("params") or {}), "can_be_regenerated": False}}
+    if node.get("type") == "separate_piles" and (node.get("params") or {}).get("chosen_fate") == "destroy":
+        # PAR-292 M22 (Do or Die): "destroy all creatures in the pile of that player's choice. They can't be regenerated."
+        return {**node, "params": {**node["params"], "chosen_fate": "destroy_no_regen"}}
     if node.get("type") == "if_else" and (node.get("params") or {}).get("then"):
         # A resolution-time condition ("destroy target creature if it's white") gates the destroy it ends in.
         then = node["params"]["then"]

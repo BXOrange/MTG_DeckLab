@@ -1037,6 +1037,14 @@ def _parse_effect_body_inner(
         before_specs = parse_effect_body(before_text, reading=reading)
         if not before_specs:
             return None
+        if before_specs[-1].type == "separate_piles":
+            # PAR-292 M22 (Do or Die): the destruction is the pile spec's own fate ("destroy all creatures in the pile of
+            # that player's choice"), so the rider flips that fate; the sentence alone is not a destroy clause.
+            flagged = last_destroy_denying_regeneration(before_specs[-1].to_dict())
+            if flagged is None:
+                return None
+            piles = EffectSpec("separate_piles", flagged["params"], condition=before_specs[-1].condition)
+            return with_after_tail([*before_specs[:-1], piles], no_regen.group("after"), reading=reading)
         immediate_specs = parse_effect_body(immediate, reading=reading)
         if immediate_specs is None:
             return None  # A trailing conditional may require the earlier cost's antecedent.
