@@ -21,6 +21,7 @@ def _clifftop_lookout() -> list[AbilitySpec]:
             [EffectSpec("dig_until", {
                 "criteria": {"type": "Land"}, "hit_destination": "battlefield_tapped",
                 "rest_destination": "library_bottom_random",
+                "reveal": True,  # RULE 701.20a: revealed cards stay in the library
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),

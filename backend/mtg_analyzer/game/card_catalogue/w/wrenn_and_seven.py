@@ -23,6 +23,7 @@ def _wrenn_and_seven() -> list[AbilitySpec]:
             [EffectSpec("inspect_top_choose", {
                 "count": 4, "action": "library_to_hand", "max_picks": "all", "optional": False,
                 "criteria": {"type": "land"}, "rest_destination": "graveyard",
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
             cost={"loyalty": 1},
         ),

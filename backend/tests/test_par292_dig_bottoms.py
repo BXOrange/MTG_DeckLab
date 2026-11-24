@@ -136,8 +136,8 @@ def test_a_look_at_reveals_nothing_to_the_opponent():
              " put the rest on the bottom of your library in a random order.")
     _take(eng, "Small")
     # the chosen card is revealed (RULE 701.20: "reveal a creature card"); the unchosen cards never are
-    revealed = {e.object for e in eng.state.event_log if e.type == EventType.REVEAL}
-    assert "Small2" not in revealed and "Deep" not in revealed
+    revealed = {e.get("object") for e in eng.state.event_log if e.type == EventType.REVEAL}
+    assert "Small" in revealed and "Small2" not in revealed and "Deep" not in revealed
 
 
 def test_declining_still_bottoms_every_looked_at_card():

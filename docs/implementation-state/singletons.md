@@ -491,6 +491,110 @@ Cards the MEC-145 cost / effect referent records reach but that still miss a dif
 | Obsessive Pursuit | `if x is three or more, ...` after a where-X count of permanents sacrificed this turn (PAR-324 close) | needs a condition on the bound where-X value; the reading must not become `x_paid`. |
 | Elkin Lair | `at the beginning of each player's upkeep, that player exiles a card at random from their hand. the player may play that card this turn. at the beginning of the next end step, if the player hasn't played the card, they put it into their graveyard.` (PAR-325 close) | random hand exile by the active player (not the controller) plus a next-end-step delayed graveyard move of the uncast card. |
 
+### Library residue (PAR-292 re-scope, PARSER_VERSION 1054)
+
+Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks them. Not each re-checked with `parser_probe.py blocked` yet; recheck shared shapes before hand-authoring. Multi-card mechanisms stay on PAR-292; pile cards moved to PAR-298, outside-the-game cards to MEC-144.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Demonlord Belzenlok | repeat-until loop with a put-into-hand-this-way tally | from the PAR-284 close |
+| March of Burgeoning Life | "may exile any number of green cards" additional cost with cost reduction; strict "mana value less than x" on a target | from the PAR-285 close |
+| Night Dealings | "put that many theft counters" trigger plus exact "mana value x" fed by a remove-counters cost |  |
+| Ringsight | "shares a color with a legendary creature you control" search criterion |  |
+| Wild Pair | "same total power and toughness" as the cast creature |  |
+| The Earth King | "up to that many" after an attack-count trigger | from the PAR-321 close |
+| Savage Order | rider "it gains indestructible until your next turn" on the found card |  |
+| Pyre of Heroes | "shares a creature type with the sacrificed creature" plus a mana-value bound |  |
+| Light-Paws, Emperor's Voice | "less than or equal to that aura and with a different name than each aura you control" |  |
+| Curse of Misfortunes | "doesn't have the same name as a curse attached to enchanted player" |  |
+| Instrument of the Bards | "if that card is legendary, create a treasure token" (conditional on the found card) |  |
+| Hibernation's End | head "whenever you pay ~'s cumulative upkeep" | body parses |
+| Prishe's Wanderings | rider "when you search your library this way, put a +1/+1 counter on target creature you control" |  |
+| Dance of the Tumbleweeds | spree modes around the search |  |
+| Canoptek Wraith | "you may pay {3} and sacrifice it. If you do, ..." (mana plus self-sacrifice optional cost) | inner choose-then-search is built |
+| Arcum Dagsson | "target artifact creature's controller sacrifices it" | search sentence parses |
+| Incoming! | "any number of artifact, creature, enchantment, and/or land cards" (one count, four-way type list) |  |
+| Collective Voyage | X = total mana paid by each player |  |
+| Rootweaver Druid | split control of the found cards |  |
+| Scholarship Sponsor | count from a land-count difference |  |
+| Settle the Wreckage | "that many" from exiled attackers |  |
+| Turtle Tracks | "any number of target players" |  |
+| Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
+| Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |
+| Pir's Whim | friend / foe split |  |
+| Clever Combo | "a host card or a card with augment" (keyword-quality union) |  |
+| Hero's Uncle | "a legendary team-up creature" has no "card" noun |  |
+| The Champion | negated type "that isn't a creature" plus its reveal-put-shuffle tail |  |
+| Thawing Glaciers | delayed "return at the beginning of the next cleanup step" (cleanup grants no priority, RULE 514.3a) |  |
+| Ruin in Their Wake | may-gated conditional put "if you control a land named wastes" |  |
+| Verdant Mastery | puts under an opponent's control; kicker-cost condition |  |
+| Signal the Clans | random choice among 3 cards with different names |  |
+| Mitotic Manipulation | "same name as a permanent" |  |
+| Hew the Entwood | sacrifice-count X plus a chosen subset, two destinations |  |
+| Zimone's Experiment | two destinations by type among the revealed cards |  |
+| Expand the Sphere | "fewer than 2 ... the difference" proliferate |  |
+| Preferred Selection | sacrifice-and-pay, then pick |  |
+| Depala, Pilot Exemplar | pay {x}, then reveal x |  |
+| Sandstalker Moloch | intervening-if "an opponent cast a blue and/or black spell this turn" |  |
+| Zurgo and Ojutai | extra "you may return 1 of those dragons" tail |  |
+| Inferno Hellion | intervening-if "~ attacked or blocked this turn" |  |
+| Etrata, the Silencer | "loses the game if they own 3 or more exiled cards with hit counters" |  |
+| Fblthp, the Lost | "if your library has no cards in it, you win the game" |  |
+| Rishadan Pawnshop | target kind "nontoken permanent you control" for an owner shuffle |  |
+| Riftsweeper | target kind "face-up exiled card" |  |
+| Oracle of Tragedy | minimum mana value on a graveyard target pick, plus its modal head |  |
+| Trenzalore Clocktower | cost "remove 12 time counters from ~ and exile it" |  |
+| Time Spiral | "untap up to 6 lands" |  |
+| Jace, the Mind Sculptor | -12 (exile library, shuffle hand into library) |  |
+| Symbiote Spider-Man | graveyard ability "Find New Host ... It gains this card's other abilities" | dig parses |
+| Choco, Seeker of Paradise | "that many" = attacking-bird count, mixed pick |  |
+| Duelist's Flame | granted trigger with a quoted dig |  |
+| Glimpse of Tomorrow | "reveal that many" = the shuffled permanents |  |
+| Ryan Sinclair | free cast only "if it's a spell with mana value less than or equal to Ryan's power" |  |
+| Bismuth Mindrender | cast by paying life equal to the mana value |  |
+| Black Widow, Super Spy | counter-or-cast window with mana of any type |  |
+| Sunbird's Invocation | "from among cards revealed this way" plus X = that spell's mana value under a cast trigger |  |
+| Svella, Ice Shaper | Icy Manalith token ability | dig parses |
+| Aetherworks Marvel | energy clauses | dig parses |
+| Kamahl's Druidic Vow | announced X under the spell plus "land and/or legendary permanent" union |  |
+| Kayla's Reconstruction | "up to X" pick count |  |
+| Birthing Ritual | X = 1 plus the sacrificed creature's mana value |  |
+| Ayesha Tanaka, Armorer | "less than or equal to ~'s power" cap | cached text: re-check |
+| Coralhelm Chronicler | "a card with a kicker ability" |  |
+| Overgrown Pest | "a land or double-faced card" |  |
+| Radagast the Brown | "doesn't share a creature type with a creature you control" |  |
+| Getaway Barrel | "a random creature card" |  |
+| Kotose, the Silent Spider | "for as long as you control Kotose, you may play one of the exiled cards" over the sweep's finds |  |
+| Deadly Cover-Up | non-targeted pick from an opponent's graveyard behind the evidence condition |  |
+| Haunting Echoes | "exile all cards from target player's graveyard other than basic land cards" | engine side exists |
+| Gifts Given | library owner chooses; chosen to their graveyard, rest to the caster's hand |  |
+| Emergent Ultimatum | split with an exile pile plus a free-cast window over the other pile |  |
+| Jhoira, Ageless Innovator | "lose life equal to that permanent's mana value"; historic criteria misread (all permanent types) | hand-authored |
+| M'Odo, the Gnarled Oracle | announced-X hit quality plus a command-zone activation restriction |  |
+| Thought Dissector | "an artifact card or X cards, whichever comes first" plus conditional sacrifice |  |
+| Tasha, the Witch Queen | counted dig of three creature cards plus its +1 / -2 |  |
+| Thoughtpicker Witch | exile pick from a target opponent's top cards |  |
+| Kayla's Music Box | look-at-top rest action |  |
+| Agency Outfitter | two named slots over graveyard, hand and library |  |
+| Fang-Druid Summoner | "with no abilities" card predicate |  |
+| Mishra, Artificer Prodigy | "same name as that spell" referent of a cast trigger |  |
+| Say Its Name | graveyard-exile cost with "other cards named ~" |  |
+| Arachnus Spinner | "attached to target creature" needs a target the search's then_specs cannot bind; "tap an untapped spider" cost |  |
+| Mwonvuli Beast Tracker | "Shuffle and put that card on top" as its own sentence after a reveal |  |
+| Loyal Inventor | "into hand if you control an assassin, otherwise on top" after the shuffle |  |
+| Rootwater Thief | "you may pay {2}. If you do, search that player's library" wrapper |  |
+| Knowledge Exploitation | casts from the library, never exiled |  |
+| Naughty // Nice | hand destination from another player's library |  |
+| Earwig Squad | prowl (alternative cost and a prowl-paid flag) — PAR-299 | search sentence parses |
+| Thada Adel, Acquisitor / Grinning Totem | "you may play that card" after a search-exile (`cast_window_exiled_pool` not wired to a search's finds) | pair |
+| Scheming Symmetry / Varragoth, Bloodsky Sire | shuffle-then-put-on-top by another player | pair |
+| Pattern of Rebirth / Verdant Succession | "that creature's controller" with a dying-trigger referent | pair |
+| Hide in Plain Sight / Write into Being | cloak / manifest a looked-at card | pair |
+| Azami's Familiar / Aladdin's Lamp | draw-replacement head (replacement family, PAR-294) | pair |
+| Stream of Thought / Tamiyo, Seasoned Scholar | untargeted "shuffle up to N cards from your graveyard" pick | pair |
+| Plunge into Darkness / Karn, Living Legacy | "pay any amount, then look at that many" | pair |
+| Genesis Hydra / Knickknack Ouphe | announced X read under a cast / enters trigger | pair |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -18,6 +18,7 @@ from ..catalogue.clause_reading import (
 )
 from dataclasses import replace
 from ..catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
+from ..catalogue.effect_rows.search_control_attach import SEARCH_OTHER_LIBRARY_LEAD_RE
 from typing import Any, Optional
 from ..catalogue.count_phrase import parse_amount_phrase
 from ..catalogue.clause_primitives import (
@@ -638,6 +639,16 @@ def _parse_effect_body_inner(
             return None
         bound.params["effects"] = [draws, *bound.params["effects"]]
         return [reveal, bound]
+    # PAR-292 M24, RULE 608.2c / 701.19: "<instruction>, then search target player's library for ... Then that player
+    # shuffles." -- the shuffle sentence belongs to the search (the other player's library, read whole by
+    # `search_other_library`), so the sentence splitter must not cut it off; the lead instruction is read on its own.
+    search_lead = SEARCH_OTHER_LIBRARY_LEAD_RE.fullmatch(body)
+    if search_lead is not None:
+        lead = parse_effect_body(search_lead.group("lead"), reading=reading)
+        search = parse_effect_body(search_lead.group("search"), reading=reading)
+        if lead and search and len(search) == 1 and search[0].type in {"search", "bind"}:
+            return [*lead, *search]
+        return None
     outcome = player_action_outcome_specs(body, reading)
     if outcome is not None:
         return outcome
@@ -1037,6 +1048,14 @@ def _parse_effect_body_inner(
         before_specs = parse_effect_body(before_text, reading=reading)
         if not before_specs:
             return None
+        if before_specs[-1].type == "separate_piles":
+            # PAR-292 M22 (Do or Die): the destruction is the pile spec's own fate ("destroy all creatures in the pile of
+            # that player's choice"), so the rider flips that fate; the sentence alone is not a destroy clause.
+            flagged = last_destroy_denying_regeneration(before_specs[-1].to_dict())
+            if flagged is None:
+                return None
+            piles = EffectSpec("separate_piles", flagged["params"], condition=before_specs[-1].condition)
+            return with_after_tail([*before_specs[:-1], piles], no_regen.group("after"), reading=reading)
         immediate_specs = parse_effect_body(immediate, reading=reading)
         if immediate_specs is None:
             return None  # A trailing conditional may require the earlier cost's antecedent.

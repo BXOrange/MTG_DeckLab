@@ -1003,6 +1003,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
     "measure_physical_property": "107.1",
     "miracle_cast": "702.94",
     "reveal_split_piles": "608.2d",
+    "separate_piles": "700.3",
     "sacrifice_source_then": "616",
     "reveal_creatures_give_opponents": "608.2d",
     "exile_hand_may_play_owner_draws": "603.7",

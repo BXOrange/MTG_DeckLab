@@ -606,6 +606,8 @@ EffectRegistry.register(
         count=p.get("count", 1),
         up_to=bool(p.get("up_to", False)),
         destination=str(p.get("destination", "discard")),
+        shuffle_if_none=bool(p.get("shuffle_if_none", False)),
+        shuffle_condition=p.get("shuffle_condition"),
     ),
 )
 EffectRegistry.register(
@@ -1766,7 +1768,8 @@ EffectRegistry.register(
     "look_top_cast_free",
     lambda p: LookTopCastFreeEffect(
         count=p.get("count", 7), criteria=p.get("criteria"), max_mana_value_from=p.get("max_mana_value_from"),
-        prompt=p.get("prompt"),
+        prompt=p.get("prompt"), max_mana_value=p.get("max_mana_value"),
+        mana_value_below=bool(p.get("mana_value_below", False)),
     ),
 )
 EffectRegistry.register(
@@ -2659,6 +2662,7 @@ EffectRegistry.register(
         target_kind=p.get("target_kind"),
         hit_rider=p.get("hit_rider"),
         uncast_hit=str(p.get("uncast_hit", "library_bottom")),
+        reveal=bool(p.get("reveal", False)),
     ),
 )
 EffectRegistry.register(
@@ -3856,6 +3860,10 @@ EffectRegistry.register(
         target_searches=bool(p.get("target_searches", False)),
         reveal=bool(p.get("reveal", False)),
         criteria_each=p.get("criteria_each"),
+        distinct_keys=p.get("distinct_keys"),
+        opponent_split=p.get("opponent_split"),
+        exact_count=bool(p.get("exact_count", False)),
+        searched_by_controller=bool(p.get("searched_by_controller", False)),
     ),
 )
 EffectRegistry.register(
@@ -3908,6 +3916,7 @@ EffectRegistry.register(
         only_lands=bool(p.get('only_lands', False)),
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
         exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
+        max_casts=p.get("max_casts"), rest_to_bottom=bool(p.get("rest_to_bottom", False)),
     ),
 )
 EffectRegistry.register(
@@ -3918,7 +3927,7 @@ EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
     lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
-EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect())
+EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id")))
 EffectRegistry.register(
     # RULE 701.20 — "shuffle your hand and graveyard into your library". The
     # wheel family's first sentence; the "then draws N cards" tail is a

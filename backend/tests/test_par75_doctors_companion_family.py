@@ -128,7 +128,7 @@ def test_dig_until_doctor_companion_vehicle_parses():
         "criteria": {"or": [
             {"type": "Doctor"}, {"has_keyword": "Doctor's Companion"}, {"type": "Vehicle"},
         ]},
-        "hit_destination": "hand", "rest_destination": "library_bottom_random",
+        "hit_destination": "hand", "rest_destination": "library_bottom_random", "reveal": True,
     })]
 
 

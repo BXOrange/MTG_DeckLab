@@ -94,6 +94,10 @@ def _answer_pending(eng):
         pending = eng.state.pending_choice
         if not pending:
             return
+        if pending["kind"] == "library_bottom":  # RULE 401.4: "in any order" (BUG-84) -- keep the offered order
+            eng.resolve_pending_choice(pending["options"][0]["instance_id"])
+            eng.resolve_until_stable()
+            continue
         eng.resolve_pending_choice("done")
         eng.resolve_until_stable()
 

@@ -2175,10 +2175,19 @@ class RevealHandChooseDiscardEffect(GameEffect):
         up_to: bool = False,
         destination: str = "discard",
         then_specs: Optional[list[dict[str, Any]]] = None,
+        shuffle_if_none: bool = False,
+        shuffle_condition: Optional[dict[str, Any]] = None,
     ) -> None:
         super().__init__(source)
         self.target_spec = TargetSpec(kind=target_kind)
         self.target = target
+        #: BUG-83, RULE 608.2c / 701.24a: a same-name sweep's closing "Then that player shuffles" is its own
+        #: instruction, so it still happens when the lead picks nothing (an empty or all-basic hand, X = 0, a
+        #: declined pick). The revealed player's library is shuffled on every path that skips ``then_specs``.
+        self.shuffle_if_none = bool(shuffle_if_none)
+        #: The sweep's own gate (Pick the Brain's delirium) also gates this shuffle; nothing the empty pick could
+        #: have changed is read by it, so it is evaluated as the pick opens.
+        self.shuffle_condition = dict(shuffle_condition) if shuffle_condition else None
         #: "Look at target player's hand and choose X cards from it" (Mind Warp, Extortion's "up to 2", Agonizing
         #: Memories' 2): how many the chooser takes. ``"x"`` is the spell's announced X (`_substitute_x`); ``up_to``
         #: lets the chooser stop early. Looking at a hand is a zero-effect visibility action here, as "reveals".
@@ -2238,6 +2247,13 @@ class RevealHandChooseDiscardEffect(GameEffect):
         caster = _controller_of(self.source, context)
         if caster is None:
             return
+        else_specs = list(self.else_specs)
+        from .. import effect_conditions  # avoid the effect_conditions<->effects import cycle
+        shuffles = self.shuffle_if_none and (
+            not self.shuffle_condition
+            or effect_conditions.condition_holds(self.shuffle_condition, context, self.source, targets))
+        if shuffles:
+            else_specs.append({"type": "shuffle", "params": {"player_id": revealed_player.id}})
         if self.reveal:
             for obj in revealed_player.hand:
                 context.state.reveal_card(obj, revealed_player.id)
@@ -2246,6 +2262,8 @@ class RevealHandChooseDiscardEffect(GameEffect):
             candidates.extend(revealed_player.graveyard)
         count = max(0, int(self.count)) if not isinstance(self.count, str) else 0
         if count == 0:
+            if shuffles:
+                context.shuffle_library(revealed_player)
             return  # "choose X cards" with X = 0
         count = max(1, min(count, len(candidates)))
         if not candidates and revealed_player.hand:
@@ -2253,7 +2271,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
             # impossible choice's else-branch or the spell's next instruction.
             context.look_at_hand(caster, revealed_player, source=self.source)
             choice = context.state.pending_choice
-            choice["hand_else_specs"] = self.else_specs
+            choice["hand_else_specs"] = else_specs
             choice["source_id"] = getattr(self.source, "instance_id", None)
             choice["effect_controller_id"] = caster.id
         else:
@@ -2261,7 +2279,7 @@ class RevealHandChooseDiscardEffect(GameEffect):
                 caster, candidates, "select_referent" if self.then_specs else _HAND_PICK_ACTIONS[self.destination],
                 count=count, source=self.source, then_specs=self.then_specs,
                 optional=self.optional or self.up_to,
-                else_specs=self.else_specs or None, force_choice=True,
+                else_specs=else_specs or None, force_choice=True,
                 track_exiled_with=self.track_exiled_with,
             )
         choice = context.state.pending_choice

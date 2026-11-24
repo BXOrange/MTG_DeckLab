@@ -50,8 +50,9 @@ def test_peels_exactly_n_and_offers_only_the_matching_ones():
     assert choice["kind"] == "impulsive_look"
     assert len(choice["peeled"]) == 4
     assert {e["name"] for e in choice["eligible"]} == {"Forest", "Bear", "Island"}
-    assert len(p1.library) == 0
-    assert len(p1.exile) == 4
+    # RULE 701.20a / 406.1: looking at the cards moves none of them (BUG-81).
+    assert len(p1.library) == 4
+    assert len(p1.exile) == 0
 
 
 def test_stops_early_if_the_library_runs_out():
@@ -63,7 +64,7 @@ def test_stops_early_if_the_library_runs_out():
 
     choice = eng.state.pending_choice
     assert len(choice["peeled"]) == 1
-    assert len(p1.library) == 0
+    assert len(p1.library) == 1
 
 
 def test_no_eligible_card_skips_the_choice_and_routes_everything_to_miss():
@@ -131,7 +132,7 @@ def test_rejects_an_instance_id_that_was_not_offered():
         _card("Forest", "Basic Land — Forest", is_land=True),
     ])
     eng.rules._request_impulsive_look(p1, 2, {"type": ["Land"]})
-    bolt_id = next(o.instance_id for o in p1.exile if o.name == "Bolt")
+    bolt_id = next(o.instance_id for o in p1.library if o.name == "Bolt")
     try:
         eng.rules.resolve_choice(bolt_id)
         assert False, "expected a ValueError"

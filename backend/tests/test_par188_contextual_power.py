@@ -487,6 +487,6 @@ def test_inline_source_search_quantity_survives_departure_and_clone():
     assert sum(o.is_land for o in clone.state.battlefield) == 2
 
 
-@pytest.mark.parametrize("name", ["Emergent Woodwurm", "Fatal Frenzy", "Ravenous Gigantotherium", "Rip, Spawn Hunter", "Self-Destruct"])
+@pytest.mark.parametrize("name", ["Fatal Frenzy", "Ravenous Gigantotherium", "Rip, Spawn Hunter", "Self-Destruct"])
 def test_independent_body_grammar_stays_fail_closed(name):
     assert not parse_oracle(_named(name)).modeled

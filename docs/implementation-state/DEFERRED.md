@@ -55,6 +55,9 @@ it had lived in `BACKLOG.md`.
   The Roaring Toeclaws ("becomes untapped, put +1/+1 counters on it equal to its power").
   Small modifiers on Un-set cards stay parked too (PAR-288 close, v1003): Squidnapper (`ransom` payment
   alternative); Auntie Ant keeps its existing `singletons.md` row.
+- **Joke variant cards (BUG-69).** Silver-border planar cards ("That's Enough Slices", type line
+  Phenome-nom; "sAnS mERcY", pLAnE — sECreT LaIR) are excluded from the planar, scheme and Vanguard
+  catalogue by type line (`services/variant_card_database.py`), owner decision 2026-11-24. Parked, not planned.
 - **Horde challenge-deck cards (from PAR-312).** Parked by owner decision (2026-11-16): the
   five open "Battle the Horde" cards (set `tbth`: Altar of Mogis, Massacre Totem, Plundered
   Statue, Refreshing Elixir, Vitality Salve) need a Horde player that casts cards on its own.

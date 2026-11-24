@@ -13,15 +13,20 @@ def _herald_of_amity() -> list[AbilitySpec]:
     Whenever this creature attacks, it gets +X/+X until end of turn, where X
     is the number of Auras you control.
 
-    Documented simplification: the ETB is modeled with
-    ``draw_reveal_cast_one_free`` (count 8) — the eight cards go to hand
-    rather than being exiled/bottomed, and the free cast is not narrowed to
-    an Aura. The attack pump ("+X/+X where X is the number of Auras you
-    control") is modeled via a per-count anthem pump on ``self``."""
+    PAR-292 M23: the ETB is the parser's own exile-top-N + resolution-local free cast of an Aura spell with the rest
+    to the bottom (`cast_window_exiled_pool` with ``rest_to_bottom``; RULE 608.2g, 401.4), no longer the old
+    draw-eight simplification. The attack pump ("+X/+X where X is the number of Auras you control") is modeled via
+    a per-count anthem pump on ``self``."""
     return [
         AbilitySpec(
             "triggered",
-            [EffectSpec("draw_reveal_cast_one_free", {"count": 8})],
+            [
+                EffectSpec("exile_top_of_library", {
+                    "face_down": False, "player_selector": "controller", "count": 8, "position": "top"}),
+                EffectSpec("cast_window_exiled_pool", {
+                    "only_spells": True, "resolution_local": True, "rest_to_bottom": True,
+                    "card_filter": {"subtype": "aura"}, "free": True}),
+            ],
             trigger={"event": EventType.ENTERS_BATTLEFIELD, "condition": {"subject": "self"}},
         ),
         AbilitySpec(

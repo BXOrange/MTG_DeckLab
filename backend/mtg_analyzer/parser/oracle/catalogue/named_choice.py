@@ -147,12 +147,13 @@ def _name_tail_effects(tail: str) -> Optional[list[dict[str, Any]]]:
         return [{"type": "dig_until", "params": {
             "criteria": {"name": CHOSEN_NAME_SENTINEL}, "pre_exile": int(m.group("n")),
             "hit_destination": "hand", "rest_destination": "exile",
+            "reveal": True,  # RULE 701.20a: only the cards the text exiles ("exile the top six", "all other cards") move
         }}]
     m = _REVEAL_TOP_NAMED.fullmatch(tail)
     if m is not None:
         return [{"type": "inspect_top_choose", "params": {
             "count": int(m.group("n")), "action": "library_to_hand", "max_picks": "all", "optional": False,
-            "criteria": {"name": CHOSEN_NAME_SENTINEL},
+            "criteria": {"name": CHOSEN_NAME_SENTINEL}, "reveal": True,  # RULE 701.20a: "reveal the top N"
             "rest_destination": "graveyard" if m.group("gy") else "exile",
         }}]
     if _BRAIN_PRY.fullmatch(tail):

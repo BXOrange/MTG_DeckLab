@@ -506,9 +506,8 @@ def _group_fixed_protection(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: Bloodline Pretender-cycle, ~40 real cards.) `RulesEngine.dig_until` /
 #: `effects.DigUntilEffect` — the generalized cascade dig — is the engine
 #: primitive; this is its "reveal until a *type* predicate" recognition.
-#: **Documented simplification**: "in any order" is modeled as the engine's
-#: only bottoming mode, a *random* order — the player doesn't get to choose
-#: the sequence of the bottomed cards.
+#: RULE 401.4: "in any order" is `rest_destination: library_bottom_order` (the player orders the pile, BUG-80);
+#: only "in a random order" is `library_bottom_random`.
 _DIG_UNTIL_PRED = {
     "a land": {"type": "land"},
     "a basic land": {"type": "land", "basic": True},
@@ -529,7 +528,9 @@ _DIG_UNTIL_HIT = {
 #: revealed this way" / "the rest" / ", then shuffle" connector spellings
 #: don't each need a row.
 _DIG_UNTIL_REST_RES: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"bottom of your library in (?:a random|any) order", re.I), "library_bottom_random"),
+    # RULE 401.4: "in any order" is the player's own ordering of the pile, "in a random order" is not.
+    (re.compile(r"bottom of your library in a random order", re.I), "library_bottom_random"),
+    (re.compile(r"bottom of your library in any order", re.I), "library_bottom_order"),
     (re.compile(r"shuffle .*?into your library", re.I), "library_shuffled"),
     (re.compile(r"(?:cards? .*?)?into your graveyard", re.I), "graveyard"),
 ]
@@ -549,7 +550,7 @@ _REVEAL_UNTIL_TYPE_RE = compile_clause(
 _REVEAL_UNTIL_AMOUNT_RE = compile_clause(
     r"reveal cards from the top of your library until you reveal an? (?P<pred>[a-z ,'-]+?) card\. "
     r"(?P<body>[^.]+(?:where x is|equal to) (?:that card's|its) (?:mana value|power|toughness))\. "
-    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?:a random|any) order"
+    r"put (?:the revealed cards|all cards revealed this way) on the bottom of your library in (?P<order>a random|any) order"
 )
 
 
@@ -562,7 +563,10 @@ def _reveal_until_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("reveal_until", {
         "criteria": dict(criteria), "count": 1,
-        "hit_destination": "library_bottom_random", "rest_destination": "library_bottom_random",
+        # RULE 401.4: "in any order" is the player's own ordering (BUG-84), "in a random order" is not. The hit stays in
+        # the library either way, so it is still the body's referent.
+        "hit_destination": "library_bottom_random",
+        "rest_destination": "library_bottom_order" if m.group("order") == "any" else "library_bottom_random",
     }), *body]
 
 
@@ -592,6 +596,7 @@ def _dig_until_doctor_companion_vehicle(m: re.Match[str]) -> list[EffectSpec]:
         ]},
         "hit_destination": "hand",
         "rest_destination": "library_bottom_random",
+        "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 
@@ -668,7 +673,7 @@ def _reveal_until_type(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     return [EffectSpec("dig_until", {
         "criteria": dict(criteria), "hit_destination": _DIG_UNTIL_HIT[m.group("hit")],
-        "rest_destination": rest_dest,
+        "rest_destination": rest_dest, "reveal": True,  # RULE 701.20a: revealed cards stay in the library (BUG-81)
     })]
 
 

@@ -613,6 +613,8 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 _EXILE_CAST_WINDOW_RE = compile_clause(
     r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+"
     r"(?:\.\s+if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead)?"  # PAR-325
+    # PAR-292 M23 (Collected Conjuring, Herald of Amity): the rest of the exiled batch goes to the bottom, in a random order.
+    r"(?:\.\s+(?:then )?put [^.]+ on the bottom of your library in a random order)?"
 )
 
 
@@ -758,7 +760,12 @@ _GRAVEYARD_PLAY_WINDOW_ROW_RE = compile_clause(
 
 #: PAR-167: "[Target opponent] exile[s] cards from the top of [your/their] library until [you/they] exile a `<kind>` card.
 #: [Until end of turn,] you may cast that card without paying its mana cost." (Nico Minoru, Wanda's Vision, Stolen Goods).
-_DIG_CAST_FREE_RE = compile_clause(r"(?:target opponent exiles|exile) cards from the top of (?:your|their) library until [^.]+\.\s+[^.]+")
+#: PAR-292 M20: "[that player | target opponent] exiles / you reveal ..." with the "put the exiled cards that weren't cast this
+#: way on the bottom" sentence behind the cast (Dazzling Sphinx, Gríma, Chaos Wand, Treasure Keeper).
+_DIG_CAST_FREE_RE = compile_clause(
+    r"(?:target opponent exiles|that player exiles|exile|reveal) cards from the top of (?:your|their) library until "
+    r"[^.]+\.\s+[^.]+(?:\.\s+[^.]+)?"
+)
 
 #: PAR-167: "Exile [up to one] target `<card>` from a graveyard [and copy it | . Copy it]. You may cast the copy [without
 #: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
@@ -802,6 +809,13 @@ def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_dig_cast_free(m.group(0))
+
+
+def _dig_cast_free_event_player(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs = parse_dig_cast_free(m.group(0), event_player=True)
+    if specs is not None:
+        specs[0].params[EVENT_PLAYER_EVENTS_KEY] = ["DAMAGE"]  # the gate strips it, or refuses a non-damage head
+    return specs
 
 
 def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -1081,6 +1095,9 @@ _HAND_DISRUPTION_FILTERS: dict[str, dict] = {
 # RULE 701.20 / 701.9: reveal/look, select a filtered card, then act on it.
 # The type-list grammar composes all supported printed card types rather than
 # growing one handler per Duress/Despise/Collective Brutality variant.
+#: BUG-72: both target-player pools ("target player", "target opponent": RULE 102.3 keeps the controller out of the latter).
+PLAYER_TARGET_KINDS = ("player", "opponent")
+
 _HAND_DISRUPTION_RE = compile_clause(
     r"(?:(?P<target>target opponent|target player) reveals their hand"
     r"|look at (?P<look>target opponent|target player)'s hand)"
@@ -1097,7 +1114,7 @@ _HAND_DISRUPTION_RE = compile_clause(
 
 def _hand_disruption_discard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("target") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     filt = m.group("filter")
     if filt in _HAND_DISRUPTION_FILTERS:
@@ -1167,7 +1184,7 @@ _HAND_PICK_RE = compile_clause(
 
 def _hand_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     target = m.group("reveal") or m.group("look")
-    if resolve_target_kind(target) != "player":
+    if resolve_target_kind(target) not in PLAYER_TARGET_KINDS:
         return None
     destination = next(dest for pattern, dest in _HAND_PICK_TAILS.items() if re.fullmatch(pattern, m.group("tail")))
     if m.group("reveal") and destination != "library_third":
@@ -2083,6 +2100,12 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
     EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
+    # "that player" is the firing event's player only under the source's own trigger (the gate's `_that_player_head_ok`
+    # proves the head names one); the event reading is what `DigUntilEffect.digger="event_player"` resolves.
+    EffectHandler(
+        "dig_cast_free_event_player", _DIG_CAST_FREE_RE, _dig_cast_free_event_player,
+        requires=ClauseReading(self_subject=True),
+    ),
     EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
     EffectHandler(
         "cheat_creature_from_hand",

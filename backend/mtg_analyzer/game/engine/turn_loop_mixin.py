@@ -1159,6 +1159,9 @@ class TurnLoopMixin:
             if obj.temp_cant_be_target_of_opponents:
                 obj.temp_cant_be_target_of_opponents = False  # PAR-324, RULE 514.2: "this turn" ends
                 ended_effects = True
+            if obj.temp_cant_be_target_of_spell_colors:
+                obj.temp_cant_be_target_of_spell_colors.clear()  # BUG-77, RULE 514.2: Autumn's Veil's "this turn" ends
+                ended_effects = True
             if obj.temp_granted_activated_abilities:
                 obj.temp_granted_activated_abilities.clear()
                 ended_effects = True

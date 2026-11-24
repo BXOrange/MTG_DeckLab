@@ -483,7 +483,8 @@ _TARGET_ROWS: list[tuple[str, str]] = [
     # the controller.
     (r"target opponent or planeswalker", "opponent_or_planeswalker"),
     (r"target player or planeswalker", "player_or_planeswalker"),
-    (r"target opponent", "player"),
+    # RULE 102.3 / 115.1: an opponent is another player, so the controller is never a legal pick.
+    (r"target opponent", "opponent"),
     (r"target player", "player"),
 ]
 #: Deliberately no "each opponent"/"each player" row: RULE 115 targeting

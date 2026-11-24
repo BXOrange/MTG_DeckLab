@@ -9,6 +9,11 @@ from ._runtime import install, register
 
 install(globals())
 
+#: `SearchLibraryEffect.opponent_split["chooser"]` value for "Target opponent chooses ..." (a RULE 115 target); absent
+#: means "An opponent chooses ..." (RULE 608.2d, picked on resolution).
+SPLIT_CHOOSER_TARGET = "target"
+
+
 class PutLibraryTopOnBottomEffect(GameEffect):
     """RULE 401.4: put the controller's top card on the bottom in the same zone."""
 
@@ -157,9 +162,30 @@ class SearchLibraryEffect(GameEffect):
         then_specs_if_none: Optional[list[dict[str, Any]]] = None,
         target_searches: bool = False,
         criteria_each: Optional[list[Any]] = None,
+        distinct_keys: Optional[list[str]] = None,
+        opponent_split: Optional[dict[str, Any]] = None,
+        exact_count: bool = False,
+        searched_by_controller: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "Choose target permanent an opponent controls. Search THAT PLAYER's library for a card with the same name and
+        #: put it onto the battlefield under your control." (Mimeofacture, RULE 701.19a / 401.2): with
+        #: ``player="previous_target_controller"`` the library (and its shuffle) is the chosen permanent's controller's,
+        #: but the one who looks through it, answers, and controls what enters is this effect's own controller -- the
+        #: `player_from_target` split of "whose library" from "who answers" for a library named by a prior pick.
+        self.searched_by_controller = bool(searched_by_controller)
+        #: "you may search ... for exactly two cards": the search is optional as a whole, not card by card.
+        self.exact_count = bool(exact_count)
+        #: Cross-pick "different powers" / "don't share a mana value, power, toughness, or card type with each other"
+        #: constraints (``DISTINCT_KEY_*``), the general form of ``distinct_names``.
+        self.distinct_keys = list(distinct_keys or [])
+        #: "An opponent chooses two of those cards. Put the chosen cards into ... and the rest ..." (Elemental
+        #: Teachings, The Karst): `RulesEngine._request_search`'s ``opponent_split``.
+        self.opponent_split = dict(opponent_split) if opponent_split else None
+        if self.opponent_split and self.opponent_split.get("chooser") == SPLIT_CHOOSER_TARGET:
+            # "Target opponent chooses two of those cards" (The Karst): a real RULE 115 target, unlike "an opponent".
+            self.target_spec = TargetSpec(kind="opponent", description="Gegner")
         #: One search of several independent slots, each its own criteria and at most one card ("a white card, a
         #: blue card, ... and a green card", Conflux; "an Aura card and/or an Equipment card", Axgard Armory):
         #: see `RulesEngine._request_search`. ``criteria`` and ``count`` are then unused.
@@ -329,7 +355,10 @@ class SearchLibraryEffect(GameEffect):
                 return
         else:
             player = self.player or context.active_player
-        chooser = _controller_of(self.source, context) if self.player_from_target and not self.target_searches else None
+        chooser = (
+            _controller_of(self.source, context)
+            if (self.player_from_target and not self.target_searches) or self.searched_by_controller else None
+        )
         from ..name_reference import resolve_search_names
         criteria = resolve_search_names(self._resolved_criteria(context), context, self.source, targets)
         context._request_search(
@@ -349,7 +378,21 @@ class SearchLibraryEffect(GameEffect):
             then_specs_if_none=self.then_specs_if_none or None,
             reveal=self.reveal,
             criteria_each=self.criteria_each or None,
+            distinct_keys=self.distinct_keys or None,
+            opponent_split=self._resolved_split(targets),
+            exact_count=self.exact_count,
         )
+
+    def _resolved_split(self, targets: Optional[list[Any]]) -> Optional[dict[str, Any]]:
+        """``opponent_split`` with a targeted chooser's player id filled in (a lost target leaves no chooser, so the
+        engine falls back to the caster's own choice of opponent)."""
+        if not self.opponent_split or self.opponent_split.get("chooser") != SPLIT_CHOOSER_TARGET:
+            return self.opponent_split
+        chosen = _chosen_targets(targets, 1, None)
+        target = chosen[0] if chosen else None
+        if target is None or hasattr(target, "instance_id"):
+            return {k: v for k, v in self.opponent_split.items() if k != "chooser"}
+        return {**self.opponent_split, "chooser_id": target.id}
 
 
 # ---------------------------------------------------------------------------
@@ -596,10 +639,16 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         resolution_local: bool = False, any_number: bool = False, pool_zone: str = "exile",
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
         duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
-        from_previous: bool = False,
+        from_previous: bool = False, max_casts: Optional[int] = None, rest_to_bottom: bool = False,
     ) -> None:
         super().__init__(source)
         self.duration, self.condition = duration, condition
+        #: "cast up to two sorcery spells from among them": the casts one resolution offers (RULE 608.2g); ``None`` is
+        #: unlimited under ``any_number``.
+        self.max_casts = None if max_casts is None else max(0, int(max_casts))
+        #: "Put the rest on the bottom of your library in a random order" (Collected Conjuring, Herald of Amity): every
+        #: pooled card still exiled once the casting sequence ends goes to the bottom (RULE 401.4, 608.2c).
+        self.rest_to_bottom = bool(rest_to_bottom)
         #: PAR-292 M12: the pool is the card(s) a preceding pick of this ability exiled (`GameContext.previous_targets`,
         #: an `inspect_top_choose` pick: "exile a creature card from among them ... you may cast the exiled card").
         self.from_previous = bool(from_previous)
@@ -680,8 +729,15 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         if self.only_spells and not self.resolution_local:
             pool = [obj for obj in pool if not obj.card.is_land]
         if self.resolution_local:
+            bottom: dict[str, Any] = {}
+            if self.rest_to_bottom:
+                # The whole exiled batch, not only the cards the filter offered: a card nobody may cast goes down too.
+                batch = self._pool(context)
+                bottom = {"bottom_remaining": [o.instance_id for o in batch], "bottom_player_id": player.id,
+                          "bottom_visits": {str(o.instance_id): o.zone_incarnation for o in batch}}
             context.engine._request_resolution_play(
                 player, pool, zone=self.pool_zone, free=self.free, only_spells=self.only_spells, repeat=self.any_number,
+                max_casts=self.max_casts, **bottom,
                 mana_wildcard=self.mana_wildcard, exile_after_cast=self.exile_instead,
                 # The resolution window's threshold is exclusive (cascade);
                 # the card filter's max is inclusive, so admit the next integer.
@@ -817,12 +873,15 @@ class GraveyardImpulsiveCastEffect(GameEffect):
 class ShuffleLibraryEffect(GameEffect):
     """Shuffle the controller's (or a target player's) library (RULE 701.20)."""
 
-    def __init__(self, player: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(self, player: Any = None, source: Optional["GameObject"] = None, player_id: Optional[str] = None) -> None:
         super().__init__(source)
         self.player = player
+        #: A fixed player named by id (BUG-83's "that player shuffles" after a pick that found nothing).
+        self.player_id = player_id
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self.player or (targets[0] if targets else None) or context.active_player
+        named = context.state.player_by_id(self.player_id) if self.player_id else None
+        player = named or self.player or (targets[0] if targets else None) or context.active_player
         context.shuffle_library(player)
 
 
@@ -2270,8 +2329,12 @@ class DigUntilEffect(GameEffect):
         target_kind: Optional[str] = None,
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
+        reveal: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 701.20a vs 406.1: "reveal cards ... until you reveal" leaves the cards in the library, "exile cards
+        #: ... until you exile" exiles them (`RulesEngine.dig_until`).
+        self.reveal = bool(reveal)
         #: "**Target opponent** exiles cards from the top of their library until …" (Strago and Relm): the dug player
         #: is a RULE 115 target (``digger="facing"`` reads it).
         self.target_spec = TargetSpec(kind=target_kind) if target_kind is not None else None
@@ -2288,6 +2351,15 @@ class DigUntilEffect(GameEffect):
         self.digger = digger
         self.caster = caster
 
+    @staticmethod
+    def _event_digger(context: GameContext) -> Any:
+        from .core import _combat_defending_player, _event_player, _is_defending_combat_event
+
+        if _is_defending_combat_event(context):
+            return _combat_defending_player(context)  # RULE 508.1b: the attacked player, not the attacker's controller
+        # A damage event names the player it hurt as ``target_id``; other player events name theirs ``player_id``.
+        return _event_player(context, key="target_id") or _event_player(context, key="player_id")
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.digger == "facing":
             player = targets[0] if targets else None
@@ -2297,6 +2369,10 @@ class DigUntilEffect(GameEffect):
             # an earlier clause of this resolution destroyed (last-known: it already left the board).
             previous = context.previous_targets[0] if context.previous_targets else None
             player = context.state.player_by_id(getattr(previous, "controller_id", None))
+        elif self.digger == "event_player":
+            # "Whenever ~ deals combat damage to a player, that player exiles cards from the top of their library until
+            # ..." (Dazzling Sphinx, Gríma): the player the firing event names, read like `skip_next_step`'s selector.
+            player = self._event_digger(context)
         elif self.digger == "iteration_item_controller":
             # "For each creature exiled this way, its controller reveals cards from the top of their library until
             # they reveal a creature card, puts that card onto the battlefield ..." (Divergent Transformations,
@@ -2321,6 +2397,7 @@ class DigUntilEffect(GameEffect):
             caster=caster,
             hit_rider=self.hit_rider,
             uncast_hit=self.uncast_hit,
+            reveal=self.reveal,
         )
 
 

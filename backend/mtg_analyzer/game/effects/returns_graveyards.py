@@ -593,6 +593,7 @@ class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):
         context.engine.dig_until(
             player, {"type": shared_types},
             hit_destination="battlefield", rest_destination="library_bottom_random",
+            reveal=True,  # RULE 701.20a: "reveal cards ... until you reveal" (Reality Scramble)
         )
 
 

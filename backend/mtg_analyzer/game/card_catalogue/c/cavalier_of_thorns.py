@@ -16,6 +16,7 @@ def _cavalier_of_thorns() -> list[AbilitySpec]:
                 "action": "library_to_battlefield",
                 "rest_destination": "graveyard",
                 "optional": False,
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
                 "prompt": "Länderkarte auf das Spielfeld bringen (Rest in den Friedhof)",
             })],
             trigger={"event": EventType.ENTERS_BATTLEFIELD},

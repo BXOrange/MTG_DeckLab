@@ -43,6 +43,8 @@ _TYPE_FILTERS: dict[str, dict] = {
     "creature": {"card_type": "creature"},
     "noncreature": {"without_card_type": "creature"},
     "artifact": {"card_type": "artifact"},
+    # PAR-292 M23 (Herald of Amity): "an Aura spell" -- Aura is an enchantment subtype (RULE 303.4), not a card type.
+    "aura": {"subtype": "aura"},
     "instant": {"card_type": "instant"},
     "sorcery": {"card_type": "sorcery"},
     "instant or sorcery": {"card_type_any": ["instant", "sorcery"]},
@@ -51,6 +53,15 @@ _TYPE_FILTERS: dict[str, dict] = {
     "permanent": {"card_type_any": ["artifact", "battle", "creature", "enchantment", "planeswalker"]},
 }
 _TYPE_WORD = "|".join(sorted(map(re.escape, _TYPE_FILTERS), key=len, reverse=True))
+#: PAR-292 M23: "cast up to two sorcery spells from among them": the count words a casting window caps its casts with.
+_UP_TO_WORDS = {"one": 1, "two": 2, "three": 3}
+_UP_TO_WORD = r"\d+|" + "|".join(_UP_TO_WORDS)
+#: PAR-292 M23, RULE 401.4 / 608.2c: "[Then] put the rest | the exiled cards not cast this way on the bottom of your
+#: library in a random order." behind a resolution-local window over your own exiled cards.
+_REST_TO_BOTTOM = (
+    r"(?:\.\s+(?:then )?put (?:the rest|the exiled cards not cast this way|the cards not cast this way) "
+    r"on the bottom of your library in a random order)"
+)
 _WILD_TAIL = (
     r"(?P<wild>,? and (?:you may spend mana as though it were mana of any (?P<wild_what>color|type) to cast "
     r"(?:that|those) spells?|mana of any (?P<wild_what2>color|type) can be spent to cast (?:(?:that|those) spells?|it|them)))"
@@ -65,7 +76,7 @@ _CAST_PAIR_RE = re.compile(
     r"(?:"
     rf"(?P<singular>{_SINGULAR_POOL})"
     rf"|(?P<plural>{_PLURAL_POOL})"
-    r"|(?:(?P<quant>an?|any number of) )?(?:(?P<type>" + _TYPE_WORD + r") )?(?P<spell>spells?)"
+    r"|(?:(?P<quant>an?|any number of|up to (?P<upto>" + _UP_TO_WORD + r")) )?(?:(?P<type>" + _TYPE_WORD + r") )?(?P<spell>spells?)"
     r"(?: with mana value (?P<cap>\d+|x) or less)? "
     rf"from among (?:{_PLURAL_POOL})"
     r")"
@@ -76,6 +87,7 @@ _CAST_PAIR_RE = re.compile(
     # PAR-325 (Radiant Scrollwielder, Storm of Memories): RULE 614.1 "If [a|that] spell [cast this way] would be put into
     # [a|your] graveyard, exile it instead." -- the replacement belongs to the one spell the window lets be cast.
     r"(?:\.\s+(?P<instead>if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead))?"
+    rf"(?P<bottom>{_REST_TO_BOTTOM})?"
     r"\.?",
     re.IGNORECASE,
 )
@@ -142,20 +154,28 @@ def parse_exile_cast_window(
     if m.group("cap"):
         card_filter["max_mana_value"] = "x" if m.group("cap").lower() == "x" else int(m.group("cap"))
     quant = (m.group("quant") or "").lower()
+    up_to = None
+    if m.group("upto"):
+        raw = m.group("upto").lower()
+        up_to = _UP_TO_WORDS.get(raw) or int(raw)
+        if up_to < 1:
+            return None
     if m.group("spell"):
         # "a spell" is one cast, a bare "spells" / "any number of spells" is the whole selection.
-        if (m.group("spell").lower() == "spell") != (quant in ("a", "an")):
+        if (m.group("spell").lower() == "spell") != (quant in ("a", "an") or up_to == 1):
             return None
     if quant == "any number of" or (m.group("spell") or "").lower() == "spells":
         any_number = True
-    one_of = quant in ("a", "an")
+    one_of = quant in ("a", "an") or up_to == 1
     if not word:
         # RULE 608.2g: no duration word -- offer spells and land plays only during this resolution.
         params["resolution_local"] = True
         if any_number or (m.group("plural") and not one_of):
             params["any_number"] = True
+        if up_to is not None and up_to > 1:
+            params["max_casts"] = up_to  # RULE 608.2g: "up to two" is the most casts this resolution offers
     else:
-        if one_of:
+        if one_of or up_to:
             return None  # "a spell" from a window cannot be limited to one cast
         lowered = word.lower()
         if lowered in ("this turn", "until end of turn", "until the end of turn"):
@@ -179,6 +199,12 @@ def parse_exile_cast_window(
         if is_reveal and not m.group("singular"):
             return None
         params["pool_zone"] = "library" if is_reveal else "graveyard"
+    if m.group("bottom"):
+        # Only the own-library top exile's batch is "the rest": a milled, revealed or windowed pool has no such tail.
+        if (exile[0].type != "exile_top_of_library" or exile[0].params.get("player_selector") != "controller"
+                or exile[0].params.get("position", "top") != "top" or not params.get("resolution_local")):
+            return None
+        params["rest_to_bottom"] = True
     if card_filter:
         params["card_filter"] = card_filter
     if free:
@@ -241,7 +267,7 @@ def _exiles_one_card(spec: EffectSpec) -> bool:
 
 _COLOR_LETTERS = {"white": "W", "blue": "U", "black": "B", "red": "R", "green": "G"}
 #: "`<type>` spell(s)/card(s)" words -> the `card_query` fragment they mean.
-_CARD_TYPE_CRITERIA: dict[str, dict] = {
+CARD_TYPE_CRITERIA: dict[str, dict] = {
     "sorcery": {"type": "sorcery"},
     "instant": {"type": "instant"},
     "instant or sorcery": {"type": ["instant", "sorcery"]},
@@ -251,7 +277,7 @@ _CARD_TYPE_CRITERIA: dict[str, dict] = {
     "noncreature": {"without_type": "creature"},
     "permanent": {"type": ["artifact", "battle", "creature", "enchantment", "land", "planeswalker"]},
 }
-_CARD_TYPE_WORD = "|".join(sorted(map(re.escape, _CARD_TYPE_CRITERIA), key=len, reverse=True))
+CARD_TYPE_WORD = "|".join(sorted(map(re.escape, CARD_TYPE_CRITERIA), key=len, reverse=True))
 #: A mana-value cap: "N or less", "X or less" (with a trailing "where x is …"), "less than or equal to <amount>" and
 #: the exact "equal to <amount>"; the amount is "that damage" or any quantity `count_phrase.parse_amount_phrase` reads.
 _AMOUNT_PHRASE = r"that damage|(?:the|twice|\d+ plus) [a-z0-9+/'{} ,~-]+?"
@@ -265,7 +291,7 @@ _MV_CAP_ANON = re.sub(r"\(\?P<\w+>", "(?:", _MV_CAP)
 _MV_CAP_RE = re.compile(_MV_CAP, re.IGNORECASE)
 _FREE_CAST_ZONE_RE = re.compile(
     r"(?:you may )?cast (?:(?P<quant>an?|any number of) )?(?:(?P<color>white|blue|black|red|green) )?"
-    rf"(?:(?P<type>{_CARD_TYPE_WORD}) )?(?P<noun>spells?|cards?)"
+    rf"(?:(?P<type>{CARD_TYPE_WORD}) )?(?P<noun>spells?|cards?)"
     rf"(?: with mana value (?P<cap_a>{_MV_CAP_ANON}))? from your (?P<zone>hand|graveyard)"
     rf"(?: with mana value (?P<cap_b>{_MV_CAP_ANON}))? without paying (?:its|their) mana costs?"
     r"(?:, where x is (?P<xamt>[^.]+))?\.?",
@@ -295,7 +321,7 @@ def parse_free_cast_zone(
     params: dict = {"zones": [zone], "during_resolution": True}
     criteria: dict = {}
     if m.group("type"):
-        criteria.update(_CARD_TYPE_CRITERIA[m.group("type").lower()])
+        criteria.update(CARD_TYPE_CRITERIA[m.group("type").lower()])
     if m.group("color"):
         criteria["color"] = _COLOR_LETTERS[m.group("color").lower()]
     if m.group("noun").lower().startswith("card") and zone == "hand":
@@ -351,7 +377,7 @@ _GRAVEYARD_REDIRECT_RE = re.compile(
 
 _GRAVEYARD_CAST_POOL_RE = re.compile(
     r"(?:(?P<pre>until end of turn), )?(?:you may )?cast "
-    rf"(?:(?P<type>{_CARD_TYPE_WORD}|instant and sorcery) )?spells from (?P<scope>your|any) graveyard"
+    rf"(?:(?P<type>{CARD_TYPE_WORD}|instant and sorcery) )?spells from (?P<scope>your|any) graveyard"
     r"(?P<post> (?:until end of turn|this turn))?"
     r"(?P<free> without paying their mana costs)?"
     r"(?:\.\s*if a spell cast this way would be put into a graveyard, (?P<rider>exile it instead))?\.?",
@@ -369,7 +395,7 @@ def parse_graveyard_play_window(text: str) -> Optional[list[EffectSpec]]:
         params = {"any_graveyard": pool.group("scope").lower() == "any"}
         kind = pool.group("type")
         if kind:
-            params["spell_criteria"] = dict(_CARD_TYPE_CRITERIA[
+            params["spell_criteria"] = dict(CARD_TYPE_CRITERIA[
                 "instant or sorcery" if kind.lower() == "instant and sorcery" else kind.lower()
             ])
         if pool.group("free"):
@@ -395,40 +421,79 @@ _DIG_PREDICATES: dict[str, dict] = {
     "an instant or sorcery": {"type": ["instant", "sorcery"]},
     "a creature": {"type": "creature"},
     "an artifact": {"type": "artifact"},
+    # PAR-292 M20 (Plargg, Dean of Chaos): the comma list is two plain qualifiers, not an alternative.
+    "a nonlegendary, nonland": {"without_type": "land", "nonlegendary": True},
 }
+#: PAR-292 M20: the dug card's quality may also be a mana-value cap ("a nonland card with mana value 3 or less", Treasure
+#: Keeper); the closed table above keeps its own spelling so every earlier parse is unchanged.
+_DIG_CAST_PREDICATE = (
+    "(?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r")(?: card with mana value (?P<cap>\d+) or less)?"
+)
 _DIG_CAST_RE = re.compile(
-    r"(?P<who>exile|target opponent exiles) cards from the top of (?P<lib>your|their) library until "
-    r"(?:you|they) exile (?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r") card\.\s+"
+    r"(?P<who>exile|reveal|target opponent exiles|that player exiles) cards from the top of (?P<lib>your|their) library "
+    r"until (?:you|they) (?P<verb>exile|reveal) " + _DIG_CAST_PREDICATE + r"(?: card)?\.\s+"
     r"(?:(?:(?P<window>until end of turn), )?(?:you may )?cast (?:that card|the exiled card) "
     r"without paying its mana cost"
     # PAR-261 (Exploratory Mission): "you may play that card this turn" -- the own-library hit stays in exile under
     # the ordinary this-turn play permission (lands included, mana cost paid).
-    r"|(?P<play>you may play that card this turn))\.?",
+    r"|(?P<play>you may play that card this turn))\.?"
+    # PAR-292 M20, RULE 401.4: "Then <that player> puts the exiled cards that weren't cast this way on the bottom of
+    # <their | that | your> library in a random order." The hit (when not cast) goes down with the rest.
+    r"(?:\s+(?:then )?(?:that player )?puts? (?:all )?(?:the )?(?P<restword>exiled|revealed) cards "
+    r"(?:that weren't|not) cast this way on the bottom of (?P<owner>your|their|that) library in a random order\.?)?",
     re.IGNORECASE,
 )
 
 
-def parse_dig_cast_free(text: str) -> Optional[list[EffectSpec]]:
+def parse_dig_cast_free(text: str, *, event_player: bool = False) -> Optional[list[EffectSpec]]:
     """The exile-until dig whose hit its digger / the controller may cast for free: during this resolution
-    (RULE 608.2g) or, with "until end of turn", through the free cast window; an uncast hit stays exiled."""
+    (RULE 608.2g) or, with "until end of turn", through the free cast window; an uncast hit stays exiled, or, with the
+    printed "put the exiled cards that weren't cast this way on the bottom ... in a random order", goes to the bottom of
+    the dug library with the rest. ``event_player`` reads "that player exiles" as the firing event's player (the
+    caller proved the clause sits under a trigger that names one)."""
     m = _DIG_CAST_RE.fullmatch(text.strip())
     if m is None:
         return None
-    opponent = m.group("who").lower().startswith("target")
-    if opponent != (m.group("lib").lower() == "their"):
-        return None  # "exile ... your library" / "target opponent exiles ... their library" only
+    who = m.group("who").lower()
+    that_player = who.startswith("that")
+    if that_player != event_player:
+        return None
+    opponent = who.startswith("target") or that_player
+    if opponent != (m.group("lib").lower() == "their") or (who == "reveal") != (m.group("verb").lower() == "reveal"):
+        return None  # "exile ... your library" / "<they> exile ... their library" / "reveal ... you reveal" only
     if m.group("play") and opponent:
         return None  # only the digger's own "you may play that card" is the play-window grammar
+    tail = m.group("restword") is not None
+    if (who == "reveal") and (not tail or m.group("restword").lower() != "revealed"):
+        return None  # a bare reveal leaves the rest where it was: not this dig
+    if tail and (m.group("restword").lower() == "revealed") != (who == "reveal"):
+        return None
+    if tail and (m.group("owner").lower() == "your") == opponent:
+        return None  # the bottom is the dug library: "your" for the own dig, "their" / "that" for another player's
+    criteria = dict(_DIG_PREDICATES[m.group("pred").lower()])
+    if m.group("cap"):
+        if m.group("pred").lower() not in ("a nonland", "a nonlegendary, nonland"):
+            return None
+        criteria["max_mana_value"] = int(m.group("cap"))
     params: dict = {
-        "criteria": dict(_DIG_PREDICATES[m.group("pred").lower()]),
+        "criteria": criteria,
         "hit_destination": ("play_window" if m.group("play")
                             else "cast_free_window" if m.group("window") else "cast_during_resolution"),
         "rest_destination": "exile", "uncast_hit": "stay",
     }
-    if opponent:
+    if tail:
+        if m.group("window") or m.group("play"):
+            return None
+        params.update(rest_destination="library_bottom_random", uncast_hit="library_bottom")
+    if that_player:
+        # The row stamps the `event_player_events` marker, so the gate keeps this only under a damage head naming a player.
+        params.update(digger="event_player", caster="controller")
+    elif opponent:
         params.update(digger="facing", caster="controller", target_kind="opponent")
     elif m.group("window"):
         return None  # a window over one's own dig is the pool-window grammar's, with its own pool
+    if who == "reveal":
+        params["reveal"] = True  # RULE 701.20a vs 406.1: a revealing dig leaves the cards in the library (BUG-81)
     return [EffectSpec("dig_until", params)]
 
 

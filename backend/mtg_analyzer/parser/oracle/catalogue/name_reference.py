@@ -226,11 +226,45 @@ def _sweep_specs(body: str, reading: ClauseReading):
     if read[2]:
         # RULE 701.20 / 400.3: the exile is the pick's own action, done before the sweep reads the name.
         follow.insert(0, {"type": "exile", "params": {"target_kind": "previous_target", "previous_zone": "hand"}})
-    pick_params = {**read[1], "then_specs": [{"type": "seq", "params": {"effects": follow}}]}
+    # BUG-83, RULE 608.2c: "Then that player shuffles" does not depend on the pick finding anything.
+    pick_params = {**read[1], "then_specs": [{"type": "seq", "params": {"effects": follow}}], "shuffle_if_none": True}
+    if "condition" in params:
+        pick_params["shuffle_condition"] = dict(params["condition"])  # Pick the Brain's delirium gates the shuffle too
     return [EffectSpec("reveal_hand_choose_discard", pick_params)]
 
 
+#: PAR-292 M24, RULE 701.19a / 401.2 / 201.2: "Choose target permanent an opponent controls. Search that player's library
+#: for a card with the same name and put it onto the battlefield under your control. Then that player shuffles."
+#: (Mimeofacture). The chosen permanent is announced, its controller's library is the one searched (and shuffled), the
+#: spell's controller looks through it, and the found card enters under that controller (it stays owned by the library's
+#: owner, RULE 108.3). The name is the chosen permanent's, read as it is when the search opens.
+_CHOOSE_TARGET_LIBRARY_SEARCH = re.compile(
+    r"choose (?P<target>target [a-z ]+? an opponent controls)\.\s*search that player's library for a card with the same name "
+    r"and put it onto the battlefield under your control\.\s*then that player shuffles"
+)
+
+
+def _choose_target_library_search_specs(body: str):
+    match = _CHOOSE_TARGET_LIBRARY_SEARCH.fullmatch(body.strip().rstrip("."))
+    if match is None:
+        return None
+    operand = parse_operand(match["target"], ClauseReading())
+    kind = resolve_target_kind(match["target"])
+    if operand is None or operand.kind != "target" or operand.count != 1 or kind is None:
+        return None
+    return [
+        EffectSpec("choose_targets", {"kinds": [kind], "creature_filter": operand.filter or {}}),
+        EffectSpec("search", {
+            "criteria": {"name_reference": {"kind": "previous_subject"}}, "destination": "battlefield",
+            "count": 1, "player": "previous_target_controller", "searched_by_controller": True,
+        }),
+    ]
+
+
 def same_name_specs(body: str, reading: ClauseReading):
+    chosen_library = _choose_target_library_search_specs(body)
+    if chosen_library is not None:
+        return chosen_library
     picked = pick_then_search_specs(body, reading)
     if picked is not None:
         return picked

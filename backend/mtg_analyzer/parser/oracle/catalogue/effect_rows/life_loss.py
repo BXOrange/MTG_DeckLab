@@ -682,9 +682,9 @@ def _add_rad_counters_half_x(m: re.Match[str]) -> list[EffectSpec]:
 #: narrow pair of rows rather than a generic COUNT alternative.
 def _lose_life_from_trigger_amount(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     kind = resolve_target_kind(m.group("target"))
-    if kind != "player":
+    if kind not in ("player", "opponent"):  # BUG-72: "target opponent" keeps its own pool (RULE 102.3)
         return None
-    return [EffectSpec("lose_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
+    return [EffectSpec("lose_life", {"target_kind": kind, "amount_from_trigger_event": "amount"})]
 
 
 #: "Whenever ~ deals damage, **you gain that much life**." (El-Hajjâj /
@@ -897,8 +897,9 @@ ROWS: list[EffectHandler] = [
     EffectHandler(
         "gain_life_target_from_trigger_amount",
         compile_clause(rf"{TARGET} gains that much life"),
-        lambda m: ([EffectSpec("gain_life", {"target_kind": "player", "amount_from_trigger_event": "amount"})]
-                   if resolve_target_kind(m.group("target")) == "player" else None),
+        lambda m: ([EffectSpec("gain_life", {"target_kind": resolve_target_kind(m.group("target")),
+                                             "amount_from_trigger_event": "amount"})]
+                   if resolve_target_kind(m.group("target")) in ("player", "opponent") else None),
     ),
     # "Whenever ~ deals damage, you gain that much life." (El-Hajjâj /
     # Exalted Angel-shaped, PAR-36) — before the plain `gain_life` row so

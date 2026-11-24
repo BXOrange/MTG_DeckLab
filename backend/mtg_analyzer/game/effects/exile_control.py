@@ -575,7 +575,8 @@ class ExileTopOfLibraryEffect(GameEffect):
         #: remains possible for a future card.
         #: "…exile a number of cards from the top of your library equal to the number of differently named
         #: tokens you control" (Neriv, Crackling Vanguard) — an `effect_amounts` operand measured at resolution.
-        self.count = count if isinstance(count, dict) else int(count)
+        #: (a ``"$n"`` sentinel survives only on the unbound copy `target_specs` builds to enumerate targets).
+        self.count = count if isinstance(count, (dict, str)) and not str(count).isdigit() else int(count)
         self.keep_bottom = keep_bottom
         self.track_exiled_with = track_exiled_with
 
@@ -1500,6 +1501,7 @@ class DestroyExileThenControllerRevealCreatureEffect(GameEffect):
         context.engine.dig_until(
             player, self.criteria,
             hit_destination="battlefield", rest_destination="library_shuffled",
+            reveal=True,  # RULE 701.20a: "reveals cards ... until they reveal" (Polymorph)
         )
 
 
@@ -3281,20 +3283,39 @@ class LookTopCastFreeEffect(GameEffect):
     targets, modes and additional costs; every card that is not cast then goes to the bottom
     (``bottom_remaining``). Cards stay in the library until cast or reordered. ``criteria`` is a
     `card_query` dict; ``max_mana_value_from="source_power"`` bounds mana value by the
-    source's current power (inclusive).
+    source's current power (inclusive); ``max_mana_value`` (+ ``mana_value_below`` for "less than") is the
+    general printed cap, an int or an `effect_amounts` operand (PAR-292 M19: the parser's `look_top_cast_free` rows).
     """
 
     def __init__(
-        self, count: int = 7, criteria: Optional[dict[str, Any]] = None,
+        self, count: "int | dict[str, Any]" = 7, criteria: Optional[dict[str, Any]] = None,
         max_mana_value_from: Optional[str] = None, source: Optional["GameObject"] = None,
-        prompt: Optional[str] = None,
+        prompt: Optional[str] = None, max_mana_value: "int | dict[str, Any] | None" = None,
+        mana_value_below: bool = False,
     ) -> None:
         super().__init__(source)
         #: The pending choice's German prompt; the default names Velomachus's instant/sorcery restriction.
         self.prompt = prompt
-        self.count = int(count)
+        #: An int, or an `effect_amounts` operand measured as this resolves ("the top X cards, where X is ...": the
+        #: parser binds it through a `bind`, which hands this effect the measured int).
+        #: (a ``"$n"`` sentinel survives only on the unbound copy `target_specs` builds to enumerate targets).
+        self.count = count if isinstance(count, (dict, str)) and not str(count).isdigit() else int(count)
         self.criteria = dict(criteria) if criteria else None
         self.max_mana_value_from = max_mana_value_from
+        #: PAR-292 M19: the printed mana-value cap ("with mana value 3 or less", "... less than or equal to the greatest
+        #: power among attacking creatures you control", "... less than X"): an int or an `effect_amounts` operand.
+        #: ``mana_value_below`` makes the bound strict ("less than").
+        self.max_mana_value = max_mana_value
+        self.mana_value_below = bool(mana_value_below)
+
+    def _mana_value_limit(self, context: GameContext) -> Optional[int]:
+        """The largest mana value a card may have to be cast (inclusive), ``None`` when unbounded."""
+        if self.max_mana_value_from == "source_power":
+            return max(0, int(getattr(self.source, "power", 0) or 0))
+        if self.max_mana_value is None:
+            return None
+        bound = int(self._measured(self.max_mana_value, context))
+        return bound - 1 if self.mana_value_below else bound
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         from ...models.cards import card_query
@@ -3304,14 +3325,14 @@ class LookTopCastFreeEffect(GameEffect):
         player = _controller_of(self.source, context)
         if player is None:
             return
-        looked = list(reversed(player.library[-max(0, self.count):])) if self.count > 0 else []
+        count = max(0, int(self._measured(self.count, context, targets)))
+        looked = list(reversed(player.library[-count:])) if count > 0 else []
         if not looked:
             return
-        limit = None
-        if self.max_mana_value_from == "source_power":
-            limit = max(0, int(getattr(self.source, "power", 0) or 0))
+        limit = self._mana_value_limit(context)
         candidates = [
             o for o in looked
+            # RULE 305.1: a land card is played, never cast; "cast a spell" cannot pick it.
             if not o.card.is_land and card_query.matches(o.card, self.criteria)
             and (limit is None or o.mana_value <= limit)
         ]
@@ -3321,13 +3342,14 @@ class LookTopCastFreeEffect(GameEffect):
             return
         context.engine._request_resolution_play(
             player, candidates, only_spells=True, zone="library",
-            # `play_resolution_card` demands a *strictly* lesser value, so "≤ power" is "< power + 1".
+            # `play_resolution_card` demands a *strictly* lesser value, so "<= limit" is "< limit + 1".
             max_mana_value=None if limit is None else limit + 1,
             bottom_remaining=rest_ids,
         )
         choice = context.state.pending_choice
         if choice is not None and choice.get("kind") == "play_during_resolution":
-            choice["prompt"] = self.prompt or "Instant oder Sorcery kostenlos wirken?"
+            choice["prompt"] = self.prompt or (
+                "Instant oder Sorcery kostenlos wirken?" if self.criteria else "Zauber kostenlos wirken?")
 
 
 class GrantDieToExileThisTurnEffect(GameEffect):

@@ -40,6 +40,7 @@ def _dihada_binder_of_wills() -> list[AbilitySpec]:
             [EffectSpec("inspect_top_choose", {
                 "count": 4, "action": "library_to_hand", "max_picks": "all", "optional": True,
                 "criteria": {"type": "legendary"}, "rest_destination": "graveyard_with_treasures",
+                "reveal": True,  # RULE 701.20a: "reveal the top ..." shows every inspected card to all players
             })],
             cost={"loyalty": -3},
         ),
