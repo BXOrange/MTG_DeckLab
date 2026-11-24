@@ -4618,6 +4618,7 @@ characteristics.
 - **What:** `models/game_format.py` replaces ad-hoc starting-life params with a named format record driving starting life/hand size/singleton and which RULE 9 variants are…
 - **Files:** `models/game_format.py`, `game/variants.py`, `services/variant_card_database.py`
 - **Why:** Team variants (RULE 809-811) are deliberately excluded — they change the turn structure itself rather than adding a card pool, tracked separately as PLR-14.
+- **BUG-69 (joke cards):** `VariantCardDatabase` admits only entries whose printed type line carries the kind's real card type (Plane or Phenomenon, Scheme, Vanguard; exact and case-sensitive, RULE 205.1, 309, 310, 312, 314). The silver-border "That's Enough Slices" (Phenome-nom) and "sAnS mERcY" (pLAnE) shared the `planar` layout and were dealt as the starting plane about 1 game in 300; they are dropped at load, so deck building and name lookup never see them (joke cards deferred by owner decision, 2026-11-24). Test: `test_variant_catalogue_holds_only_real_rules_cards` checks the pool instead of sampling.
 
 ### Planar deck could return short decks
 

@@ -166,7 +166,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 ## BUG — Bugs
 
-- **BUG-69 · Planar deck can contain a joke "Phenome-nom" card (flaky `test_a_planechase_game_starts_with_a_face_up_plane`).** `VariantCardDatabase` sorts planar cards by layout, so the silver-border "That's Enough Slices" (type line "Phenome-nom") can be dealt as the starting plane. The full-cache test then fails at random. Reproduce by sampling `make_engine("planechase")` about 300 times (fast suite flake rate about 1 in 300). Fix: keep only real Plane and Phenomenon type lines out of tournament-legal or black-border printings, or decide that joke cards are deliberately allowed and relax the test.
 
 
 
