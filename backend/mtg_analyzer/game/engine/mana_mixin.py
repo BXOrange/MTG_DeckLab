@@ -182,10 +182,11 @@ class ManaMixin:
                 raise ValueError(f"invalid mana option {option_index} for {source.name}")
             produced = dict(ability.options[option_index])
         source_subtypes = mana_source_land_subtypes(source)
-        self._pay_activation_cost(
-            player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
-            is_mana_ability=True,
-        )
+        with self.state.simultaneous():  # RULE 118.3 / 603.2c (BUG-76): one cost's objects leave together, one event
+            self._pay_activation_cost(
+                player, source, cost, x=x, tap_choices=tap_choices, sacrifice_choice=sacrifice_choice,
+                is_mana_ability=True,
+            )
         # RULE 602.2 / 605.3b: activation completes before its immediate
         # resolution. Copy listeners remember the ability, not its produced mana.
         from ..effects.copied_mana_ability import CopiedManaAbilityEffect
