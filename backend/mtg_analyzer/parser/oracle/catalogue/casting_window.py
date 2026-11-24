@@ -395,37 +395,74 @@ _DIG_PREDICATES: dict[str, dict] = {
     "an instant or sorcery": {"type": ["instant", "sorcery"]},
     "a creature": {"type": "creature"},
     "an artifact": {"type": "artifact"},
+    # PAR-292 M20 (Plargg, Dean of Chaos): the comma list is two plain qualifiers, not an alternative.
+    "a nonlegendary, nonland": {"without_type": "land", "nonlegendary": True},
 }
+#: PAR-292 M20: the dug card's quality may also be a mana-value cap ("a nonland card with mana value 3 or less", Treasure
+#: Keeper); the closed table above keeps its own spelling so every earlier parse is unchanged.
+_DIG_CAST_PREDICATE = (
+    "(?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r")(?: card with mana value (?P<cap>\d+) or less)?"
+)
 _DIG_CAST_RE = re.compile(
-    r"(?P<who>exile|target opponent exiles) cards from the top of (?P<lib>your|their) library until "
-    r"(?:you|they) exile (?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r") card\.\s+"
+    r"(?P<who>exile|reveal|target opponent exiles|that player exiles) cards from the top of (?P<lib>your|their) library "
+    r"until (?:you|they) (?P<verb>exile|reveal) " + _DIG_CAST_PREDICATE + r"(?: card)?\.\s+"
     r"(?:(?:(?P<window>until end of turn), )?(?:you may )?cast (?:that card|the exiled card) "
     r"without paying its mana cost"
     # PAR-261 (Exploratory Mission): "you may play that card this turn" -- the own-library hit stays in exile under
     # the ordinary this-turn play permission (lands included, mana cost paid).
-    r"|(?P<play>you may play that card this turn))\.?",
+    r"|(?P<play>you may play that card this turn))\.?"
+    # PAR-292 M20, RULE 401.4: "Then <that player> puts the exiled cards that weren't cast this way on the bottom of
+    # <their | that | your> library in a random order." The hit (when not cast) goes down with the rest.
+    r"(?:\s+(?:then )?(?:that player )?puts? (?:all )?(?:the )?(?P<restword>exiled|revealed) cards "
+    r"(?:that weren't|not) cast this way on the bottom of (?P<owner>your|their|that) library in a random order\.?)?",
     re.IGNORECASE,
 )
 
 
-def parse_dig_cast_free(text: str) -> Optional[list[EffectSpec]]:
+def parse_dig_cast_free(text: str, *, event_player: bool = False) -> Optional[list[EffectSpec]]:
     """The exile-until dig whose hit its digger / the controller may cast for free: during this resolution
-    (RULE 608.2g) or, with "until end of turn", through the free cast window; an uncast hit stays exiled."""
+    (RULE 608.2g) or, with "until end of turn", through the free cast window; an uncast hit stays exiled, or, with the
+    printed "put the exiled cards that weren't cast this way on the bottom ... in a random order", goes to the bottom of
+    the dug library with the rest. ``event_player`` reads "that player exiles" as the firing event's player (the
+    caller proved the clause sits under a trigger that names one)."""
     m = _DIG_CAST_RE.fullmatch(text.strip())
     if m is None:
         return None
-    opponent = m.group("who").lower().startswith("target")
-    if opponent != (m.group("lib").lower() == "their"):
-        return None  # "exile ... your library" / "target opponent exiles ... their library" only
+    who = m.group("who").lower()
+    that_player = who.startswith("that")
+    if that_player != event_player:
+        return None
+    opponent = who.startswith("target") or that_player
+    if opponent != (m.group("lib").lower() == "their") or (who == "reveal") != (m.group("verb").lower() == "reveal"):
+        return None  # "exile ... your library" / "<they> exile ... their library" / "reveal ... you reveal" only
     if m.group("play") and opponent:
         return None  # only the digger's own "you may play that card" is the play-window grammar
+    tail = m.group("restword") is not None
+    if (who == "reveal") and (not tail or m.group("restword").lower() != "revealed"):
+        return None  # a bare reveal leaves the rest where it was: not this dig
+    if tail and (m.group("restword").lower() == "revealed") != (who == "reveal"):
+        return None
+    if tail and (m.group("owner").lower() == "your") == opponent:
+        return None  # the bottom is the dug library: "your" for the own dig, "their" / "that" for another player's
+    criteria = dict(_DIG_PREDICATES[m.group("pred").lower()])
+    if m.group("cap"):
+        if m.group("pred").lower() not in ("a nonland", "a nonlegendary, nonland"):
+            return None
+        criteria["max_mana_value"] = int(m.group("cap"))
     params: dict = {
-        "criteria": dict(_DIG_PREDICATES[m.group("pred").lower()]),
+        "criteria": criteria,
         "hit_destination": ("play_window" if m.group("play")
                             else "cast_free_window" if m.group("window") else "cast_during_resolution"),
         "rest_destination": "exile", "uncast_hit": "stay",
     }
-    if opponent:
+    if tail:
+        if m.group("window") or m.group("play"):
+            return None
+        params.update(rest_destination="library_bottom_random", uncast_hit="library_bottom")
+    if that_player:
+        # The row stamps the `event_player_events` marker, so the gate keeps this only under a damage head naming a player.
+        params.update(digger="event_player", caster="controller")
+    elif opponent:
         params.update(digger="facing", caster="controller", target_kind="opponent")
     elif m.group("window"):
         return None  # a window over one's own dig is the pool-window grammar's, with its own pool

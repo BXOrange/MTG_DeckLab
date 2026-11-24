@@ -2321,6 +2321,15 @@ class DigUntilEffect(GameEffect):
         self.digger = digger
         self.caster = caster
 
+    @staticmethod
+    def _event_digger(context: GameContext) -> Any:
+        from .core import _combat_defending_player, _event_player, _is_defending_combat_event
+
+        if _is_defending_combat_event(context):
+            return _combat_defending_player(context)  # RULE 508.1b: the attacked player, not the attacker's controller
+        # A damage event names the player it hurt as ``target_id``; other player events name theirs ``player_id``.
+        return _event_player(context, key="target_id") or _event_player(context, key="player_id")
+
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.digger == "facing":
             player = targets[0] if targets else None
@@ -2330,6 +2339,10 @@ class DigUntilEffect(GameEffect):
             # an earlier clause of this resolution destroyed (last-known: it already left the board).
             previous = context.previous_targets[0] if context.previous_targets else None
             player = context.state.player_by_id(getattr(previous, "controller_id", None))
+        elif self.digger == "event_player":
+            # "Whenever ~ deals combat damage to a player, that player exiles cards from the top of their library until
+            # ..." (Dazzling Sphinx, Gríma): the player the firing event names, read like `skip_next_step`'s selector.
+            player = self._event_digger(context)
         elif self.digger == "iteration_item_controller":
             # "For each creature exiled this way, its controller reveals cards from the top of their library until
             # they reveal a creature card, puts that card onto the battlefield ..." (Divergent Transformations,

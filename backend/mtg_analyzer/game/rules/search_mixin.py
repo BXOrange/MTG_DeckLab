@@ -3343,6 +3343,21 @@ class SearchMixin:
         for _ in range(min(pre_exile, len(player.library))):
             self.exile(player.library[-1])
         matched, revealed = self._exile_top_until(player, criteria, exclude_lands=False)
+        if (hit_destination == "cast_during_resolution" and rest_destination == "library_bottom_random"
+                and uncast_hit == "library_bottom"):
+            # "...You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this
+            # way on the bottom of that library in a random order." (Dazzling Sphinx, Chaos Wand): RULE 608.2g the cast
+            # happens during this resolution; RULE 401.4 / 701.24 the hit, when it was not cast, joins the rest at the
+            # bottom of the DIGGER's library (RULE 108.3: the library owner keeps ownership, only the caster's window
+            # differs). The shared resolution play bottoms what is still in exile once the choice is answered, and only
+            # those exact exile visits (a cast hit has left exile and is skipped).
+            pool = [o for o in revealed if o.zone == Zone.EXILE]
+            self._request_resolution_play(
+                caster or player, [matched] if matched is not None else [], only_spells=True, cast_rider=hit_rider,
+                bottom_remaining=[o.instance_id for o in pool], bottom_player_id=player.id,
+                bottom_visits={str(o.instance_id): o.zone_incarnation for o in pool},
+            )
+            return matched
         if matched is not None and hit_destination != "exile":
             self._place_dig_hit(player, matched, hit_destination, caster=caster, hit_rider=hit_rider, uncast_hit=uncast_hit)
         rest_ids = [o.instance_id for o in revealed if o is not matched]

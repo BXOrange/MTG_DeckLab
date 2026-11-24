@@ -26,9 +26,9 @@ After that scan the owner excluded ante permanently (nine cards; 1,346 unsupport
 and parked the non-Commander residue without a parser family (Un-sets, Horde, other special
 cards: 257 cards, [DEFERRED.md](DEFERRED.md)). PARSER_VERSION is 913 after the ante exclusion.
 
-Measured on 2026-11-23 at PARSER_VERSION 1049: **26,960 / 35,444 cards (76.1%)**,
+Measured on 2026-11-23 at PARSER_VERSION 1050: **26,965 / 35,444 cards (76.1%)**,
 including authored cards; 1,346 permanently unsupported records.
-Commander-legal coverage: **26,388 / 32,595 (81.0%)**.
+Commander-legal coverage: **26,393 / 32,595 (81.0%)**.
 MEC-164–166 and the PAR-292 M15 merge add 16 covered cards over the previous 1044 snapshot.
 MEC-161–163 add 17 modeled cards with zero coverage losses against version 1043.
 MEC-154–160 add 46 modeled cards with zero coverage losses against version 1032.

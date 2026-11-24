@@ -758,7 +758,12 @@ _GRAVEYARD_PLAY_WINDOW_ROW_RE = compile_clause(
 
 #: PAR-167: "[Target opponent] exile[s] cards from the top of [your/their] library until [you/they] exile a `<kind>` card.
 #: [Until end of turn,] you may cast that card without paying its mana cost." (Nico Minoru, Wanda's Vision, Stolen Goods).
-_DIG_CAST_FREE_RE = compile_clause(r"(?:target opponent exiles|exile) cards from the top of (?:your|their) library until [^.]+\.\s+[^.]+")
+#: PAR-292 M20: "[that player | target opponent] exiles / you reveal ..." with the "put the exiled cards that weren't cast this
+#: way on the bottom" sentence behind the cast (Dazzling Sphinx, Gríma, Chaos Wand, Treasure Keeper).
+_DIG_CAST_FREE_RE = compile_clause(
+    r"(?:target opponent exiles|that player exiles|exile|reveal) cards from the top of (?:your|their) library until "
+    r"[^.]+\.\s+[^.]+(?:\.\s+[^.]+)?"
+)
 
 #: PAR-167: "Exile [up to one] target `<card>` from a graveyard [and copy it | . Copy it]. You may cast the copy [without
 #: paying its mana cost]." -- the exile clause is any one this table already reads, or the filtered graveyard form
@@ -802,6 +807,13 @@ def _exile_copy_cast(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 def _dig_cast_free(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return parse_dig_cast_free(m.group(0))
+
+
+def _dig_cast_free_event_player(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    specs = parse_dig_cast_free(m.group(0), event_player=True)
+    if specs is not None:
+        specs[0].params[EVENT_PLAYER_EVENTS_KEY] = ["DAMAGE"]  # the gate strips it, or refuses a non-damage head
+    return specs
 
 
 def _graveyard_play_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
@@ -2083,6 +2095,12 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("exile_copy_cast", _EXILE_COPY_CAST_RE, _exile_copy_cast),
     EffectHandler("dig_cast_free", _DIG_CAST_FREE_RE, _dig_cast_free),
+    # "that player" is the firing event's player only under the source's own trigger (the gate's `_that_player_head_ok`
+    # proves the head names one); the event reading is what `DigUntilEffect.digger="event_player"` resolves.
+    EffectHandler(
+        "dig_cast_free_event_player", _DIG_CAST_FREE_RE, _dig_cast_free_event_player,
+        requires=ClauseReading(self_subject=True),
+    ),
     EffectHandler("graveyard_play_window", _GRAVEYARD_PLAY_WINDOW_ROW_RE, _graveyard_play_window),
     EffectHandler(
         "cheat_creature_from_hand",
