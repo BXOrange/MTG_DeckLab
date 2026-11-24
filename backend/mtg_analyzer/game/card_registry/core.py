@@ -215,6 +215,9 @@ def specs_for(card: Any, include_granted: bool = True) -> list[AbilitySpec]:
     # the pre-"//" front name — the same slice `Card.fuse_face` reads.
     if factory is None and "//" in name:
         factory = _REGISTRY.get(name.split("//")[0].strip())
+    # RULE 702.96: authored effects describe the original target text, not its overloaded rewrite.
+    if getattr(card, "overload_payment", None):
+        factory = None
     registered = factory is not None
     specs: list[AbilitySpec] = list(factory()) if registered else []
 

@@ -37,10 +37,6 @@ def _real(name):
     "{t}: add {t}{t}. activate only once each turn.",                           # Sole Performer
     "{t}: add {∞}.",                                                            # Mox Lotus
     "sacrifice a creature or land: add {hr}.",                                  # Mons's Goblin Waiters
-    "{1}, {t}: add 2 mana of different colors. spend this mana only to cast planeswalker spells.",   # Interplanar Beacon
-    "{t}: add 2 mana of different colors.",                                     # Firemind Vessel
-    "{t}, remove x storage counters from ~: add x mana in any combination of colors.",   # Crucible
-    "{1}, remove x storage counters from ~: add x mana in any combination of {w} and/or {u}.",   # Calciform Pools
     "{t}: add x mana in any combination of colors, where x is the number of creatures you control with defender.",
     "sacrifice a land: add one mana of any type the sacrificed land could produce.",   # Squandered Resources
 ])
@@ -52,6 +48,10 @@ def test_an_add_clause_the_builder_cannot_read_is_not_claimed(line):
 
 @pytest.mark.parametrize("line", [
     "{t}: add {g}.",
+    "{1}, {t}: add 2 mana of different colors. spend this mana only to cast planeswalker spells.",   # Interplanar Beacon
+    "{t}: add 2 mana of different colors.",                                     # Firemind Vessel
+    "{t}, remove x storage counters from ~: add x mana in any combination of colors.",   # Crucible
+    "{1}, remove x storage counters from ~: add x mana in any combination of {w} and/or {u}.",   # Calciform Pools
     "{t}: add {w} or {b}. ~ deals 1 damage to you.",
     "{t}: add 1 mana of any type that a land you control could produce.",
     "{t}: add 1 mana of any type that a gate you control could produce.",
@@ -66,8 +66,7 @@ def test_a_readable_add_clause_stays_claimed(line):
 
 
 @pytest.mark.parametrize("name", [
-    "Sole Performer", "Crucible of the Spirit Dragon", "Interplanar Beacon", "Firemind Vessel", "Guild Globe",
-    "Component Pouch", "Calciform Pools", "Dreadship Reef", "Fungal Reaches", "Molten Slagheap", "Saltcrusted Steppe",
+    "Sole Performer",
     "Axebane Guardian", "Mox Lotus", "Mons's Goblin Waiters", "Squandered Resources",
 ])
 def test_cards_with_an_unreadable_add_clause_are_unmodeled(name):
@@ -175,3 +174,57 @@ def test_every_claimed_mana_line_yields_a_mana_ability(full_cache_parse):
             if not built:
                 missing.append((printed.name, line))
     assert not missing, missing[:40]
+
+
+def test_firemind_vessel_offers_only_distinct_pairs():
+    from mtg_analyzer.game.mana_potential import open_potential_summary
+
+    eng = game()
+    player = eng.state.players[0]
+    vessel = card(eng, "Firemind Vessel")
+    vessel.tapped = False
+    action = next(a for a in eng.mana_actions(player) if a["instance_id"] == vessel.instance_id)
+    assert len(action["options"]) == 10
+    assert all(sorted(option["mana"].values()) == [1, 1] for option in action["options"])
+    assert open_potential_summary(eng, player)["U"] == 1
+    assert _tap(eng, vessel, option_index=0) == {"W": 1, "U": 1}
+
+
+def test_calciform_pools_spends_announced_storage_counters_for_chosen_colors():
+    from mtg_analyzer.game.mana_potential import open_potential_summary
+
+    eng = game()
+    player = eng.state.players[0]
+    pools = card(eng, "Calciform Pools")
+    pools.counters["storage"] = 3
+    assert open_potential_summary(eng, player)["U"] == 3
+    player.mana_pool.add("C", 1)
+    action = next(
+        a for a in eng.mana_actions(player)
+        if a["instance_id"] == pools.instance_id and a["ability_index"] == 1
+    )
+    assert action["has_x"] and action["max_x"] == 3
+    with pytest.raises(ValueError):
+        _tap(eng, pools, ability_index=1, x=4, color_split={"U": 4})
+    with pytest.raises(ValueError):
+        _tap(eng, pools, ability_index=1, x=3, color_split={"G": 3})
+    assert pools.counters["storage"] == 3
+    assert player.mana_pool.total() == 1
+    assert _tap(eng, pools, ability_index=1, x=3, color_split={"W": 1, "U": 2}) == {"W": 1, "U": 2}
+    assert pools.counters.get("storage", 0) == 0
+    assert not pools.tapped
+
+
+def test_crucible_storage_mana_retains_its_dragon_restriction():
+    from mtg_analyzer.game.mana_potential import open_potential_summary
+
+    eng = game()
+    player = eng.state.players[0]
+    crucible = card(eng, "Crucible of the Spirit Dragon")
+    crucible.counters["storage"] = 3
+    potential = open_potential_summary(eng, player)
+    assert potential["C"] == 1
+    assert potential["W"] == 0
+    assert _tap(eng, crucible, ability_index=1, x=3, color_split={"W": 2, "G": 1}) == {"W": 2, "G": 1}
+    assert player.mana_pool.total() == 3
+    assert player.mana_pool.pool.get("W", 0) == 0

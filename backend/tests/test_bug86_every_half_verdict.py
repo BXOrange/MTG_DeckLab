@@ -16,8 +16,8 @@ from mtg_analyzer.services.card_database import CardDatabase
 
 _FRONT = "Destroy target creature."
 _MODELED_BACK = "Draw a card."
-#: The Aftermath keyword is refused (BUG-75): a back half carrying it parses UNMODELED.
-_UNMODELED_BACK = "Aftermath (Cast this spell only from your graveyard. Then exile it.)"
+#: For Mirrodin! still lacks engine behavior, so it keeps this synthetic back half unmodeled.
+_UNMODELED_BACK = "For Mirrodin!"
 _LAYOUTS = {
     # layout -> (front type line, back type line)
     "split": ("Sorcery", "Sorcery"),
@@ -42,7 +42,7 @@ def test_unmodeled_back_half_makes_the_card_unmodeled(layout):
     assert parse_oracle(card).coverage == MODELED  # the front alone is what parse_oracle reads
     result = card_coverage(card)
     assert result.coverage == UNMODELED
-    assert any("aftermath" in line.lower() for line in result.unclaimed)
+    assert any("for mirrodin" in line.lower() for line in result.unclaimed)
     assert not is_card_covered(card)
 
 
@@ -86,9 +86,9 @@ def test_the_card_list_badge_uses_the_same_rule():
     assert coverage_for(_two_faced("split", _MODELED_BACK))["modeled"] is True
 
 
-def test_claim_fame_is_unmodeled():
+def test_claim_fame_is_modeled_with_aftermath():
     card = CardDatabase(DB_PATH).get_card("Claim // Fame")
     if card is None:
         pytest.skip("Claim // Fame is not in the local card cache")
     assert parse_oracle(card).coverage == MODELED  # Claim alone
-    assert not is_card_covered(card)
+    assert is_card_covered(card)

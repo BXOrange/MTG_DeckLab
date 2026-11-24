@@ -43,9 +43,9 @@ export function expandMultiTargetRequirements(requirements, x = 0) {
   let excludePicked = false;
   let excludeControllers = false;
   for (const [reqIndex, originalReq] of requirements.entries()) {
-    const req = originalReq.mana_value_from_x
-      ? { ...originalReq, options: (originalReq.options || []).filter((option) => Number(option.mana_value) === Number(x)) }
-      : originalReq;
+    const req = { ...originalReq, options: (originalReq.options || []).filter((option) =>
+      (!originalReq.mana_value_from_x || Number(option.mana_value) === Number(x))
+      && (option.minimum_x == null || option.minimum_x <= x)) };
     const minimum = req.count_from_x ? x * req.count_from_x : (req.count ?? 1);
     const total = req.any_number ? (req.count_max || 0) : (req.count_max || minimum);
     if (total > 1) excludePicked = true;
@@ -106,7 +106,8 @@ export function defenderPayload(d) {
 // (RULE 601.2b / 602.2b): a drop-shortcut must not bypass them and let the
 // engine auto-pick. Activations only open sacrifice/discard/reveal/counter pickers.
 export function actionHasCostPick(action) {
-  if (action.graveyard_exile_cost || action.tap_cost || action.return_cost || action.power_tap_cost) return true;
+  if (action.graveyard_exile_cost || action.tap_cost || action.return_cost || action.power_tap_cost
+    || action.squad_discard_cost || action.squad_exile_cost) return true;
   return action.type === 'activate_ability'
     && Boolean(action.sacrifice_cost || action.discard_cost || action.reveal_cost || action.counter_cost);
 }
@@ -146,7 +147,7 @@ export function kickerFieldHtml(a) {
     }).join('');
     return boxes + kickerXFieldHtml(a);
   }
-  const label = a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
+  const label = a.kicker_keyword === 'squad' ? 'Squad' : a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker';
   const title = a.kicker_cost ? `${label} ${a.kicker_cost}` : label;
   const field = `<input type="number" min="0" max="${a.max_kicker}" value="0" title="${escapeAttr(title)}" data-kicker-input="${kickerKey(a.instance_id, a.face, a.splice_ids)}" />`;
   return field + kickerXFieldHtml(a);

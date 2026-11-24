@@ -5284,8 +5284,14 @@ def graveyard_redirect_active(state: "GameState", obj: Any) -> bool:
     whose-*graveyard*-scoped, so it always passes ``scope="any"``
     alongside its own ``colors`` list.
     """
+    # RULE 113.6h / 614.1: a self-only graveyard replacement works on its source in any zone.
+    if not getattr(obj, "loses_all_abilities", False) and any(
+        getattr(ability, "layer", None) == "graveyard_redirect" and ability.params.get("scope") == "self"
+        for ability in getattr(obj, "static_effects", ())
+    ):
+        return True
     for ability in _battlefield_static_abilities(state):
-        if ability.layer != "graveyard_redirect":
+        if ability.layer != "graveyard_redirect" or ability.params.get("scope") == "self":
             continue
         colors = ability.params.get("colors")
         if colors and not (set(getattr(obj, "colors", None) or ()) & set(colors)):

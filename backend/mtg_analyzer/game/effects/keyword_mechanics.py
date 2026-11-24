@@ -21,6 +21,68 @@ def _make_servo(rules, source, player_id, count):
         context.acting_player_id = saved
 
 
+class SquadCopyEffect(GameEffect):
+    """RULE 702.157a: make one copy per paid Squad cost."""
+
+    def apply(self, context, targets=None):
+        from .counters_tokens import CopyPermanentEffect
+
+        count = (context.trigger_event or {}).get("squad_count", 0)
+        if count > 0:
+            CopyPermanentEffect(count=count, target_kind=None, source=self.source).apply(context)
+
+
+class EpicCopyEffect(GameEffect):
+    """RULE 702.50a: copy the original spell and permit new targets."""
+
+    def __init__(self, recipe):
+        super().__init__()
+        self.recipe = recipe
+
+    def apply(self, context, targets=None):
+        context.engine.copy_spell(
+            self.recipe, context.resolving_controller_id, from_recipe=True, choose_new_targets=True,
+        )
+
+
+class RippleEffect(GameEffect):
+    """RULE 702.60a: reveal cards and offer to cast those matching the spell's name."""
+
+    def __init__(self, source, amount):
+        super().__init__(source)
+        self.amount = amount
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is None or not player.library:
+            return
+        spell_name = (context.trigger_event or {}).get("spell") or self.source.name
+        context.engine.open_choice({
+            "kind": "ripple_reveal", "player_id": player.id,
+            "count": self.amount, "spell_name": spell_name, "prompt": f"Ripple {self.amount}",
+            "options": [{"id": "reveal", "label": "Reveal"}, {"id": "decline", "label": "Decline"}],
+        })
+
+
+class RecoverEffect(GameEffect):
+    """RULE 702.59a: pay to retrieve this graveyard visit, otherwise exile it."""
+
+    def __init__(self, source, cost):
+        super().__init__(source)
+        self.cost = cost
+
+    def apply(self, context, targets=None):
+        source = self.source
+        if source.zone != Zone.GRAVEYARD or source.zone_incarnation != context.resolving_source_incarnation:
+            return
+        player = _controller_of(source, context)
+        effect_type = "return_self_from_graveyard_to_hand"
+        context.engine._request_pay_cost_then(
+            player, self.cost, [{"type": effect_type, "params": {"exact_visit": True}}], source,
+            else_effect_specs=[{"type": effect_type, "params": {"exact_visit": True, "exile_instead": True}}],
+        )
+
+
 class FabricateEffect(GameEffect):
     def __init__(self, count, source):
         super().__init__(source)

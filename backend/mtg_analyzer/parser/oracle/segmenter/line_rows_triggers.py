@@ -333,14 +333,19 @@ def line_enters_if_madness(ctx: LineContext) -> Optional[Segment]:
         effects = parse_effect_body(body, reading=ClauseReading(self_subject=True))
         if effects is None:
             return Segment(raw=raw)
-        for e in effects:
-            e.condition = {
-                **(e.condition or {}), f"{enters_if_madness.group('cost').lower()}_cost_paid": True,
-            }
+        cost = (enters_if_madness.group("cost") or enters_if_madness.group("sneak")).lower()
+        trigger = {"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}}
+        if cost == "sneak":
+            trigger["active_if"] = {"kind": "flag", "flag": "cast_via_sneak"}
+        elif cost == "prowl":
+            trigger["active_if"] = {"kind": "flag", "flag": "prowl_cost_paid"}
+        else:
+            for effect in effects:
+                effect.condition = {**(effect.condition or {}), f"{cost}_cost_paid": True}
         spec = AbilitySpec(
             "triggered",
             effects=effects,
-            trigger={"event": "ENTERS_BATTLEFIELD", "condition": {"subject": "self"}},
+            trigger=trigger,
             optional=optional,
             raw_text=raw,
             parser=provenance,

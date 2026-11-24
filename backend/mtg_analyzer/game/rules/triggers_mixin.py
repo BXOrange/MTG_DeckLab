@@ -380,6 +380,7 @@ class TriggerCollectionMixin:
                     self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
+        self._collect_cipher_triggers(event)
         self._collect_self_hand_arrival_triggers(event)
         # RULE 113.6k: the card’s “becomes plotted” ability functions in exile.
         if event.type == EventType.BECOMES_PLOTTED:
@@ -1073,6 +1074,25 @@ class TriggerCollectionMixin:
             if (getattr(ability, "functions_from_hand", False)
                     and ability.check_trigger(event, self.context)):
                 self._queue_firing(ability, event, obj, capture=False)
+
+    def _collect_cipher_triggers(self, event: GameEvent) -> None:
+        if event.type != EventType.DAMAGE or not event.get("is_player") or not event.get("combat"):
+            return
+        source = self.state.find_object(event.get("source_id"))
+        if source is None or source.zone != Zone.BATTLEFIELD or source.loses_all_abilities:
+            return
+        source_visit = (source.instance_id, source.zone_incarnation)
+        from ..effects.cipher import CopyEncodedCardEffect
+
+        for player in self.state.players:
+            for card in player.exile:
+                if card.cipher_encoded_on == source_visit:
+                    ability = TriggeredAbility(
+                        EventType.DAMAGE, [CopyEncodedCardEffect(card, source)],
+                        source=source, controller_id=event.get("source_controller_id"),
+                        description=f"{card.name}: Cipher",
+                    )
+                    self._queue_firing(ability, event, source)
 
     def _collect_replicate_triggers(self, event: GameEvent) -> None:
         # RULE 702.56a/b: each paid instance triggers separately; copies aren't casts.

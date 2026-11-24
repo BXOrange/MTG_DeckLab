@@ -230,6 +230,7 @@ class SearchMixin:
                                  allowed_spell_types: Optional[list[str]] = None,
                                  bottom_player_id: Optional[str] = None,
                                  bottom_visits: Optional[dict[str, int]] = None,
+                                 bottom_in_chosen_order: bool = False,
                                  noncreature_only: bool = False,
                                  copy_for_player_id: Optional[str] = None,
                                  draw_if_no_cast_player_id: Optional[str] = None,
@@ -242,8 +243,10 @@ class SearchMixin:
         cards = [obj for obj in cards if obj.zone.value in zones]
         if not cards:
             if bottom_remaining:
-                self._bottom_remaining(self.state.player_by_id(bottom_player_id or player.id),
-                                       bottom_remaining, zone=zone, visits=bottom_visits)
+                self._finish_resolution_play_bottom(
+                    self.state.player_by_id(bottom_player_id or player.id), bottom_remaining, zone,
+                    bottom_visits, bottom_in_chosen_order,
+                )
             if owner_life_loss:
                 for loss in owner_life_losses or []:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
@@ -264,6 +267,7 @@ class SearchMixin:
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
             "bottom_player_id": bottom_player_id,
+            "bottom_in_chosen_order": bottom_in_chosen_order,
             "bottom_visits": dict(bottom_visits) if bottom_visits is not None else None,
             "instance_ids": [obj.instance_id for obj in cards],
             "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
@@ -334,9 +338,11 @@ class SearchMixin:
         # ``keep_bottom``: a repeated offer carries the bottom-of-library step to its last round (RULE 608.2c: "then put
         # the rest on the bottom" follows the whole casting sequence, not its first cast).
         if not cancelled and not keep_bottom and choice.get("bottom_remaining"):
-            self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
-                                   choice["bottom_remaining"], zone=choice.get("zone", "exile"),
-                                   visits=choice.get("bottom_visits"))
+            self._finish_resolution_play_bottom(
+                self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
+                choice["bottom_remaining"], choice.get("zone", "exile"), choice.get("bottom_visits"),
+                choice.get("bottom_in_chosen_order", False),
+            )
         if not cancelled:
             if played_id is not None and choice.get("copy_for_player_id"):
                 # RULE 707.10: copy the spell actually cast, after all
@@ -3585,6 +3591,34 @@ class SearchMixin:
                 obj.zone = Zone.LIBRARY
                 player.library.append(obj)
         self._order_library_bottom(player, [o.instance_id for o in remaining])
+
+    def _finish_resolution_play_bottom(self, player, instance_ids, zone, visits, chosen_order):
+        if not chosen_order:
+            self._bottom_remaining(player, instance_ids, zone=zone, visits=visits)
+            return
+        origin = Zone(zone)
+        remaining = self._staged(player, instance_ids, origin)
+        current_ids = [obj.instance_id for obj in remaining
+                       if visits is None or visits.get(str(obj.instance_id)) == obj.zone_incarnation]
+        self._order_remaining_to_bottom(player, current_ids, origin=origin)
+
+    @continuations.choice("ripple_reveal", answer=continuations.ANSWER_STR, rule="702.60a")
+    def _resume_ripple_reveal(self, choice, answer):
+        if answer != "reveal":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        revealed = list(reversed(player.library[-choice["count"]:]))
+        for obj in revealed:
+            self.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=obj.name, instance_id=obj.instance_id,
+                from_zone="library",
+            ))
+        self._request_resolution_play(
+            player, [obj for obj in revealed if obj.name == choice["spell_name"]],
+            zone="library", only_spells=True, repeat=True, bottom_in_chosen_order=True,
+            bottom_remaining=[obj.instance_id for obj in revealed],
+            bottom_visits={str(obj.instance_id): obj.zone_incarnation for obj in revealed},
+        )
 
     def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
                           visits: Optional[dict[str, int]] = None) -> None:

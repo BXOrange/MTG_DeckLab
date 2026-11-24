@@ -754,6 +754,8 @@ class TurnLoopMixin:
                 and (dt.scope != "controller" or (getattr(dt, "step_player_id", None) or dt.controller_id) == active_id)
             ):
                 due.append(dt)
+                if dt.repeats:
+                    remaining.append(dt)
             else:
                 remaining.append(dt)
         self.state.delayed_triggers = remaining
@@ -1568,6 +1570,13 @@ class TurnLoopMixin:
 
     def _resume_paused_announcement(self, kind, pending) -> bool:
         """Finish an announcement through its ordinary action entry point."""
+        if kind == "assist_select" or (kind == "amount_payment" and self.state.pending_assist is not None):
+            from ..assist import commit
+
+            commit(self)
+            return True
+        if kind in {"craft_materials", "harmonize_payment"}:
+            return True
         if kind == "combat_payment":
             from ..combat_payments import resume_declaration
             resume_declaration(self, pending)

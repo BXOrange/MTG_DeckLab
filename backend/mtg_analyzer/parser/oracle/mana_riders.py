@@ -778,6 +778,11 @@ _X_COMBINATION_SUBJECT_READABLE_RE = re.compile(
 )
 #: "Remove X <kind> counters from ..." in a cost sizes an X the builder never announces (Crucible of the Spirit Dragon).
 _REMOVE_X_COUNTERS_COST_RE = re.compile(r"\bremove x\b")
+SELF_COUNTER_X_COST_RE = re.compile(r"(?:^|,)\s*remove x [a-z]+ counters from (?:~|this land)\s*$", re.I)
+X_COUNTER_MANA_RE = re.compile(
+    r"x mana in any combination of (?:colou?rs|\{[wubrg]\} and/or \{[wubrg]\})", re.I,
+)
+TWO_DISTINCT_MANA_RE = re.compile(r"(?:two|2) mana of different colou?rs", re.I)
 
 
 def add_clause_readable(cost_text: str, effect_text: str) -> bool:
@@ -790,17 +795,17 @@ def add_clause_readable(cost_text: str, effect_text: str) -> bool:
     combination over an unread subject); the full-cache parity test in `test_bug85_add_clause_claims.py` fails when a
     claimed line yields no `ManaAbility`, which is what keeps this list honest.
     """
-    clause = (split_sentences(effect_text) or [""])[0].lower()
+    clause = (split_sentences(effect_text) or [""])[0].lower().removesuffix(".").strip()
     cost = cost_text.lower()
     if any(symbol not in _ADD_CLAUSE_SYMBOLS for symbol in _SYMBOL_RE.findall(clause)):
         return False  # {T}{T} (Sole Performer), {∞} (Mox Lotus), {HR}: not mana the pool can hold
     if "different colors" in clause or "different colours" in clause:
-        return False
+        return TWO_DISTINCT_MANA_RE.fullmatch(clause.removeprefix("add ")) is not None
     if _ANY_TYPE_RE.search(clause) and not _ANY_TYPE_READABLE_RE.search(clause):
         return False
     if _X_COMBINATION_RE.search(clause):
         if _REMOVE_X_COUNTERS_COST_RE.search(cost):
-            return False
+            return bool(SELF_COUNTER_X_COST_RE.search(cost) and X_COUNTER_MANA_RE.fullmatch(clause.removeprefix("add ")))
         subject = _X_COMBINATION_SUBJECT_RE.search(clause)
         if subject is not None and _X_COMBINATION_SUBJECT_READABLE_RE.fullmatch(subject.group("subject")) is None:
             return False

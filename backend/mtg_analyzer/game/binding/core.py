@@ -4168,8 +4168,60 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
             effects=[AddCountersEffect(source=obj)],
             cost=cost, source=obj, description=f"Outlast {cost_text}", keyword_label=name,
         )
+    if name == "reinforce":
+        cost_text, amount = keyword.get("cost"), keyword.get("n")
+        if not cost_text or not isinstance(amount, int) or amount <= 0:
+            return None
+        # RULE 702.77a: discard this card from hand to put counters on any target creature.
+        cost = parse_activation_cost(f"{cost_text}, Discard this card")
+        return ActivatedAbility(
+            effects=[AddCountersEffect(amount=amount, target_kind="creature", source=obj)],
+            cost=cost, source=obj, description=f"Reinforce {amount} — {cost_text}", keyword_label=name,
+        )
     if name == "cycling":
         return _cycling_activated_ability(obj, spec, keyword)
+    if name == "craft":
+        from ...parser.oracle.catalogue.craft import parse_craft
+        from ...parser.oracle.normalize import strip_reminder_text
+        from ..craft import CraftReturnEffect
+
+        for line in strip_reminder_text(obj.card.oracle_text).splitlines():
+            parsed = parse_craft(line)
+            if parsed is not None:
+                mana, material = parsed
+                cost = ActivationCost(
+                    mana=ManaCost.parse(mana), exile_self=True, sorcery_speed_only=True,
+                    exile_others=(material["minimum"], material["word"]), craft_materials=material,
+                )
+                return ActivatedAbility(
+                    effects=[CraftReturnEffect(source=obj)], cost=cost, source=obj,
+                    description=line.strip(), keyword_label=name,
+                )
+        return None
+    if name == "aura_swap":
+        from ..effects.aura_swap import AuraSwapEffect
+
+        cost_text = keyword.get("cost")
+        if not cost_text:
+            return None
+        return ActivatedAbility(
+            effects=[AuraSwapEffect(source=obj)], cost=parse_activation_cost(cost_text),
+            source=obj, description=f"Aura swap {cost_text}", keyword_label=name,
+        )
+    if name == "transfigure":
+        cost_text = keyword.get("cost")
+        if not cost_text:
+            return None
+        # RULE 702.71a: the sacrificed permanent's last battlefield mana value sets both search bounds.
+        cost = parse_activation_cost(f"{cost_text}, Sacrifice this permanent")
+        cost.sorcery_speed_only = True
+        return ActivatedAbility(
+            effects=build_effects([EffectSpec("search", {
+                "criteria": {"type": "creature"}, "destination": "battlefield",
+                "mana_value_from": {"source": "sacrificed", "cmp": "eq"},
+            })], source=obj),
+            cost=cost, source=obj, description=f"Transfigure {cost_text}", keyword_label=name,
+        )
     if name == "transmute":
         return _transmute_activated_ability(obj, spec, keyword)
     if name == "crew":
@@ -4738,6 +4790,82 @@ def _bound_keyword_triggers(obj: Any, label: str, effects: list[EffectSpec], tri
     return list(bound) if isinstance(bound, list) else [bound]
 
 
+_IMPENDING_ACTIVE = {"kind": "all", "conditions": [
+    {"kind": "flag", "flag": "impending_cost_paid"},
+    {"kind": "source_counters", "counter": "time", "min": 1},
+]}
+
+
+def _kw_impending(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    from ..effects.core import RemoveCountersEffect
+
+    def end_step(event, context):
+        source = context.state.find_object(obj.instance_id)
+        return bool(source is not None and event.get("step") == "end"
+                    and context.state.active_player.id == source.controller_id
+                    and source.impending_cost_paid and source.counters.get("time", 0))
+
+    return [TriggeredAbility(
+        trigger_event=EventType.STEP_BEGIN,
+        effects=[RemoveCountersEffect(kind="time", count=1, source=obj, self_only=True)],
+        condition=end_step, source=obj, description="Impending",
+    )]
+
+
+def _kw_copy_for_paid_cost(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    from ..effects.stack import CopySpellEffect
+
+    def paid(event, context):
+        source = context.state.find_object(event.get("instance_id"))
+        return source is not None and source.instance_id == obj.instance_id and source.additional_cost_paid
+
+    ability = TriggeredAbility(
+        trigger_event=EventType.SPELL_CAST,
+        effects=[CopySpellEffect(source=obj, spell_from_trigger_event="instance_id", choose_new_targets=True)],
+        condition=paid, source=obj, description=str(spec.keyword["name"]).capitalize(),
+    )
+    ability.functions_from_stack = True
+    return [ability]
+
+
+def _kw_ripple(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    from ..effects.keyword_mechanics import RippleEffect
+
+    if not isinstance(n, int) or n <= 0:
+        return []
+
+    def cast_self(event, context):
+        return event.get("instance_id") == obj.instance_id
+
+    ability = TriggeredAbility(
+        trigger_event=EventType.SPELL_CAST, effects=[RippleEffect(obj, n)],
+        condition=cast_self, source=obj, description=f"Ripple {n}",
+    )
+    ability.functions_from_stack = True
+    return [ability]
+
+
+def _kw_recover(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    from ..effects.keyword_mechanics import RecoverEffect
+
+    cost_text = (spec.keyword or {}).get("cost")
+    if not cost_text:
+        return []
+    cost = parse_activation_cost(cost_text)
+    if cost.unrecognized:
+        return []
+
+    def creature_died(event, context):
+        return event.get("owner_id") == obj.owner_id and "creature" in event.get("object_types", ())
+
+    ability = TriggeredAbility(
+        trigger_event=EventType.DIES, effects=[RecoverEffect(obj, cost)],
+        condition=creature_died, source=obj, description=f"Recover {cost_text}",
+    )
+    ability.functions_from_graveyard = True
+    return [ability]
+
+
 def _kw_soulshift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
     """RULE 702.46a Soulshift N — "When this permanent is put into a graveyard from the battlefield, you may return
     target Spirit card with mana value N or less from your graveyard to your hand." RULE 702.46b-style: each instance
@@ -4992,6 +5120,22 @@ def _kw_gift(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
             description=_ability_description(obj, spec) or "Gift",
         )
     ]
+
+
+def _kw_squad(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
+    from ..effects.keyword_mechanics import SquadCopyEffect
+
+    def eligible(event, context):
+        source = context.state.find_object(obj.instance_id)
+        return event.get("instance_id") == obj.instance_id and source is not None and source.squad_count > 0
+
+    def capture(event, context):
+        return event.copy_with(squad_count=context.state.find_object(obj.instance_id).squad_count)
+
+    return [TriggeredAbility(
+        trigger_event=EventType.ENTERS_BATTLEFIELD, effects=[SquadCopyEffect(source=obj)],
+        source=obj, condition=eligible, capture_event=capture, description="Squad",
+    )]
 
 
 def _kw_offspring(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
@@ -5357,6 +5501,11 @@ def _kw_mobilize(obj: Any, spec: AbilitySpec, n: Any) -> list[TriggeredAbility]:
 
 _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[TriggeredAbility]]] = {
     "mobilize": _kw_mobilize,
+    "recover": _kw_recover,
+    "ripple": _kw_ripple,
+    "conspire": _kw_copy_for_paid_cost,
+    "casualty": _kw_copy_for_paid_cost,
+    "impending": _kw_impending,
     "hideaway": _kw_hideaway,
     "soulbond": _kw_soulbond,
     "living_weapon": _kw_living_weapon,
@@ -5383,6 +5532,7 @@ _KEYWORD_TRIGGERED_BUILDERS: dict[str, Callable[[Any, AbilitySpec, Any], list[Tr
     "ravenous": _kw_ravenous,
     "evolve": _kw_evolve,
     "offspring": _kw_offspring,
+    "squad": _kw_squad,
     "exalted": _kw_exalted,
     "battle_cry": _kw_battle_cry,
     "mentor": _kw_mentor,
@@ -5623,6 +5773,10 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
             obj.has_rebound = True
         if spec.ability_kind == "keyword":
             attach_keyword(obj, spec)
+            if (spec.keyword or {}).get("name") == "umbra_armor":
+                from ..effects.replacements import UmbraArmorReplacement
+
+                obj.replacement_effects.append(UmbraArmorReplacement(obj))
             keyword_ability = _keyword_activated_ability(obj, spec)
             if keyword_ability is not None:
                 obj.activated_abilities.append(keyword_ability)
@@ -5680,6 +5834,34 @@ def attach_to_object(obj: Any, specs: list[AbilitySpec]) -> None:
                 # UX papercut, not a rules gap.
                 obj.alt_cast_cost = parse_activation_cost((spec.keyword or {}).get("cost") or "{0}")
                 obj.dash = True
+            keyword_name = (spec.keyword or {}).get("name")
+            if keyword_name == "conspire":
+                # RULE 702.78a: two untapped creatures that each share a color with the spell.
+                obj.additional_cast_cost = ActivationCost(tap_others=(2, "conspire"))
+                obj.additional_cast_cost_optional = True
+            if keyword_name == "casualty":
+                # RULE 702.153a: sacrifice one creature meeting the keyword's power threshold.
+                obj.additional_cast_cost = ActivationCost(sacrifice_count=(1, "casualty"))
+                obj.additional_cast_cost_optional = True
+            keyword_cost = (spec.keyword or {}).get("cost")
+            if keyword_name in {"web_slinging", "sneak"} and keyword_cost:
+                # RULE 702.188a / 702.190a: the chosen permanent is returned as part of this alternative cost.
+                returned = "tapped_creature" if keyword_name == "web_slinging" else "sneak_attacker"
+                obj.alt_cast_cost = ActivationCost(mana=ManaCost.parse(keyword_cost), return_to_hand=returned)
+            if keyword_name == "awaken" and keyword_cost:
+                obj.alt_cast_cost = parse_activation_cost(keyword_cost)
+            if keyword_name == "impending" and keyword_cost:
+                # RULE 702.176a: the discounted permanent is not a creature while time counters remain.
+                obj.alt_cast_cost = parse_activation_cost(keyword_cost)
+                obj.static_effects.append(StaticAbility(
+                    layer="type", affects="self", source=obj, description="Impending",
+                    params={"remove_types": ["creature"], "active_if": _IMPENDING_ACTIVE},
+                ))
+            if keyword_cost and keyword_name in {"spectacle", "freerunning", "prowl"}:
+                # RULE 702.137a / 702.173a / 702.76a: alternative costs gated by turn history.
+                obj.alt_cast_cost = parse_activation_cost(keyword_cost)
+                gate = "opponent_lost_life_this_turn" if keyword_name == "spectacle" else keyword_name
+                obj.alt_cast_condition = {gate: True}
             # RULE 702.131a: Ascend on an instant/sorcery is a one-shot spell
             # ability ("you get the city's blessing"), checked once at
             # resolution — unlike Ascend on a permanent (702.131b), which

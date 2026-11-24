@@ -183,6 +183,8 @@ def static_enters_with_counters_count(ctx: StaticContext) -> StaticResult:
 
 def static_self_graveyard_shuffle(ctx: StaticContext) -> StaticResult:
     text = ctx.text
+    if re.fullmatch(r"if ~ would be put into a graveyard from anywhere, exile it instead", text, re.I):
+        return [EffectSpec("graveyard_redirect", {"scope": "self"})]
     if SELF_GRAVEYARD_SHUFFLE_RE.fullmatch(text):
         return [EffectSpec("grant_graveyard_to_library_replacement", {"affects": "self"})]
     return None

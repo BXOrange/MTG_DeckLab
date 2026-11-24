@@ -180,7 +180,7 @@ fixed the builder: a basic-typed land keeps its own printed mana lines next to t
 of any type that a land / Gate you control could produce" is a new colour selector including colourless,
 with the reflection-cycle guard (Reflecting Pool, Naga Vitalist, Cactus Preserve, Plaza of Harmony, RULE
 106.7). 15 cards dropped to UNMODELED (storage lands built a wrong one-of-each ability before); the
-producible-later shapes are MEC-179. Tests: `test_bug85_add_clause_claims.py`.
+shared shapes are now implemented in MEC-179. Tests: `test_bug85_add_clause_claims.py`.
 
 Spend-restriction vocabulary widened (MEC-174, parser 1067, +23): `mana_riders.parse_restriction` gains
 `ability_only` ("to activate abilities [of <source>]"), `type_list_spell` (a list of card types, subtypes or
@@ -1066,6 +1066,14 @@ plus decayed tokens and grants (702.147). Graft and increment recheck their inte
 (RULE 603.4, `ConditionalEffect`; new condition `cast_mana_exceeds_source_stat`). Extort, decayed, provoke,
 ingest and increment are grantable; unleash, sunburst and gravestorm only work printed. Echo sees control
 changes made by `control.gain_control` only (an Aura's layer-2 change is a documented gap).
+
+### Cast and zone keyword support and mana production (MEC-176–179, parser 1070)
+
+- **MEC-176:** Printed Ripple reveals in order, offers same-name casts during resolution, then orders the remaining cards on the library bottom. Epic locks spellcasting and creates copies on the controller's upkeeps. Offering uses the sacrificed permanent's mana symbols to reduce the spell's cost. Conspire taps two color-matching creatures as an optional cost and uses the shared copy trigger. Conspire grants remain open. Offering is exposed as its own cast option, with an affordable hybrid reduction selected by the engine.
+- **MEC-177:** Printed Rebound, Overload, Sneak, Squad, Prototype, Awaken, Assist, Cipher, Casualty, Harmonize, Spectacle, Freerunning, Web-slinging, Impending, Prowl, Aura swap and Transfigure use the shared cast, entry, payment, copy and targeting paths. Squad's dash costs support discarding and exiling cards. Alternative casts retain the chosen variant through resolution and check the selected costs and targets again at payment.
+- **MEC-178:** Disturb casts the transformed face from the graveyard and substitutes exile for its graveyard destination. Craft selects materials across battlefield and graveyard and links their exile visits to the returned transformed permanent. Umbra armor participates in destroy-replacement ordering. Reinforce discards from hand, Recover offers payment when a creature dies, and Aftermath casts the back half from the graveyard and exiles it on leaving the stack. Companion setup moved to MEC-144 for outside-the-game designation and deck validation.
+- **MEC-179:** Distinct-color mana offers two different colored pips. Storage lands pay the announced X in counters and offer legal color splits. Cast-potential evaluation accounts for the shared counter supply and payment restrictions. The Add-clause parity checks cover both shapes.
+- **Regression tests:** `test_mec176_keywords.py`, `test_mec177_cast_keywords.py`, `test_mec178_keyword_behaviour.py`, `test_bug85_add_clause_claims.py` and `test_bug86_every_half_verdict.py`.
 
 ### Zone-aware keyword grants (ENG-67, PARSER_VERSION 1013, +6)
 

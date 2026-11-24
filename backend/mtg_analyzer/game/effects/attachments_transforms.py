@@ -1614,14 +1614,21 @@ class ReturnSelfFromGraveyardToHandEffect(GameEffect):
 
     #: ``"library_top"`` — "Put this card from your graveyard on top of your library." (PAR-162, Champion of Stray
     #: Souls/Gate Colossus): the same untargeted source-from-the-graveyard shape with a library destination.
-    def __init__(self, source: Optional["GameObject"] = None, destination: str = "hand") -> None:
+    def __init__(self, source: Optional["GameObject"] = None, destination: str = "hand",
+                 exact_visit: bool = False) -> None:
         super().__init__(source)
-        self.destination = destination if destination in ("hand", "library_top") else "hand"
+        self.destination = destination if destination in ("hand", "library_top", "exile") else "hand"
+        self.exact_visit = exact_visit
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.source is None or self.source.zone != Zone.GRAVEYARD:
             return
-        context.return_from_graveyard(self.source, self.destination)
+        if self.exact_visit and context.resolving_source_incarnation != self.source.zone_incarnation:
+            return  # RULE 400.7: the resolving ability refers to the original graveyard visit.
+        if self.destination == "exile":
+            context.engine.exile(self.source)
+        else:
+            context.return_from_graveyard(self.source, self.destination)
 
 
 class PutSelfOntoBattlefieldFromHandEffect(GameEffect):

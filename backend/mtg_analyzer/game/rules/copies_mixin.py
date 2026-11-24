@@ -147,7 +147,10 @@ def _creature_type_options(state: GameState, controller_id: Optional[str]) -> li
 
 # RULE 707.10: casting choices are copied; cast history and mana expenditure are not.
 _SPELL_COPY_CHOICES = (
-    "kicker_count", "kicker_costs_paid", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
+    "prowl_cost_paid",
+    "impending_cost_paid",
+    "cast_via_sneak", "sneak_defender",
+    "squad_count", "kicker_count", "kicker_costs_paid", "kicker_x_paid", "additional_cost_paid", "teamwork_paid", "bargained",
     "gift_promised", "gift_recipient_id", "blitz_cost_paid", "emerge_cost_paid", "offered_additional_costs",
     "bestowed", "cast_via_mutate", "mutate_under",
     "sacrificed_cost_mana_value", "sacrificed_cost_power", "sacrificed_cost_toughness",
@@ -441,6 +444,9 @@ class CopiesMixin:
                 x=item.x,
                 target_groups=item.target_groups if new_targets is None else None,
             )
+            copy_item.omits_epic = item.omits_epic
+            if copy_item.omits_epic:
+                copy_obj.intrinsic_keywords.discard("epic")
             if new_targets is None:
                 copy_item.target_incarnations = list(item.target_incarnations)
             copies.append(copy_item)

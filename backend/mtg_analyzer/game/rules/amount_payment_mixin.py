@@ -62,6 +62,11 @@ class AmountPaymentMixin:
         return ActivationCost(pay_energy=amount)
 
     def _advance_amount_payment(self, pending):
+        if pending is self.state.pending_assist or pending.get("stage") in {"helper_mana", "caster_mana", "contribution"}:
+            from ..assist import advance
+
+            advance(self, pending)
+            return
         resource = pending["resource"]
         order = pending["order"]
         while True:
@@ -108,13 +113,19 @@ class AmountPaymentMixin:
         pending = self.state.pending_amount_payment
         self.state.pending_choice = None
         self.state.pending_amount_payment = None
-        pending["index"] -= 1
+        if "index" in pending:
+            pending["index"] -= 1
         self.state.deferred_effects.append({"kind": self.DEFERRED_AMOUNT_PAYMENT, "pending": pending})
 
     @continuations.choice("amount_payment", rule="608.2d")
     def _resume_amount_payment(self, choice, answer):
         pending = self.state.pending_amount_payment
         self.state.pending_amount_payment = None
+        if pending is self.state.pending_assist:
+            from ..assist import resume_payment
+
+            resume_payment(self, pending, choice, answer)
+            return
         player = self.state.player_by_id(choice["player_id"])
         source, resource = pending["source"], pending["resource"]
         amount = self._pay_cost_then_x(answer, choice["max_amount"]) or 0
@@ -153,6 +164,19 @@ class AmountPaymentMixin:
         self.state.pending_amount_payment = None
         if not ending_game:
             self.state.deferred_effects.append({"kind": self.DEFERRED_AMOUNT_PAYMENT, "pending": pending})
+
+    @continuations.choice("assist_select", answer=continuations.ANSWER_STR, rule="702.132a")
+    def _resume_assist_select(self, choice, answer):
+        from ..assist import advance, assistants
+
+        pending = self.state.pending_assist
+        player = self.state.player_by_id(choice["player_id"])
+        if pending is None or answer not in {other.id for other in assistants(self.state, player)}:
+            self.state.pending_assist = None
+            return
+        pending["helper_id"] = answer
+        pending["stage"] = "helper_mana"
+        advance(self, pending)
 
     def _finish_amount_payment(self, pending):
         paid = pending["paid"]

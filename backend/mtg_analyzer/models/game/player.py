@@ -238,7 +238,7 @@ class Player:
         if zone not in self.zones:
             raise ValueError(f"{zone} is not a personal zone")
         obj.zone = zone
-        if (obj.transformed or obj.flipped) and obj._copy_zone_base is None:
+        if (obj.transformed or obj.flipped or obj.prototyped or obj.overloaded or obj.card.has_aftermath) and obj._copy_zone_base is None:
             # A copy's own face reset (`reset_as_new_object`, RULE 400.7) restores the pre-copy face itself.
             # RULE 712.6a / 710.4 / 400.7: outside the battlefield and the stack a double-faced or flip card has only
             # its front face (a spell cast converted, RULE 702.162a, or a transformed permanent that left play).

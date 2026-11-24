@@ -87,7 +87,7 @@ same "approximate the long tail rather than guess" convention
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
 from ..models.mana.mana_cost import ManaCost
@@ -171,10 +171,20 @@ def _spends_more_than_a_tap(cost: Any) -> bool:
     for the same reason a sacrifice is: milling (Deranged Assistant),
     exiling a hand card (Cadaverous Bloom), exerting (Arena of Glory) or
     sacrificing a counted group is a decision, not bookkeeping."""
-    return bool(cost.mill or cost.exile_hand_cards or cost.exert_self or cost.sacrifice_count)
+    return bool(
+        cost.mill or cost.exile_hand_cards or cost.exert_self or cost.sacrifice_count
+        or (cost.remove_counters and cost.remove_counters[1] == REMOVE_COUNTERS_X)
+    )
 
 
-def _is_net_positive_converter(ability: ManaAbility) -> bool:
+def _counter_mana_kind(ability: ManaAbility) -> Optional[str]:
+    removal = ability.cost.remove_counters
+    if ability.x_scaled and removal and removal[1] == REMOVE_COUNTERS_X and not ability.cost.remove_counters_from:
+        return removal[0]
+    return None
+
+
+def _is_net_positive_converter(ability: ManaAbility, counter_x: int = 1) -> bool:
     """A mana ability whose own cost itself spends mana, for a net gain —
     "pay one mana, get more mana back" (Selvala, Heart of the Wilds' own
     ``{G}``; a filter land's ``{B/G}, {T}: Add {B}{B}, {B}{G}, or {G}{G}.``).
@@ -184,7 +194,7 @@ def _is_net_positive_converter(ability: ManaAbility) -> bool:
     if not ability.cost.mana.symbols:
         return False
     best_production = max((sum(opt.values()) for opt in ability.options), default=0)
-    return best_production > ability.cost.mana.converted_mana_cost
+    return best_production * counter_x > ability.cost.mana.converted_mana_cost
 
 
 def _producible_colors(ability: ManaAbility) -> set:
@@ -252,6 +262,7 @@ class _Commitment:
     discarded: set = field(default_factory=set)
     returned: set = field(default_factory=set)
     unattached: set = field(default_factory=set)
+    counters_spent: dict = field(default_factory=dict)
     life: int = 0
     energy: int = 0
     graveyard_left: int = 0
@@ -337,8 +348,6 @@ def _non_mana_cost_payable(
         # `PAY_LIFE_X` and the other payment-time sentinels (half life,
         # commander colors) aren't a number this static check can subtract.
         return False
-    if cost.remove_counters and cost.remove_counters[1] in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
-        return False
 
     if cost.pay_life and commitment.life - cost.pay_life < 0:
         return False
@@ -346,7 +355,11 @@ def _non_mana_cost_payable(
         return False
     if cost.remove_counters:
         kind, count = cost.remove_counters
-        if obj.counters.get(kind, 0) < count:
+        available = obj.counters.get(kind, 0) - commitment.counters_spent.get((obj.instance_id, kind), 0)
+        if count in (REMOVE_COUNTERS_X, REMOVE_COUNTERS_ANY):
+            if not _counter_mana_kind(candidate.ability) or available <= 0:
+                return False
+        elif available < count:
             return False
     if cost.exile_from_graveyard and commitment.graveyard_left - cost.exile_from_graveyard < 0:
         return False
@@ -509,8 +522,15 @@ def _try_activate(
     if mana_cost.symbols and not pool.can_pay(mana_cost, life_available=commitment.life):
         return None
 
+    ability = candidate.ability
+    x = 0
+    kind = _counter_mana_kind(ability)
+    if kind is not None:
+        counter_key = (candidate.obj.instance_id, kind)
+        x = candidate.obj.counters.get(kind, 0) - commitment.counters_spent.get(counter_key, 0)
+        ability = replace(ability, options=[{c: n * x for c, n in opt.items()} for opt in ability.options])
     option, color_split = _choose_option(
-        candidate.ability, preferred_colors, cost=cost, pool=pool, life=commitment.life
+        ability, preferred_colors, cost=cost, pool=pool, life=commitment.life
     )
     produced = dict(color_split) if color_split is not None else dict(option or {})
     if not produced:
@@ -519,6 +539,10 @@ def _try_activate(
     if mana_cost.symbols:
         pool.pay(mana_cost, life_available=commitment.life)
     _commit_non_mana_cost(engine, player, candidate, commitment)
+    if ability.cost.remove_counters:
+        counter_kind, count = ability.cost.remove_counters
+        key = (candidate.obj.instance_id, counter_kind)
+        commitment.counters_spent[key] = commitment.counters_spent.get(key, 0) + (x if kind else count)
     pool.add_many(
         produced, restriction=candidate.ability.restriction,
         source_kind=mana_source_kind_for(candidate.obj),
@@ -526,7 +550,7 @@ def _try_activate(
 
     option_index = 0
     if color_split is None and option is not None:
-        option_index = candidate.ability.options.index(option)
+        option_index = ability.options.index(option)
     return TapStep(
         kind=candidate.kind,
         instance_id=candidate.obj.instance_id,
@@ -550,9 +574,30 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
     still need), then net-positive converters fired in a bounded
     fixed-point loop whenever doing so can only help ``color`` (flexible
     output, or fixed output that's already ``color``)."""
+    candidates = _sorted_candidates(_all_candidates(engine, player), {color})
+    baseline = _maximize_color_from(engine, player, color, candidates)
+    # A land that taps for colorless may have another ability that produces
+    # the requested color from the same tap. Try saving its tap for that
+    # production as well as the baseline that can use it to fund other sources.
+    preferred_taps = {
+        (candidate.obj.instance_id, candidate.ability_index) for candidate in candidates
+        if candidate.ability.cost.taps_self and color in _producible_colors(candidate.ability)
+        and candidate.obj.is_land
+    }
+    preferred_ids = {instance_id for instance_id, _ in preferred_taps}
+    alternatives = [
+        candidate for candidate in candidates
+        if candidate.obj.instance_id not in preferred_ids or not candidate.ability.cost.taps_self
+        or (candidate.obj.instance_id, candidate.ability_index) in preferred_taps
+    ]
+    if len(alternatives) == len(candidates):
+        return baseline
+    return max(baseline, _maximize_color_from(engine, player, color, alternatives))
+
+
+def _maximize_color_from(engine, player, color, candidates):
     pool = ManaPool()
     commitment = _Commitment.fresh(engine, player)
-    candidates = _sorted_candidates(_all_candidates(engine, player), {color})
     preferred = {color}
 
     zero_cost = [c for c in candidates if not c.ability.cost.mana.symbols]
@@ -572,7 +617,10 @@ def _maximize_color(engine: Any, player: Player, color: str) -> int:
                 (flexible is not None and color in flexible)
                 or any(color in opt for opt in ability.options)
             )
-            if not (helps_color and _is_net_positive_converter(ability)):
+            counter_kind = _counter_mana_kind(ability)
+            counter_x = candidate.obj.counters.get(counter_kind, 0) if counter_kind else 1
+            worthwhile = _is_net_positive_converter(ability, counter_x) or (counter_kind is not None and counter_x > 0)
+            if not (helps_color and worthwhile):
                 still_untried.append(candidate)
                 continue
             step = _try_activate(engine, player, candidate, commitment, pool, preferred)

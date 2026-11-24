@@ -558,6 +558,8 @@ _STATIC_CONDITION_RES: list[tuple[re.Pattern[str], Any]] = [
     # PAR-139 / RULE 702.35: "(if) its / this spell's madness cost was paid" — `GameObject.madness_cost_paid`.
     (re.compile(r"(?:its|this spell'?s) madness cost was paid", re.I),
      lambda m: {"kind": "flag", "flag": "madness_cost_paid"}),
+    (re.compile(r"(?:its|this spell'?s) prowl cost was paid", re.I),
+     lambda m: {"kind": "flag", "flag": "prowl_cost_paid"}),
     # RULE 702.117: "(if) its / this spell's surge cost was paid" — `GameObject.surge_cost_paid`.
     (re.compile(r"(?:its|this spell'?s) surge cost was paid", re.I),
      lambda m: {"kind": "flag", "flag": "surge_cost_paid"}),

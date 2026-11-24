@@ -3202,6 +3202,13 @@ def requirements_with_targets(
         add_target_budget_metadata(state, spec, entry)
         if isinstance(spec.count_selector, str) and spec.count_selector in {"source_x_paid", "source_twice_x_paid"}:
             entry["count_from_x"] = 2 if spec.count_selector == "source_twice_x_paid" else 1
+        bounds = [read_stat for key, read_stat in SOURCE_X_STAT_BOUND_KEYS.items()
+                  if (spec.creature_filter or {}).get(key)]
+        if bounds:
+            for option in entry["options"]:
+                target = state.find_object(option.get("instance_id"))
+                if target is not None:
+                    option["minimum_x"] = max(read_stat(target) or 0 for read_stat in bounds)
         if spec.count_max is not None:
             entry["count_max"] = spec.count_max
         out.append(entry)

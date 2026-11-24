@@ -74,8 +74,8 @@ def test_real_evoke_costs_still_parse():
 
 def test_casualty_copy_rider_is_not_swallowed():
     assert not is_keyword_line("casualty x. the copy isn't legendary and has starting loyalty x.")
-    # BUG-75: bare Casualty has no engine behaviour either, so the plain line is refused as well.
-    assert not is_keyword_line("casualty 2")
+    # MEC-176: bare Casualty is wired (optional creature-sacrifice cost + copy trigger), so the plain line parses.
+    assert is_keyword_line("casualty 2")
 
 
 # -- real keyword lines keep parsing -----------------------------------------

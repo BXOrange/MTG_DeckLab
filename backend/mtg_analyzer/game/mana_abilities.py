@@ -76,6 +76,7 @@ parameter).
 from __future__ import annotations
 
 import re
+from itertools import combinations
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
@@ -83,6 +84,9 @@ from ..parser.oracle.catalogue.count_phrase import parse_amount_phrase
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
 from ..parser.oracle.mana_riders import (
     COUNT_WORDS,
+    SELF_COUNTER_X_COST_RE,
+    TWO_DISTINCT_MANA_RE,
+    X_COUNTER_MANA_RE,
     NONARTIFACT_CAST_BAN_KIND,
     PLAYER_COUNTER_RIDER_RE,
     SOURCE_COUNTER_RIDER_RE,
@@ -113,7 +117,7 @@ from ..parser.oracle.mana_riders import (
 from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
 from ..models.cards.card_colors import effective_colors
-from .costs import ActivationCost, parse_activation_cost
+from .costs import REMOVE_COUNTERS_X, ActivationCost, parse_activation_cost
 
 #: Colours the five basic lands produce, by their basic land *type*.
 BASIC_LAND_MANA = {
@@ -373,8 +377,8 @@ _GREATEST_POWER_CONTROL_RE = re.compile(
 
 
 def _parse_combination_selector(
-    raw_clause: str, card_name: Optional[str] = None
-) -> Optional[tuple[dict[str, Any], Optional[tuple[str, ...]]]]:
+    raw_clause: str, card_name: Optional[str] = None, *, announced_x: bool = False,
+) -> Optional[tuple[Optional[dict[str, Any]], Optional[tuple[str, ...]]]]:
     """"<amount> mana in any combination of <colours>[, where X is
     <subject>]" (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's
     variable "X"; Vivi Ornitier's own-power "X" over a *restricted*
@@ -402,7 +406,7 @@ def _parse_combination_selector(
     if amount_word == "x":
         subject = m.group("subject")
         if subject is None:
-            return None
+            return (None, combination_colors) if announced_x else None
         subject = subject.strip()
         if _GREATEST_POWER_CONTROL_RE.match(subject):
             return {"kind": "greatest_power_control"}, combination_colors
@@ -1194,7 +1198,13 @@ def _parse_mana_ability_lines(
         if cost.exile_self_from_hand != want_hand_exile:
             continue
         rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
-        combination_match = _parse_combination_selector(add_match.group(1), name)
+        add_clause = add_match.group(1).strip()
+        # RULE 602.2b: the same announced X pays the storage counters and sets production.
+        counter_x = bool(
+            cost.remove_counters and cost.remove_counters[1] == REMOVE_COUNTERS_X
+            and SELF_COUNTER_X_COST_RE.search(cost_text) and X_COUNTER_MANA_RE.fullmatch(add_clause)
+        )
+        combination_match = _parse_combination_selector(add_clause, name, announced_x=counter_x)
         if combination_match is not None:
             combination_selector, combination_colors = combination_match
             damage_match = _SELF_DAMAGE_RE.search(folded_effect)
@@ -1207,6 +1217,7 @@ def _parse_mana_ability_lines(
                 cost=cost,
                 options=[{color: 1} for color in (combination_colors or _ALL_COLORS)],
                 amount_selector=combination_selector,
+                x_scaled=counter_x,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
                 self_damage_unless_subtype=damage_unless_match.group("subtype") if damage_unless_match else None,
@@ -1890,6 +1901,9 @@ def _basic_options(card: Any) -> list[dict[str, int]]:
 
 
 def _parse_clause(clause: str) -> list[dict[str, int]]:
+    if TWO_DISTINCT_MANA_RE.fullmatch(clause.strip()):
+        # RULE 106.1a / 605.3b: choose two distinct colors as the ability resolves.
+        return [{first: 1, second: 1} for first, second in combinations(_ALL_COLORS, 2)]
     lowered = clause.lower()
     if any(phrase in lowered for phrase in _ANY_COLOR_PHRASES):
         # "one mana of any colour" / "three mana of any one colour" / "X

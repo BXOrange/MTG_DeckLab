@@ -52,6 +52,7 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
     opening_hand_reveal_permission_line,
 )
+from .catalogue.overload import variant as overload_variant
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
 from .catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, EVENT_PLAYER_EVENTS_KEY
@@ -86,7 +87,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1069"
+PARSER_VERSION = "1070"
 
 
 def parser_source_hash() -> str:
@@ -760,6 +761,17 @@ def parse_oracle(card: Any) -> ParseResult:
             cached = _merge_flip_halves(parse_oracle(flip[0]), parse_oracle(flip[1]))
         else:
             cached = _parse_oracle_uncached(card)
+            if cached.modeled and any(
+                (spec.keyword or {}).get("name") == "overload" for spec in cached.specs
+            ):
+                altered = overload_variant(card)
+                transformed = parse_oracle(altered) if altered is not None else None
+                if transformed is None or not transformed.modeled:
+                    residue = list(transformed.unclaimed) if transformed else []
+                    cached = ParseResult(
+                        specs=cached.specs, coverage=UNMODELED,
+                        unclaimed=[f"Overload: {line}" for line in residue] or ["Overload"],
+                    )
         _PARSE_CACHE[key] = cached
     return copy.deepcopy(cached)
 

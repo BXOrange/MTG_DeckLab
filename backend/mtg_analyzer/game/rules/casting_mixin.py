@@ -458,6 +458,11 @@ class CastingResolutionMixin:
             if param and int(param.get("n", 0) or 0) > 0:
                 self._add_entry_counters(obj, kind, int(param["n"]) * (int(param.get("instances", 1)) if keyword == "modular" else 1))
 
+        if obj.impending_cost_paid:
+            # RULE 702.176a: the discounted cast enters with time counters.
+            count = int((obj.parametric_keywords.get("impending") or {}).get("n") or 0)
+            if count:
+                self._add_entry_counters(obj, "time", count)
         self._add_bloodthirst_counters(obj)
         self._add_printed_sunburst_counters(obj)
         # RULE 702.156a Ravenous: "enters with X +1/+1 counters on it" (X is the announced {X}).
@@ -1025,6 +1030,10 @@ class CastingResolutionMixin:
         explicitly, so `check_ward` below and every other flat-``targets``
         consumer still sees every chosen target.
         """
+        if player.id in self.state.epic_cast_prohibitions:
+            raise ValueError("Epic prevents this player from casting spells")
+        if obj.card.has_aftermath and obj.zone != Zone.GRAVEYARD:
+            raise ValueError("Aftermath can only be cast from a graveyard")
         from ..physical_properties import cast_lines
         physical_lines = cast_lines(self.state, obj, player.id)
         if target_groups is not None and targets is None:
@@ -1038,12 +1047,13 @@ class CastingResolutionMixin:
             self._effects_for_spell(obj), targets, target_groups,
             getattr(obj, "_announced_damage_divisions", None), self.state,
         )
-        # RULE 702.88b Rebound: cast from hand arms the "exile instead of
+        # RULE 702.88a Rebound: cast from hand arms the "exile instead of
         # graveyard, then reopen a free-cast window next upkeep" behaviour
         # `resolve_top_of_stack` checks for below — recast later from that
         # same window (zone already EXILE here), Rebound doesn't repeat.
-        if getattr(obj, "has_rebound", False) and obj.zone == Zone.HAND:
-            obj.rebound_pending = True
+        obj.rebound_pending = obj.zone == Zone.HAND and (
+            obj.has_rebound or "rebound" in obj.intrinsic_keywords
+        )
         obj.was_cast_from_hand = obj.zone == Zone.HAND
         obj.was_cast_from_graveyard = obj.zone == Zone.GRAVEYARD  # RULE 601.2a (Ignite the Future's free-cast rider)
         # RULE 702.88b's own free-cast window (`ReboundFreeCastWindowEffect`)
@@ -1418,6 +1428,10 @@ class CastingResolutionMixin:
         as in `cast_spell` — a free cast of a two-requirement spell is still
         a cast of that spell.
         """
+        if player.id in self.state.epic_cast_prohibitions:
+            raise ValueError("Epic prevents this player from casting spells")
+        if obj.card.has_aftermath and obj.zone != Zone.GRAVEYARD:
+            raise ValueError("Aftermath can only be cast from a graveyard")
         from ..physical_properties import cast_lines
         physical_lines = cast_lines(self.state, obj, player.id)
         if target_groups is not None and targets is None:
@@ -1426,6 +1440,8 @@ class CastingResolutionMixin:
         cast_from_zone = obj.zone.value if obj.zone is not None else None
         cast_from_incarnation = obj.zone_incarnation
         obj.cast_from_zone = cast_from_zone
+        obj.was_cast_from_hand = obj.zone == Zone.HAND
+        obj.rebound_pending = obj.was_cast_from_hand and (obj.has_rebound or "rebound" in obj.intrinsic_keywords)
         obj.cast_from_exile = obj.zone == Zone.EXILE
         continuous.recompute(self.state)
         obj.greatest_creature_power_as_cast = continuous.count_selector(
@@ -1866,8 +1882,96 @@ class CastingResolutionMixin:
         game object's own ``static_effects`` list is used as a hook so
         tests/fixtures can attach behavior without a parser yet.
         """
-        return [*getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])),
-                *getattr(obj, "_splice_effects", [])]
+        effects = [*getattr(obj, "_announced_division_effects", getattr(obj, "spell_effects", [])),
+                   *getattr(obj, "_splice_effects", [])]
+        if "cipher" in obj.intrinsic_keywords and not getattr(obj, "is_copy", False):
+            from ..effects.cipher import EncodeCipherEffect
+
+            effects.append(EncodeCipherEffect(source=obj))
+        return effects
+
+    @continuations.choice("harmonize_payment", answer=continuations.ANSWER_STR, rule="702.180")
+    def _resume_harmonize_payment(self, choice, answer):
+        from ..game_engine import GameEngine
+
+        params = self.state.pending_harmonize_cast
+        self.state.pending_harmonize_cast = None
+        if params is None or answer == "decline":
+            return
+        selected = next((option for option in choice["options"] if option["id"] == answer), None)
+        source = self.state.find_object(choice["source_id"])
+        player = self.state.player_by_id(choice["player_id"])
+        if selected is None or source is None or source.zone_incarnation != choice["source_visit"]:
+            return
+        picks = []
+        if answer != "none":
+            creature = self.state.find_object(int(answer))
+            if creature is None or creature.zone_incarnation != selected["visit"]:
+                return
+            picks.append(creature.instance_id)
+        params["tap_choices"] = picks
+        GameEngine(self.state, rules=self).cast_spell(player, source, **params)
+
+    @continuations.choice("craft_materials", answer=continuations.ANSWER_STR, rule="702.167")
+    def _resume_craft_materials(self, choice, answer):
+        from ..craft import offer_materials
+        from ..game_engine import GameEngine
+
+        if answer == "decline":
+            return
+        source = self.state.find_object(choice["source_id"])
+        player = self.state.player_by_id(choice["player_id"])
+        if source is None or source.zone_incarnation != choice["source_visit"]:
+            return
+        index = choice["ability_index"]
+        abilities = source.activated_abilities + source.granted_activated_abilities
+        if not 0 <= index < len(abilities) or abilities[index].cost.craft_materials is None:
+            return
+        if answer not in {option["id"] for option in choice["options"]}:
+            raise ValueError("Choose a listed Craft material")
+        picks = list(choice["picks"])
+        if answer != "done":
+            picks.append(int(answer))
+        for instance_id in picks:
+            obj = self.state.find_object(instance_id)
+            if obj is None or obj.zone_incarnation != choice["visits"].get(str(instance_id)):
+                return
+        if answer == "done":
+            GameEngine(self.state, rules=self).activate_ability(player, source, index, tap_choices=picks)
+        else:
+            offer_materials(self, player, source, index, abilities[index].cost.craft_materials, picks)
+
+    @continuations.choice("aura_swap", answer=continuations.ANSWER_STR, rule="702.65")
+    def _resume_aura_swap(self, choice, answer):
+        from ..effects.aura_swap import options_for
+
+        player = self.state.player_by_id(choice["player_id"])
+        source = self.state.find_object(choice["source_id"])
+        if source is None or source.zone_incarnation != choice["visit"]:
+            return
+        incoming = options_for(self, player, source).get(answer)
+        if incoming is None:
+            return
+        host = self.state.find_object(source.attached_to)
+        # RULE 701.12e: the incoming Aura is attached as it enters.
+        with self.state.simultaneous():
+            self.return_to_hand(source)
+            self.return_from_graveyard(incoming, "battlefield", controller_id=player.id, attach_to=host)
+
+    @continuations.choice("cipher_encode", answer=continuations.ANSWER_STR, rule="702.99")
+    def _resume_cipher_encode(self, choice, answer):
+        source = self.state.pending_cipher_source
+        self.state.pending_cipher_source = None
+        if source is None or source.zone != Zone.STACK or answer not in choice["visits"]:
+            return
+        host = self.state.find_object(int(answer))
+        if (host is None or host not in self.state.permanents() or not host.is_creature
+                or host.controller_id != choice["player_id"] or host.zone_incarnation != choice["visits"][answer]):
+            return
+        self.exile(source)
+        if source.zone == Zone.EXILE:
+            source.cipher_encoded_on = (host.instance_id, host.zone_incarnation)
+
     @staticmethod
     def _substitute_x(effects: list[Any], x: int) -> None:
         """Replace the ``"x"``/``"-x"`` sentinel amount/count/power/
@@ -2740,6 +2844,18 @@ class CastingResolutionMixin:
         if self.is_permanent_spell(obj.card):
             self._resolve_permanent_spell(item, obj)
             return True
+        if "epic" in obj.intrinsic_keywords and not item.omits_epic:
+            from ..copy_event_state import freeze
+            from ..effects.keyword_mechanics import EpicCopyEffect
+
+            # RULE 702.50a: only a resolving Epic spell establishes the lock and recurring copy.
+            self.state.epic_cast_prohibitions.add(item.controller_id)
+            recipe = freeze(self, item)
+            recipe.omits_epic = True
+            self.state.delayed_triggers.append(DelayedTrigger(
+                controller_id=item.controller_id, step="upkeep", repeats=True,
+                effects=[EpicCopyEffect(recipe)], description=f"{obj.name}: Epic",
+            ))
         if obj.adventure_snapshot is not None:
             # RULE 716.3d: the Adventure instant/sorcery resolved — exile
             # the card (as the creature, not the spell half) instead of
@@ -2765,8 +2881,8 @@ class CastingResolutionMixin:
             # an Unsummon-style bounce uses.
             obj.buyback_paid = False
             self.return_to_hand(obj)
-        elif obj.rebound_pending:
-            # RULE 702.88b: a Rebound spell cast from hand is exiled
+        elif obj.rebound_pending and obj.zone == Zone.STACK:
+            # RULE 702.88a: a Rebound spell cast from hand is exiled
             # instead of going to the graveyard, then a delayed trigger
             # reopens its free-cast window at the controller's next
             # upkeep (`ReboundFreeCastWindowEffect`).
@@ -2868,6 +2984,8 @@ class CastingResolutionMixin:
             obj.tapped = card_registry.enters_tapped(obj.card) or continuous.enters_tapped_from_static(
                 self.state, obj
             ) or bool(getattr(obj, "enters_tapped_from_cast_grant", False))
+            if obj.cast_via_sneak:
+                obj.tapped = True  # RULE 702.190b: the permanent enters tapped.
             if obj.tapped and continuous.enters_untapped_from_static(self.state, obj):
                 obj.tapped = False  # a land entering by an effect, under Horizon Explorer
             self._apply_entry_counters(obj, x_paid=getattr(obj, "x_paid", 0) or 0)
@@ -2884,6 +3002,8 @@ class CastingResolutionMixin:
 
             previous_visit = obj.zone_incarnation
             self.state.add_to_battlefield(obj, saga_lore_override=read_ahead_count)
+            if obj.cast_via_sneak and obj.sneak_defender is not None:
+                self.put_onto_battlefield_attacking(obj, defender=obj.sneak_defender)
             # RULE 400.7 / 607.2q: links established by casting costs or
             # an as-enters replacement belong to the resulting permanent.
             linked = self.state.linked_exile_visits.get((obj.instance_id, previous_visit))

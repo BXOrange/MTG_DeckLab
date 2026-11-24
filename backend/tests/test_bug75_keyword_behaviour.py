@@ -63,14 +63,14 @@ def test_a_card_whose_text_is_such_a_keyword_is_unmodeled(slug):
 
 def test_the_keyword_flag_is_still_attached_to_the_object():
     # Refusing the claim does not drop the recognised keyword: the object keeps it (RULE 702 recognition) and the card is UNMODELED.
-    result = parse_oracle(_creature("Rebound", "Rebound"))
+    result = parse_oracle(_creature("For Mirrodin!", "For Mirrodin!"))
     assert result.coverage == UNMODELED
-    assert [s.keyword["name"] for s in result.specs if s.ability_kind == "keyword"] == ["rebound"]
+    assert [s.keyword["name"] for s in result.specs if s.ability_kind == "keyword"] == ["for_mirrodin"]
 
 
 def test_a_refused_keyword_beside_a_working_one_leaves_the_card_unmodeled():
     card = Card(id="K", name="Kw Bench", type_line="Creature — Human", is_creature=True, power=1, toughness=1,
-                oracle_text="Flying\nRebound", keywords=["Flying", "Rebound"])
+                oracle_text="Flying\nFor Mirrodin!", keywords=["Flying", "For Mirrodin!"])
     assert parse_oracle(card).coverage == UNMODELED
 
 
@@ -81,9 +81,8 @@ def test_a_flag_keyword_without_behaviour_cannot_be_granted(slug):
 
 
 @pytest.mark.parametrize("line", [
-    "recover\u2014pay half your life, rounded up.", "squad\u2014{1}, discard a card.", "casualty 2", "craft with artifact {2}{r}",
+    "squad\u2014{1}, draw a card.",
     "companion \u2014 your starting deck contains no cards with a silver, gold, orange, or purple expansion symbol.",
-    "artifact offering",
 ])
 def test_compound_and_labelled_shapes_of_a_refused_keyword_are_refused_too(line):
     assert not is_keyword_line(line)

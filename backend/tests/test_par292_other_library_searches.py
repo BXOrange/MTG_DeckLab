@@ -18,9 +18,8 @@ def test_claimed_cards_are_modeled(name):
     assert _modeled(name)
 
 
-def test_earwig_squad_stays_open_until_the_prowl_alternative_cost_exists():
-    # its search sentence reads, but "if its prowl cost was paid" has no engine flag (no prowl cast): not claimed
-    assert not _modeled("Earwig Squad")
+def test_earwig_squad_is_modeled_with_prowl():
+    assert _modeled("Earwig Squad")
 
 
 @pytest.fixture

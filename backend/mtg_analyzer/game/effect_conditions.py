@@ -964,6 +964,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "gift_promised": _flag("gift_promised"),  # RULE 702.174k (MEC-106)
     "madness_cost_paid": _flag("madness_cost_paid"),  # RULE 702.35 (PAR-139)
     "blitz_cost_paid": _flag("blitz_cost_paid"),  # RULE 702.152
+    "prowl_cost_paid": _flag("prowl_cost_paid"),
     "surge_cost_paid": _flag("surge_cost_paid"),  # RULE 702.117
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),

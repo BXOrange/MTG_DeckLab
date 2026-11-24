@@ -11,6 +11,9 @@ from ..catalogue.clause_primitives import (
     ONCE_PER_TURN_MARKER,
     POWERUP_COST_REDUCTION_MARKER,
 )
+from ..catalogue.keywords import KEYWORDS, PROTOTYPE_RE, RECOVER_LIFE_RE, SQUAD_DASH_RE
+from ..catalogue.overload import OVERLOAD_LINE_RE
+from ..catalogue.craft import parse_craft
 from ..spec import AbilitySpec, EffectSpec, ParserProvenance
 from .segment_types import Segment
 from .keyword_and_trigger_conditions import (
@@ -42,6 +45,18 @@ def is_keyword_line(line: str) -> bool:
     # BUG-75: a keyword the engine does nothing with is not accounted for by the keyword catalogue.
     if names_inert_keyword(stripped):
         return False
+    if stripped.lower().startswith("assist"):
+        return stripped.rstrip(".").lower() == "assist"
+    if stripped.lower().startswith("craft"):
+        return parse_craft(stripped) is not None
+    if stripped.lower().startswith("overload"):
+        return OVERLOAD_LINE_RE.fullmatch(stripped) is not None
+    if stripped.lower().startswith("prototype"):
+        return PROTOTYPE_RE.fullmatch(stripped) is not None
+    if re.match(r"squad\s*[—–-]", stripped, re.I):
+        return SQUAD_DASH_RE.fullmatch(stripped) is not None
+    if stripped.lower().startswith("recover"):
+        return bool(RECOVER_LIFE_RE.fullmatch(stripped) or KEYWORDS["recover"].regex.fullmatch(stripped.rstrip(".")))
     if is_compound_keyword_line(stripped):
         return True
     raw_tokens = [t.strip() for t in stripped.split(",") if t.strip()]

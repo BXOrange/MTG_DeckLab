@@ -55,11 +55,11 @@ _KEYWORD_TOKEN_RE = re.compile(
     r"^(?:" + "|".join(re.escape(d) for d in _KEYWORD_DISPLAYS) + r")(?![a-z0-9]).*$"
 )
 #: BUG-75: a keyword-line token that opens on a keyword the engine has no behaviour for (`KEYWORDS_WITHOUT_BEHAVIOUR`), in
-#: any shape the line rows accept: the plain display word, or the quality shape "<Type> offering" (RULE 702.48).
+#: any shape the line rows accept that opens with the keyword’s display word.
 _INERT_KEYWORD_TOKEN_RE = re.compile(
     r"^(?:"
     + "|".join(re.escape(KEYWORDS[slug].display.lower()) for slug in sorted(KEYWORDS_WITHOUT_BEHAVIOUR, key=len, reverse=True))
-    + r")(?![a-z0-9])|^[a-z]+\s+offering\s*$"
+    + r")(?![a-z0-9])"
 )
 
 

@@ -331,6 +331,8 @@ class LandsMixin:
         # sorcery card may be cast this way ("if the resulting spell is an instant or sorcery spell"). It has the lowest
         # precedence: a card that also has Flashback/Escape/Retrace keeps that cost (one alternative cost per cast,
         # RULE 118.9a, and no UI to choose between two graveyard keywords yet).
+        if (obj.parametric_keywords.get("harmonize") or {}).get("cost"):
+            return "harmonize"
         if self._beam_me_up_source(obj) is not None:
             return "beam_me_up"
         return None

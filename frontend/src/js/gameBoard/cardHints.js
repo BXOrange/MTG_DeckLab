@@ -11,7 +11,12 @@ import { escapeHtml } from './html.js';
 const LOYALTY_COST_RE = /^\[([+-]?\d+)\]$/;
 
 export function faceHint(a) {
+  if (a.face === 'assist') return ' (Assist)';
   if (a.face === 'fuse') return t('bd.faceHint.fuse');
+  if (a.face === 'prototype' || a.face === 'overload') {
+    const keyword = a.face === 'prototype' ? 'Prototype' : 'Overload';
+    return a.cost_label ? ` (${keyword} — ${renderOracleText(a.cost_label)})` : ` (${keyword})`;
+  }
   // RULE 702.103: the Bestow cast is the same card name as the plain
   // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
   // than a redundant repeated name, the same treatment as Fuse above.

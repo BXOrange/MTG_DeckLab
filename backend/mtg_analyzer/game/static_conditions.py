@@ -496,6 +496,9 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "gift_promised",  # RULE 702.174k (MEC-106) — "if the gift was promised"
         "madness_cost_paid",  # RULE 702.35 (PAR-139) — "if its/this spell's madness cost was paid"
         "blitz_cost_paid",  # RULE 702.152: this instance was cast for blitz.
+        "impending_cost_paid",  # RULE 702.176
+        "prowl_cost_paid",  # RULE 702.76
+        "cast_via_sneak",
         "surge_cost_paid",  # RULE 702.117 — "if its/this spell's surge cost was paid"
         "emerge_cost_paid",  # RULE 702.119
         # RULE 601.2b's generic optional additional cost, stamped by

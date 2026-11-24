@@ -620,6 +620,12 @@ class RulesEngine(
                 and not (prevention_disabled and getattr(effect, "prevents_damage", False)
                          and not getattr(effect, "unpreventable_rider", False))
             ]
+            if current.type == EventType.DESTROY and current.get("by_effect"):
+                target = self.state.find_object(current.get("target_id"))
+                if target is not None and target.counters.get("shield", 0):
+                    from .effects.replacements import ShieldCounterDestroyReplacement
+
+                    applicable.insert(0, ShieldCounterDestroyReplacement(target))
             if not applicable:
                 break
             if len(applicable) > 1 and on_resolved is not None and not self.state.pending_choice:
@@ -680,6 +686,8 @@ class RulesEngine(
                 self._finish_mill(callback["player_id"], callback["count"], event)
             elif callback["kind"] == "shared_mill":
                 self._finish_shared_mill(callback, event)
+            elif callback["kind"] == "destroy":
+                self._finish_destroy(callback, event)
             elif callback["kind"] == "damage":
                 self._finish_damage(callback, event)
             elif callback["kind"] == "counter_spell":

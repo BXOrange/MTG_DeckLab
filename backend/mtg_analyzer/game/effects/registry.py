@@ -4078,7 +4078,10 @@ EffectRegistry.register(
     # Abzan Devotee/Aurora Eidolon &c) — the hand-destination sibling of
     # `return_self_from_graveyard` right above.
     "return_self_from_graveyard_to_hand",
-    lambda p: ReturnSelfFromGraveyardToHandEffect(),
+    lambda p: ReturnSelfFromGraveyardToHandEffect(
+        exact_visit=bool(p.get("exact_visit")),
+        destination="exile" if p.get("exile_instead") else "hand",
+    ),
 )
 EffectRegistry.register(
     # "Put this card from your graveyard on top of your library." (PAR-162 — Champion of Stray Souls, Gate Colossus).

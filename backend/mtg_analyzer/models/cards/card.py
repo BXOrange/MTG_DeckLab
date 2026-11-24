@@ -377,6 +377,13 @@ class Card:
         return self.layout == "split"
 
     @property
+    def has_aftermath(self) -> bool:
+        return self.is_split and any(
+            line.strip().lower().split(maxsplit=1)[0].rstrip(".") == "aftermath"
+            for line in self.oracle_text.splitlines() if line.strip()
+        )
+
+    @property
     def is_preparation(self) -> bool:
         """Whether the card has an inset "prepare spell" (RULE 723, layout).
 

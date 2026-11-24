@@ -740,3 +740,128 @@ def test_increment_trigger_does_nothing_if_the_creature_outgrew_the_mana_spent_b
     augmenter.counters["+1/+1"] = 3  # now 4/4 in response: three mana is greater than neither stat
     eng.resolve_until_stable()
     assert augmenter.counters.get("+1/+1") == 3
+
+
+def test_printed_rebound_recasts_at_next_upkeep():
+    from tests.support.star_trek import advance_to
+
+    eng = engine()
+    advance_to(eng, "main1")
+    spell = put(eng, "Survival Cache", zone=Zone.HAND)
+    player = eng.state.players[0]
+    assert parse_oracle(spell.card).modeled
+    player.mana_pool.add("W", 3)
+    eng.cast_spell(player, spell)
+    eng.resolve_until_stable()
+    assert player.life == STARTING_LIFE + 2
+    assert spell.zone == Zone.EXILE
+    for active_player in ("p2", "p1"):
+        advance_to(eng, "cleanup")
+        eng.advance_step()
+        advance_to(eng, "upkeep")
+        assert eng.state.active_player.id == active_player
+        eng.resolve_until_stable()
+        if active_player == "p2":
+            assert eng.state.pending_choice is None
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.play_resolution_card(player, spell)
+    eng.resolve_until_stable()
+    assert spell.zone == Zone.GRAVEYARD
+    assert player.life == STARTING_LIFE + 4
+
+
+def test_ripple_casts_a_revealed_match_from_library_and_orders_the_rest():
+    from tests.support.deck_batch import card, game, main_phase
+
+    eng = game()
+    main_phase(eng)
+    player, opponent = eng.state.players
+    spell = card(eng, "Surging Flame", zone=Zone.HAND)
+    match = card(eng, "Surging Flame", zone=Zone.LIBRARY)
+    assert parse_oracle(spell.card).modeled
+    player.mana_pool.add("R", 2)
+    eng.cast_spell(player, spell, targets=[opponent])
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "ripple_reveal"
+    eng.resolve_pending_choice("reveal")
+    assert eng.state.pending_choice["kind"] == "play_during_resolution"
+    eng.play_resolution_card(player, match, targets=[opponent])
+    assert eng.state.pending_choice["kind"] == "library_bottom"
+    while eng.state.pending_choice and eng.state.pending_choice["kind"] == "library_bottom":
+        eng.resolve_pending_choice(eng.state.pending_choice["options"][0]["id"])
+    eng.resolve_until_stable()
+    assert eng.state.pending_choice["kind"] == "ripple_reveal"
+    eng.resolve_pending_choice("decline")
+    eng.resolve_until_stable()
+    assert opponent.life == STARTING_LIFE - 4
+    assert match.zone == Zone.GRAVEYARD and spell.zone == Zone.GRAVEYARD
+
+
+def test_epic_prohibits_casts_and_copies_at_each_own_upkeep():
+    from tests.support.deck_batch import card, game, main_phase
+
+    eng = game()
+    main_phase(eng)
+    player = eng.state.players[0]
+    spell = card(eng, "Enduring Ideal", zone=Zone.HAND)
+    other_spell = card(eng, "Survival Cache", zone=Zone.HAND)
+    assert parse_oracle(spell.card).modeled
+    player.mana_pool.add("W", 10)
+    eng.cast_spell(player, spell)
+    eng.resolve_until_stable()
+    if eng.state.pending_choice:
+        eng.resolve_pending_choice("decline")
+    assert spell.zone == Zone.GRAVEYARD and not eng.can_cast(player, other_spell)
+    for _ in range(2):
+        eng._fire_delayed_triggers("upkeep")
+        eng.rules.resolve_top_of_stack()
+        assert eng.state.stack[-1].obj.is_copy and eng.state.stack[-1].omits_epic
+        eng.resolve_until_stable()
+        if eng.state.pending_choice:
+            eng.resolve_pending_choice("decline")
+        assert len(eng.state.delayed_triggers) == 1
+
+
+def test_conspire_taps_two_matching_creatures_and_copies_an_instant():
+    from tests.support.deck_batch import card, filler, game, main_phase
+
+    eng = game()
+    main_phase(eng)
+    player, opponent = eng.state.players
+    spell = card(eng, "Burn Trail", zone=Zone.HAND)
+    chosen = [filler(eng, f"Red {i}", power=1, toughness=1, mana_cost_string="{R}") for i in range(2)]
+    bystander = filler(eng, "Blue", power=1, toughness=1, mana_cost_string="{U}")
+    assert parse_oracle(spell.card).modeled
+    player.mana_pool.add("R", 4)
+    actions = [a for a in eng.legal_actions(player) if a.get("instance_id") == spell.instance_id]
+    paid = next(a for a in actions if a.get("pay_additional"))
+    ids = [obj.instance_id for obj in chosen]
+    assert {o["instance_id"] for o in paid["tap_cost"]["options"]} == set(ids)
+    assert not eng.can_cast(player, spell, pay_additional=True, tap_choices=[ids[0], bystander.instance_id])
+    eng.cast_spell(player, spell, targets=[opponent], pay_additional=True, tap_choices=ids)
+    eng.resolve_until_stable()
+    if eng.state.pending_choice:
+        keep = next(o for o in eng.state.pending_choice["options"] if o["id"] == "keep")
+        eng.resolve_pending_choice(keep["id"])
+    eng.resolve_until_stable()
+    assert all(obj.tapped for obj in chosen) and not bystander.tapped
+    assert opponent.life == STARTING_LIFE - 6
+
+
+def test_offering_can_pay_with_a_permanents_colored_pip_at_instant_speed():
+    from tests.support.deck_batch import card, filler, game
+
+    eng = game()
+    player = eng.state.players[0]
+    patron = card(eng, "Patron of the Kitsune", zone=Zone.HAND)
+    fox = filler(eng, "Fox", type_line="Creature — Fox", mana_cost_string="{2}{W}", power=2, toughness=2)
+    wrong_type = filler(eng, "Cleric", type_line="Creature — Cleric", mana_cost_string="{2}{W}", power=2, toughness=2)
+    assert parse_oracle(patron.card).modeled
+    player.mana_pool.add("W", 3)
+    assert not eng.can_cast(player, patron)
+    assert not eng.can_cast(player, patron, alt_cost=True, sacrifice_choice=wrong_type.instance_id)
+    assert eng.can_cast(player, patron, alt_cost=True, sacrifice_choice=fox.instance_id)
+    eng.cast_spell(player, patron, alt_cost=True, sacrifice_choice=fox.instance_id)
+    eng.resolve_until_stable()
+    assert fox.zone == Zone.GRAVEYARD and wrong_type.zone == Zone.BATTLEFIELD
+    assert patron.zone == Zone.BATTLEFIELD and player.mana_pool.total() == 0

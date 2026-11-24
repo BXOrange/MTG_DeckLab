@@ -272,7 +272,7 @@ class LegalActionsMixin:
                 {'instance_id': obj.instance_id, 'name': obj.name}
                 for obj in self._exile_spell_cost_pool(player)
             ]}
-        if ability.cost.exile_others:
+        if ability.cost.exile_others and ability.cost.craft_materials is None:
             count, word = ability.cost.exile_others
             action["exile_cost"] = {"count": count, "options": [
                 {"instance_id": obj.instance_id, "name": obj.name}
@@ -426,6 +426,7 @@ class LegalActionsMixin:
         bargained: bool = False,
         teamwork: bool = False,
         gift_opponent_id: Optional[str] = None,
+        assist_x: Optional[int] = None,
     ) -> dict[str, Any]:
         """A ``cast_spell`` legal-action entry, flagging ``{X}`` and targets.
 
@@ -482,8 +483,8 @@ class LegalActionsMixin:
         # this is the gift preview above, which stamped it on purpose).
         if not getattr(obj, "_gift_preview", False):
             obj.gift_promised, obj.gift_recipient_id = False, None
-        if face in ("back", "fuse"):
-            alt = obj.card.back_face() if face == "back" else obj.card.fuse_face()
+        if face in ("back", "fuse", "prototype", "overload"):
+            alt = self._face_card(obj, face)
             snapshot = self.rules.snapshot_face(obj)
             self.rules.switch_to_face(obj, alt)
             try:
@@ -491,6 +492,20 @@ class LegalActionsMixin:
             finally:
                 self.rules.restore_face(obj, snapshot)
             action["face"] = face
+            if face in ("prototype", "overload"):
+                action["cost_label"] = self.effective_cast_cost(player, obj, face=face).raw
+                action["effective_cost"] = action["cost_label"]
+            return action
+        if face == "disturb":
+            cost = self.effective_cast_cost(player, obj, face=face)
+            back = self._face_card(obj, face)
+            snapshot = self.rules.snapshot_face(obj)
+            self.rules.switch_to_face(obj, back)
+            try:
+                action = self._cast_action(player, obj)
+            finally:
+                self.rules.restore_face(obj, snapshot)
+            action.update(face=face, cast_from_graveyard=face, cost_label=cost.raw, effective_cost=cost.raw)
             return action
         if face == more_than_meets_the_eye.CONVERTED_FACE:
             # RULE 702.162a / 712.6b: preview the converted cast — ``obj`` is temporarily the back face (the
@@ -619,6 +634,15 @@ class LegalActionsMixin:
                         for candidate in self.state.permanents_controlled_by(player.id)
                         if self._emerge_payment(player, obj, candidate.instance_id) is not None
                     ]}
+                offering = self._offering_payment(player, obj)
+                if offering is not None:
+                    quality = obj.parametric_keywords["offering"]["quality"]
+                    action["alt_cost_label"] = f"{quality.capitalize()} offering"
+                    action["sacrifice_count_cost"] = {"count": 1, "options": [
+                        {"instance_id": candidate.instance_id, "name": candidate.name}
+                        for candidate in self.state.permanents_controlled_by(player.id)
+                        if self._offering_payment(player, obj, candidate.instance_id) is not None
+                    ]}
                 alt_cast_cost = getattr(obj, "alt_cast_cost", None) or (
                     continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
                     if obj is not None else None
@@ -677,7 +701,7 @@ class LegalActionsMixin:
             )
             if cost.has_variable or _add_has_x:
                 action["has_x"] = True
-                action["max_x"] = self.max_affordable_x(player, obj, warp=warp)
+                action["max_x"] = assist_x if assist_x is not None else self.max_affordable_x(player, obj, warp=warp)
                 if _add is not None and _add.sacrifice_count and _add.sacrifice_count[0] == SACRIFICE_COUNT_X:
                     action["max_x"] = min(action["max_x"], len(self._sacrifice_count_pool(player, _add.sacrifice_count[1], obj)))
                 if _add is not None and _add.sacrifice_count_mana_value_x:
@@ -692,13 +716,22 @@ class LegalActionsMixin:
             # how many times to pay it, the same "has_x/max_x" shape as {X}.
             kicker_cost = self._kicker_cost(obj)
             if kicker_cost is not None:
-                kicker_param = (getattr(obj, "parametric_keywords", None) or {}).get("kicker") or {}
                 action["has_kicker"] = True
                 action["kicker_cost"] = kicker_cost.raw
                 if "kicker" not in (getattr(obj, "parametric_keywords", None) or {}):
-                    action["kicker_keyword"] = "offspring"  # the UI titles the field by it
-                action["kicker_multi"] = bool(kicker_param.get("multi"))
+                    action["kicker_keyword"] = "squad" if "squad" in obj.parametric_keywords else "offspring"
+                action["kicker_multi"] = self._repeatable_extra_mana_cost(obj)
                 action["max_kicker"] = self.max_affordable_kicker(player, obj)
+                squad = obj.parametric_keywords.get("squad", {})
+                if squad.get("discard"):
+                    action["squad_discard_cost"] = {"count": squad["discard"], "options": [
+                        {"instance_id": card.instance_id, "name": card.name} for card in player.hand if card is not obj
+                    ]}
+                if squad.get("exile"):
+                    action["squad_exile_cost"] = {"count": squad["exile"], "options": [
+                        {"instance_id": card.instance_id, "name": card.name, "owner_id": card.owner_id}
+                        for card in player.graveyard if card is not obj
+                    ]}
                 if kicker_costs.is_multi_cost(obj):
                     # RULE 702.33b/d (ENG-62): "Kicker A and/or B" -- send ``kicked`` as a list of
                     # indices into ``kicker_costs``; ``kicker_options`` are the affordable combinations.
@@ -739,6 +772,8 @@ class LegalActionsMixin:
                                     player, len(player.graveyard), exile_filter) if card is not obj],
                 }
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
+            if obj.card.has_aftermath and obj in player.graveyard:
+                action["cast_from_graveyard"] = "aftermath"
             if graveyard_keyword is not None:
                 action["cast_from_graveyard"] = graveyard_keyword
                 if graveyard_keyword == "jump_start":
@@ -836,8 +871,13 @@ class LegalActionsMixin:
                 # discarded there. ``DISCARD_HAND`` ("discard your hand") isn't
                 # a choice, so it's excluded.
                 paying_additional = (not add_optional) or pay_additional
+                if paying_additional and additional_cost.tap_others and additional_cost.tap_others[1] == "conspire":
+                    action["tap_cost"] = self._tap_cost_choice(player, obj, additional_cost)
+                    action["additional_cost_label"] = "Conspire"
                 if paying_additional and additional_cost.sacrifice_count:
                     count, kind = additional_cost.sacrifice_count
+                    if kind == "casualty":
+                        action["additional_cost_label"] = f"Casualty {obj.parametric_keywords['casualty']['n']}"
                     pool = self._sacrifice_count_pool(player, kind, obj)
                     if count == SACRIFICE_COUNT_HALF:
                         from ..effect_amounts import pool_fraction
@@ -916,8 +956,14 @@ class LegalActionsMixin:
             action["effective_cost"] = reduced.raw
 
         from ..damage_division import requirements as division_requirements
-        with self._mode_effects_applied(obj, mode):
-            requirements = requirements_with_targets(self.state, player.id, obj)
+        with self._mode_effects_applied(obj, mode, alt_cost=alt_cost):
+            original_x = obj.x_paid
+            if assist_x is not None:
+                obj.x_paid = assist_x
+            try:
+                requirements = requirements_with_targets(self.state, player.id, obj)
+            finally:
+                obj.x_paid = original_x
             divisions = division_requirements(getattr(obj, "spell_effects", []), self.state)
         if divisions:
             action["damage_divisions"] = divisions
@@ -1097,6 +1143,16 @@ class LegalActionsMixin:
         """
         if self._plain_castable_now_or_via_potential(player, obj, face=face):
             return True
+        if face == "front" and "assist" in obj.intrinsic_keywords:
+            from ..assist import can_offer
+
+            if can_offer(self, player, obj):
+                return True
+        if face == "front" and any(
+            alternate in obj.parametric_keywords and self._plain_castable_now_or_via_potential(player, obj, face=alternate)
+            for alternate in ("prototype", "overload")
+        ):
+            return True
         # Aluren-shaped: a standing board-wide permission (`continuous.
         # has_standing_free_cast_permission`) is a second source of
         # "free-cast might be legal here", alongside the per-object
@@ -1111,7 +1167,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
-                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
+                or {'emerge', 'offering'} & obj.parametric_keywords.keys()
                 or (card is not None and continuous.granted_alt_cast_cost_for(self.state, player, card, obj))
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
@@ -1265,8 +1321,23 @@ class LegalActionsMixin:
         # the `temp_play_permissions` window that keeps it in a castable
         # zone would otherwise allow it.
         madness_exiled = getattr(obj, "madness_exiled", False) and obj.zone == Zone.EXILE
+        if not madness_exiled:
+            for face in ("prototype", "overload"):
+                if face in obj.parametric_keywords and self._plain_castable_now_or_via_potential(player, obj, face=face):
+                    actions.append(self._cast_action(player, obj, face=face))
         if not madness_exiled and self._plain_castable_now_or_via_potential(player, obj):
             actions.append(self._cast_action(player, obj))
+        if not madness_exiled and "assist" in obj.intrinsic_keywords:
+            from ..assist import affordable_x, generic
+
+            assist_x = affordable_x(self, player, obj)
+            if assist_x is not None:
+                action = self._cast_action(player, obj, assist_x=assist_x)
+                action["face"] = "assist"
+                if action.get("has_x"):
+                    if not generic(self.effective_cast_cost(player, obj, x=0)):
+                        action["min_x"] = max(action.get("min_x", 0), 1)
+                actions.append(action)
         if self.can_cast(player, obj, teamwork=True):
             actions.append(self._cast_action(player, obj, teamwork=True))
         # RULE 702.166: offer the paid Bargain variant alongside the ordinary
@@ -1300,7 +1371,7 @@ class LegalActionsMixin:
         if (
             (
                 getattr(obj, "alt_cast_cost", None) is not None
-                or 'emerge' in (getattr(obj, 'parametric_keywords', None) or {})
+                or {'emerge', 'offering'} & obj.parametric_keywords.keys()
                 or continuous.granted_alt_cast_cost_for(self.state, player, obj.card, obj)
             )
             and (not getattr(obj, "miracle", False) or getattr(obj, "miracle_armed", False))
@@ -1682,6 +1753,11 @@ class LegalActionsMixin:
             )
             if castable and self._castable_now_or_via_potential(player, obj):
                 self._offer_cast(actions, player, obj)
+            if self._disturb_cost(obj) is not None and self._castable_now_or_via_potential(player, obj, face="disturb"):
+                actions.append(self._cast_action(player, obj, face="disturb"))
+            back = obj.card.back_face() if obj.card.is_split else None
+            if back is not None and back.has_aftermath and self._castable_now_or_via_potential(player, obj, face="back"):
+                actions.append(self._cast_action(player, obj, face="back"))
             if (
                 obj.instance_id in self.state.temp_play_adventure_only
                 and obj.card.is_adventure

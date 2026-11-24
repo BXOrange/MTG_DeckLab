@@ -462,6 +462,7 @@ class ActivationCost:
     #: (`GameEngine._sacrifice_count_pool`, so the word may be a compound like ``other_artifact_creature_or_vehicle``). They are
     #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
     exile_others: Optional[tuple[int, str]] = None
+    craft_materials: Optional[dict[str, Any]] = None
     exile_others_total_mana_value_x: bool = False
     exile_instant_or_sorcery_spell: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne

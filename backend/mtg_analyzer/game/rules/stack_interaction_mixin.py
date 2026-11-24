@@ -267,7 +267,7 @@ class StackInteractionMixin:
                 changed = True
         return changed
     def _exile_instead_of_leaving_stack(self, obj: Any) -> bool:
-        """RULE 702.34a (Flashback) / 702.196a (Beam me up): "exile this card instead of putting it anywhere else any
+        """RULE 702.34a (Flashback) / 702.127a (Aftermath) / 702.196a (Beam me up): "exile this card instead of putting it anywhere else any
         time it would leave the stack". The single check every stack-departure path asks (resolution, fizzle,
         counter, bounce, library put, exile): when it applies the card is exiled here and ``True`` is returned, so the
         caller skips its own destination (and any Buyback, RULE 702.27a, or graveyard replacement). Gaining control

@@ -1056,7 +1056,7 @@ class GameSession:
                 decider = _physical_choice_decider(state, state.pending_choice)
                 # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
                 # priority, must not be able to answer it by posting the choice themselves.
-                payment_choice = choice.get("kind") == "amount_payment" or any(
+                payment_choice = choice.get("kind") in {"amount_payment", "assist_select"} or any(
                     frame.get("kind") == self.engine.rules.DEFERRED_AMOUNT_PAYMENT
                     for frame in state.deferred_effects
                 )
