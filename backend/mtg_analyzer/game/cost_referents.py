@@ -57,6 +57,24 @@ def referent_record(obj: "GameObject") -> dict[str, Any]:
     return record
 
 
+#: MEC-171 (RULE 608.2h): the `choose_objects` actions that move an object a later "When you do" payoff may measure, and
+#: the referent kind each one records it under ("you may discard a card. When you do, ... the discarded card's ...").
+CHOSEN_ACTION_REFERENT_KINDS: dict[str, str] = {
+    "discard": "discarded", "exile": "exiled", "sacrifice": "sacrificed", "tap": "tapped",
+}
+
+
+def referent_kind_for_action(action: str) -> Optional[str]:
+    """The referent kind a `choose_objects` ``action`` records, or ``None`` for an action nothing reads back."""
+    return CHOSEN_ACTION_REFERENT_KINDS.get(action)
+
+
+def forget_referents(holder: Optional["GameObject"], kind: str) -> None:
+    """A new instruction of one verb forgets what the previous one moved (a stale referent must not leak into it)."""
+    if holder is not None:
+        holder.cost_referents.pop(kind, None)
+
+
 def note_graveyard_visit(record: dict[str, Any], obj: "GameObject") -> None:
     """Remember the graveyard visit a cost's move created for ``obj`` (RULE 400.7: the card there is a new object), so
     "exile ~ and those creature cards" finds exactly the card the sacrifice put there -- nothing for a token or a card a

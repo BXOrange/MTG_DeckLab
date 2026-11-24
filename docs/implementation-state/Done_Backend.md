@@ -948,6 +948,23 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Files:** `game/{cost_referents,continuous,combat,effect_amounts}.py`, `game/effects/{core,composition,returns_graveyards}.py`, `game/engine/{activation_mixin,casting_mixin}.py`, `game/rules/{casting_mixin,copies_mixin}.py`, `models/game/{game_object,game_state}.py`; `parser/oracle/gate.py`, `catalogue/{count_phrase,cost_text,characteristic_phrase}.py`, `catalogue/effect_rows/damage_copy.py`, `segmenter/{activation_clauses,cost_line_patterns,effect_body,line_rows_abilities,overrides_and_amounts,where_x}.py`; tests `tests/test_mec145_cost_referents.py` (45).
 - **Validation:** `parser_probe` diffs against HEAD worktrees per milestone: v1016 +14, v1017 +5, v1018 +5, 0 regressed each (Essence Burn surfaced once and was withdrawn after execution showed the rider unarmed). Every claimed card executed on a real engine including the LKI case (the referent gone or changed before resolution), two activations on the stack and a paused resolution. `--full-cache` on the M1 tree: 26,346 passed / 4 skipped; final tree (with MEC-169): see the MEC-169 entry. Coverage at v1018: 26,595 / 35,493 (74.9%).
 
+**Reflexive triggers read the recorded referent (MEC-171, PARSER_VERSION 1065, +7).** RULE 603.12 / 608.2h:
+"you may <discard / exile from your graveyard / sacrifice / tap ...>. When you do, <effect reading that object>".
+Generalises `pay_cost_then` / `reflexive_trigger` and the records above, no parallel primitive:
+`_request_choose_objects(record_referent=True)` snapshots each pick into `cost_referents` before it moves
+(`CHOSEN_ACTION_REFERENT_KINDS`: discard, exile, sacrifice, tap; a new instruction replaces the old record);
+`_pay_player_cost` makes a plain discard, graveyard exile and sacrifice a real, declinable, recorded choice
+(a plain discard used to throw away the last card of the hand); `ActivationCost.exile_from_graveyard_other`
+keeps a dying source from paying for itself (RULE 109.5). `enqueue_reflexive_trigger` snapshots the stamps
+onto `TriggeredAbility.cost_stamps`, `_place_trigger` onto `StackItem.cost_stamps`, so the payoff reads LKI
+from the stack. Parser: plain "Sacrifice a creature. When you do" becomes `choose_objects{record_referent}`
+plus a payoff on `sacrificed_cost_*`; "When you discard a card this way" links like "When you do"; new filter
+`shares_creature_type_with_referent`. Cards: Mount Velus Manticore, Wolf of Devil's Breach, Minsc & Boo
+(-2, incl. the Hamster draw), Resplendent Marshal, Endemic Plague, Hypothesizzle, Serum-Core Chimera. Argentum
+Masticore, Nihiloor, Grishnákh need MEC-172's target bound; one-offs in `singletons.md` ("Reflexive-referent
+residue"). Tests: `test_mec171_reflexive_referents.py`; suite 27,204 passed / 506 skipped, `--full-cache`
+27,706 passed / 4 skipped.
+
 ### Variable resolution payments (MEC-146, PARSER_VERSION 1021)
 
 - A state-owned choice records contributions per player and binds their sum or individual amounts to the rest of the resolution (RULE 118.1 / 608.2d). Mana, life, energy, and discard choices survive clone and undo. The payer can activate mana abilities during resolution under RULE 608.2g.

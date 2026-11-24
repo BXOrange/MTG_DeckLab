@@ -758,6 +758,9 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # PAR-123: "…that shares a creature type with it" — the object and the reference object have a
         # creature subtype in common (RULE 205.3m; Shared Animosity).
         "shares_creature_type_with_reference",
+        # MEC-171 / RULE 608.2h: "...that shares a creature type with the exiled card" -- a creature type in common with
+        # the object the reference's (the ability source's) instruction just moved (`cost_referents`, by kind).
+        "shares_creature_type_with_referent",
         # ENG-64 / RULE 205.2a: "...a permanent that shares a card type with it" (Martyr's Bond) -- a card type in
         # common with the reference object (`continuous.card_types_of`, so a subtype never counts).
         "shares_card_type_with_reference",
@@ -1453,6 +1456,14 @@ def matches_object_filter(
     if filt.get("shares_creature_type_with_reference"):
         if reference is None or not (_creature_subtypes(obj) & _creature_subtypes(reference)):
             return False
+    referent_kind = filt.get("shares_creature_type_with_referent")
+    if referent_kind:
+        from .continuous import CREATURE_SUBTYPES, has_subtype  # function-scoped: continuous imports this module lazily
+
+        recorded = (getattr(reference, "cost_referents", None) or {}).get(str(referent_kind), ())
+        words = {str(word) for record in recorded for word in record.get("subtypes") or ()} & CREATURE_SUBTYPES
+        if not any(has_subtype(obj, word) for word in words):
+            return False  # no recorded object (or a creature-type-less one) shares nothing with this one
     if filt.get("shares_card_type_with_reference"):
         from .continuous import card_types_of  # function-scoped: continuous imports this module lazily
 

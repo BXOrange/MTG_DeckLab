@@ -5,7 +5,7 @@ from typing import Any, Optional
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.player import Player
 from ..effects.core import ProliferateEffect
-from .. import continuations
+from .. import continuations, cost_referents
 from .misc_helpers import (
     _card_type_words,
     _distinct_card_type_assignment,
@@ -225,6 +225,7 @@ class ObjectSelectionMixin:
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -324,12 +325,20 @@ class ObjectSelectionMixin:
         trigger (`enqueue_reflexive_trigger`), so it may carry targets. Only
         fires when something was picked, like ``then_specs``.
 
+        ``record_referent`` (MEC-171, RULE 608.2h / 603.12) snapshots each picked object's characteristics onto
+        ``source``'s `cost_referents` (kind from `cost_referents.referent_kind_for_action`) as the pick is made, before it
+        moves, so a following "When you do, ... the discarded card's mana value / the sacrificed creature's power"
+        payoff reads last-known information (`enqueue_reflexive_trigger` carries the records to that trigger).
+
         ``all_or_nothing`` (PAR-225 — "sacrifice it unless you return two Forests you control") makes an optional
         pick of ``count`` objects an indivisible decision: declining is offered only before the first pick, and
         a pool smaller than ``count`` cannot satisfy it at all, so ``else_specs`` run without a prompt.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
+        referent_kind = cost_referents.referent_kind_for_action(action) if record_referent and source is not None else None
+        if referent_kind is not None:
+            cost_referents.forget_referents(source, referent_kind)  # a new instruction replaces the earlier record
         pool = [obj for obj in candidates if obj is not None]
         if minimum_card_types:
             from ..continuous import card_types_of
@@ -378,6 +387,7 @@ class ObjectSelectionMixin:
                         control_recipient_id=control_recipient_id,
                         entry_counters=entry_counters, entry_specs=entry_specs,
                         source_incarnation=self.context.resolving_source_incarnation,
+                        record_referent=referent_kind is not None,
                     )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}
@@ -407,6 +417,7 @@ class ObjectSelectionMixin:
             minimum_card_types=minimum_card_types,
             entry_counters=entry_counters, entry_specs=entry_specs,
             all_or_nothing=all_or_nothing,
+            record_referent=referent_kind is not None,
         ))
     @staticmethod
     def _power_for_budget(obj: GameObject) -> int:
@@ -497,6 +508,7 @@ class ObjectSelectionMixin:
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         source = self._object_by_instance_id(source_id)
@@ -582,6 +594,8 @@ class ObjectSelectionMixin:
             "entry_counters": dict(entry_counters or {}),
             "entry_specs": list(entry_specs or []),
             "all_or_nothing": bool(all_or_nothing),
+            # MEC-171: whether each pick is recorded as a last-known referent on ``source`` (`_request_choose_objects`).
+            "record_referent": bool(record_referent),
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -649,6 +663,7 @@ class ObjectSelectionMixin:
                 hideaway_incarnation=choice.get("hideaway_incarnation"),
                 source_incarnation=choice.get("source_incarnation"),
                 entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
+                record_referent=bool(choice.get("record_referent")),
             )
         remaining_pool = [
             obj
@@ -733,6 +748,7 @@ class ObjectSelectionMixin:
             minimum_card_types=int(choice.get("minimum_card_types", 0)),
             entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
             all_or_nothing=bool(choice.get("all_or_nothing")),
+            record_referent=bool(choice.get("record_referent")),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")

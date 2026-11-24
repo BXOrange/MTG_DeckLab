@@ -2889,6 +2889,7 @@ EffectRegistry.register(
         saddlers_only=bool(p.get("saddlers_only", False)),
         reference=p.get("reference"),
         all_or_nothing=bool(p.get("all_or_nothing", False)),
+        record_referent=bool(p.get("record_referent", False)),
     ),
 )
 EffectRegistry.register(

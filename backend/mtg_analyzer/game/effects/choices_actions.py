@@ -1645,8 +1645,12 @@ class ChooseObjectsEffect(GameEffect):
         saddlers_only: bool = False,
         reference: Optional[str] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 608.2h + 603.12 (MEC-171): record each pick as last-known information on the source, for the reflexive
+        #: "When you do, ... that creature's power / the tapped creature's power" that follows (`cost_referents`).
+        self.record_referent = bool(record_referent)
         #: "return exactly N … or else" (Bull Elephant's "sacrifice it unless you return two Forests"): the controller
         #: either commits to the whole ``count`` or does none of it; fewer than ``count`` candidates is the same as
         #: declining, and ``else_effects`` follows. See `_request_choose_objects`.
@@ -1718,6 +1722,7 @@ class ChooseObjectsEffect(GameEffect):
             else_specs=self.else_effects, then_that_many=self.then_that_many,
             distinct_card_types=self.distinct_card_types,
             minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
+            record_referent=self.record_referent,
         )
 
     def _defending_chooser(self, context: GameContext) -> Optional[Any]:

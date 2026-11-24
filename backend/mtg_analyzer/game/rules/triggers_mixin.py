@@ -2158,6 +2158,7 @@ class TriggerCollectionMixin:
                 and (event or {}).get("instance_id") == getattr(ability.source, "instance_id", None)
             ) else 0,
         )
+        item.cost_stamps = getattr(ability, "cost_stamps", None)  # RULE 608.2h: a reflexive trigger's carried referents
         from ..targeting import ability_target_specs
 
         if target_groups is not None and (len(target_groups) > 1 or any(

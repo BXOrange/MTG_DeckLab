@@ -84,7 +84,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1064"
+PARSER_VERSION = "1065"
 
 
 def parser_source_hash() -> str:
@@ -1337,8 +1337,15 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
     cost) moved, so it is sound only in an activated ability whose cost text, or a spell whose `additional_cost`, has that
     verb. A trigger, or a cost of another verb, fails closed rather than measuring an empty record as 0."""
     cost = str((spec.cost or {}).get("text", ""))
+    # MEC-171 / RULE 603.12: a "you may <discard / exile / sacrifice ...>. When you do, ..." is a `pay_cost_then` whose own
+    # cost moves the object; it records that object on the source for the reflexive payoff exactly as an ability cost does.
+    paid_in_body = " ".join(
+        str(params.get("cost", "")) for kind, params in _effect_nodes([spec.effects, spec.modes]) if kind == "pay_cost_then"
+    )
 
     def paid(kind: str) -> bool:
+        if paid_in_body and re.search(_COST_REFERENT_COST_TEXT[kind], paid_in_body) is not None:
+            return True
         if spec.ability_kind == "activated":
             return re.search(_COST_REFERENT_COST_TEXT[kind], cost) is not None
         if spec.ability_kind == "spell_effect":
@@ -1352,6 +1359,9 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
         if isinstance(node, EffectSpec):
             return walk(node.params)
         if isinstance(node, dict):
+            kind_read = node.get("shares_creature_type_with_referent")  # MEC-171: a filter reading a recorded object
+            if kind_read is not None and not paid(str(kind_read)):
+                return False
             # Any string value may name the selector (``selector``, an anthem's ``power_count``, ...).
             for value in node.values():
                 found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None

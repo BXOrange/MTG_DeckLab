@@ -830,6 +830,7 @@ class GameContext:
         distinct_card_types: bool = False,
         minimum_card_types: int = 0,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         """Open the general "which of these objects?" choice — see
         `RulesEngine._request_choose_objects`."""
@@ -840,6 +841,7 @@ class GameContext:
             else_specs=else_specs, then_that_many=then_that_many,
             distinct_card_types=distinct_card_types,
             minimum_card_types=minimum_card_types, all_or_nothing=all_or_nothing,
+            record_referent=record_referent,
         )
 
     def impulsive_look(
@@ -2128,6 +2130,10 @@ class TriggeredAbility(GameEffect):
 
     #: RULE 603.12 / 707.9a: the printed ability whose resolution created this reflexive trigger (``None`` otherwise).
     parent_ability: Optional[Any] = None
+    #: RULE 608.2h + 603.12 (MEC-171): the referents the antecedent recorded, snapshotted when the reflexive trigger was
+    #: created (`cost_referents.snapshot_activation_stamps`); bound onto the source while the trigger resolves, and
+    #: readable while its targets are announced (MEC-172's "power less than or equal to the tapped creature's power").
+    cost_stamps: Optional[dict[str, Any]] = None
 
 
     def __init__(

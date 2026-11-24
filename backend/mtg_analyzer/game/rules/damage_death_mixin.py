@@ -959,6 +959,7 @@ class DamageDeathMixin:
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
         source: Optional[GameObject] = None, object_filter: Optional[dict] = None,
+        record_referent: bool = False,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -996,7 +997,7 @@ class DamageDeathMixin:
             prompt="Wähle eine bleibende Karte zum Opfern",
             # PAR-208: a sacrifice paid for an ability's own cost ("you may sacrifice a creature. If you do, ... that
             # creature's power") is remembered on that ability's source (`note_sacrificed`, RULE 608.2h).
-            source=source,
+            source=source, record_referent=record_referent,
         )
     def _phase_in_after_source_leaves(self, event: GameEvent) -> None:
         # RULE 610.4 / 702.26g: phase in all affected visits and their

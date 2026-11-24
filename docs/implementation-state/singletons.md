@@ -620,6 +620,17 @@ Cards that lost MODELED because a sentence after their `Add` clause is one `game
 | Squandered Resources | "Add one mana of any type the sacrificed land could produce" | cost-linked referent |
 | Codie, Vociferous Codex | "When you next cast a spell this turn, exile cards from the top ... until an instant or sorcery with lesser mana value ..." | next-cast dig rider |
 
+### Reflexive-referent residue (MEC-171, PARSER_VERSION 1065)
+
+Cards whose "When you do" payoff reads what the earlier instruction moved, and that still miss one unshared piece. The recorded referent itself (`cost_referents`, snapshotted onto the reflexive trigger) is built; Argentum Masticore, Nihiloor and Grishnákh wait for MEC-172's target bound, not for a new record.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Surtland Flinger | `if the sacrificed creature was a giant, ~ deals twice that much damage instead.` | "twice that much ... instead" replacement over a bound amount; no second card in the cache has the shape |
+| Bolg of the North | `~ deals damage equal to that creature's power to another target creature. if excess damage was dealt this way, amass goblins x, where x is that excess damage.` | excess-damage amount of the reflexive hit feeding an amass |
+| Stet, Draconic Proofreader | `~ deals 4 damage to any target whose name begins with the same letter as the exiled card.` | target filter on the first letter of the recorded card's name |
+| Bullseye, Death Dealer | `you may sacrifice an artifact or discard a nonland card. when you do, ...` | an either-or antecedent (one cost of two kinds) in a `pay_cost_then`; Anthropede ("discard a card or pay {2}") and Nimble Hobbit ("sacrifice a Food or pay {2}{W}") share it, so a three-card `pay_cost_then` alternative cost is the ticket to write if it is wanted |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

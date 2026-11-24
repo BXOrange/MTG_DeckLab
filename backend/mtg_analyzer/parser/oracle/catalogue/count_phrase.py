@@ -89,6 +89,11 @@ COMBAT_RELATION_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
     (re.compile(r"\s+that blocked or (?:was|were) blocked this turn$"), "blocked_or_was_blocked_this_turn"),
     (re.compile(r"\s+that blocked ~ this turn$"), "blocked_source_this_turn"),
 )
+#: MEC-171 (RULE 608.2h): "... that shares a creature type with the exiled card" -- the object the ability's own earlier
+#: instruction moved (`game/cost_referents.py` kinds); read as `combat.matches_object_filter`'s
+#: ``shares_creature_type_with_referent``.
+_SHARES_TYPE_WITH_REFERENT = re.compile(
+    r"\s+that shares? a creature type with the (?P<kind>exiled|discarded|sacrificed|tapped) (?:card|creature|permanent)$")
 _SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
@@ -246,6 +251,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if modified is not None:
         extra["modified"] = True
         text = (text[: modified.start()] + text[modified.end():]).strip()
+    referent = _SHARES_TYPE_WITH_REFERENT.search(text)
+    if referent is not None:
+        extra["shares_creature_type_with_referent"] = referent.group("kind")
+        text = text[: referent.start()]
     if text.endswith(" other than ~"):
         extra["not_reference"] = True
         text = text[:-len(" other than ~")]
