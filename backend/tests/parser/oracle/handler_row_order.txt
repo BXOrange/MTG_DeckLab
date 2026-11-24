@@ -281,6 +281,7 @@ exile_self
 each_creature_sacrifices_unless
 sacrifice_unless_attacked
 sacrifice_self
+exile_below_revealed_mana_value
 tap_two_color
 tap_or_untap
 add_counters_previous_selector
@@ -539,6 +540,9 @@ activate_only_if
 activate_only_compound
 win_game
 win_if_empty_library
+floating_global_combat_tax
+floating_protecting_combat_tax
+each_player_counter_then_attack_bar
 remove_named_counter_target
 move_counters_two
 move_counters_from_self
@@ -595,6 +599,7 @@ blocks_source_this_turn_if_able
 attacks_this_turn_if_able
 combat_instruction_this_turn
 must_be_blocked_this_turn_if_able
+counter_on_creatures_with_modular
 pump_target_two_color
 pump_x_nonland_permanents
 pump_x
@@ -928,6 +933,12 @@ duration_quoted_target
 duration_no_untap_target
 target_player_cant_play_lands
 target_player_cant_cast_type
+opponents_cast_from_hand_until_next_turn
+cast_prohibition_during_opponents_next_turn
+named_cast_prohibition_until_next_turn
+bounce_and_prohibit_name_until_next_turn
+target_permanent_lock_until_next_turn
+players_cannot_cast_until_hydras_next_turn
 defending_player_chooses_blocker
 defending_player_exiles_own
 defending_player_sacrifices_then

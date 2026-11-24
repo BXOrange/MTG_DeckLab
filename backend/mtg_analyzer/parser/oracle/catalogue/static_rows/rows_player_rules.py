@@ -50,6 +50,9 @@ _IGNORE_LEGEND_RULE_RE = re.compile(r"the \"legend rule\" doesn't apply to perma
 
 
 def static_ignore_legend_rule(ctx: StaticContext) -> StaticResult:
+    if ctx.text == "the \"legend rule\" doesn't apply to slivers you control":
+        return [EffectSpec("ignore_legend_rule", {"affects": {"zone": "battlefield", "of": "you",
+                                                               "filter": {"subtype": "Sliver"}}})]
     if _IGNORE_LEGEND_RULE_RE.fullmatch(ctx.text.strip().rstrip(".")):
         return [EffectSpec("ignore_legend_rule", {"affects": "you"})]
     return None

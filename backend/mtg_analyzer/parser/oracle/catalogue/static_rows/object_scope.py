@@ -794,6 +794,9 @@ def graveyard_retrace_grant_specs(filt: Optional[str]) -> Optional[list[EffectSp
 ZONE_KEYWORD_GRANTS: dict[tuple[str, str], str] = {
     ("unearth", "graveyard"): "grant_zone_keyword",
     ("miracle", "hand"): "grant_miracle",
+    ("encore", "graveyard"): "grant_zone_keyword",
+    ("scavenge", "graveyard"): "grant_zone_keyword",
+    ("ninjutsu", "hand"): "grant_zone_keyword",
 }
 
 

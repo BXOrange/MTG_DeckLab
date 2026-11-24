@@ -43,7 +43,7 @@ from .effect_rows import pump_stats
 from .effect_rows import pump_keywords
 from .effect_rows import ability_loss
 from .effect_rows import becomes
-from .effect_rows import assimilate, keyword_actions, reveal_until_other
+from .effect_rows import assimilate, combat_rules, keyword_actions, reveal_until_other
 from .effect_rows import tokens_animate_misc
 from .effect_rows import party
 from .effect_rows import end_of_combat
@@ -244,6 +244,7 @@ HANDLERS: list[EffectHandler] = [
     *tap_return_zones.ROWS,
     *search_control_attach.ROWS,
     *costs_mana_limits.ROWS,
+    *combat_rules.ROWS,
     *counters_blocking.ROWS,
     *pump_stats.ROWS,
     *pump_keywords.ROWS,

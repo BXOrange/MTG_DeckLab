@@ -336,10 +336,10 @@ def test_claimed_cards_are_modeled_by_the_parser(name):
 
 
 @pytest.mark.parametrize("name", ["Graywater's Fixer", "Niv-Mizzet, Supreme", "Homing Sliver"])
-def test_grants_of_keywords_without_engine_behaviour_stay_refused(name):
+def test_new_zone_grants_are_modeled(name):
     from mtg_analyzer.parser.oracle.gate import parse_oracle
 
-    assert not parse_oracle(get_cached_card(name)).modeled
+    assert parse_oracle(get_cached_card(name)).modeled
 
 
 def test_zone_keyword_grant_specs_vocabulary():
@@ -347,7 +347,7 @@ def test_zone_keyword_grant_specs_vocabulary():
     assert spec.type == "grant_zone_keyword" and spec.params["card_types"] == ["creature"]
     assert spec.params["subtypes"] == ["Sliver"] and spec.params["cost"] == "{2}"
     assert zone_keyword_grant_specs("creature", None, "unearth", "hand", "{2}") is None  # wrong zone for the keyword
-    assert zone_keyword_grant_specs("creature", None, "encore", "graveyard", "{2}") is None  # no engine behaviour
+    assert zone_keyword_grant_specs("creature", None, "encore", "graveyard", "{2}") is not None
     nonland = zone_keyword_grant_specs("nonland", None, "miracle", "hand", "{0}")[0]
     assert nonland.type == "grant_miracle" and nonland.params == {"cost": "{0}"}
     assert zone_keyword_grant_specs("nonland", None, "unearth", "graveyard", "{2}") is None

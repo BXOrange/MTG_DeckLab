@@ -326,3 +326,60 @@ EffectRegistry.register('exile_hand_may_play_owner_draws', lambda p: ExileHandMa
 EffectRegistry.register('reveal_creatures_give_opponents', lambda p: RevealCreaturesGiveOpponentsEffect())
 
 EffectRegistry.register("miracle_cast", lambda p: MiracleCastEffect(p["cost"], p["incarnation"], bool(p.get("granted", False))))
+
+
+class TimedPlayerProhibitionEffect(GameEffect):
+    """RULE 611.2a: a player rule with a fixed name, controller and duration."""
+
+    def __init__(self, params):
+        super().__init__()
+        self.params = params
+        if params.get("bounce_owner"):
+            self.target_spec = TargetSpec(kind="creature_you_dont_control")
+
+    def apply(self, context, targets=None):
+        from .core import StaticAbility, _controller_of
+
+        state = context.state
+        controller = self.params.get("controller_id") or _controller_of(self.source, context).id
+        scope = self.params.get("scope", "all")
+        if self.params.get("choose_name"):
+            followup = {**self.params, "choose_name": False, "restricted_name": "named_card",
+                        "controller_id": controller}
+            context.engine._request_name_card(
+                state.player_by_id(controller), [{"type": "timed_player_prohibition", "params": followup}],
+                self.source, card_filter={"without_type": "land"} if self.params.get("nonland") else None,
+            )
+            return
+
+        restrictions = {"scope": scope, "effect_controller_id": controller}
+        for key in ("spell_types", "hand_only", "restricted_name"):
+            if key in self.params:
+                restrictions[key] = self.params[key]
+
+        if self.params.get("bounce_owner"):
+            if not targets:
+                return
+            obj = targets[0]
+            restrictions.update(player_id=obj.owner_id, restricted_name=" // ".join(obj.names))
+            # Capture the permanent's name before its zone visit changes (RULE 400.7).
+            context.return_to_hand(obj)
+
+        if self.params.get("during_next_turn"):
+            for player in state.living_players():
+                if player.id != controller:
+                    state.floating_statics.append(StaticAbility(
+                        "cast_prohibition", params={**restrictions, "scope": "all", "player_id": player.id,
+                                                     "during_next_turn": True},
+                        duration="during_player_next_turn",
+                        duration_data={"player_id": player.id, "turn": state.internal_turn.number},
+                    ))
+            return
+
+        for layer in ("cast_prohibition", "land_play_prohibition") if self.params.get("land_plays") else ("cast_prohibition",):
+            state.floating_statics.append(StaticAbility(
+                layer, params=dict(restrictions), duration="your_next_turn", duration_data={"player_id": controller},
+            ))
+
+
+EffectRegistry.register("timed_player_prohibition", TimedPlayerProhibitionEffect)

@@ -78,7 +78,7 @@ class LandsMixin:
 
     def can_play_land(self, player: Player, obj: GameObject, face: str = "front") -> bool:
         card = self._face_card(obj, face)
-        if continuous.land_play_prohibited(self.state, player):
+        if continuous.land_play_prohibited(self.state, player, card):
             return False  # RULE 305.1 / 101.2: a prohibition beats every permission to play a land.
         from ..sideboard import outside_play_grant_for
         resolution = self.state.resolution_play_choice
@@ -320,6 +320,9 @@ class LandsMixin:
         # (`effective_cast_cost`'s default `alt_cost=None` branch) plus a
         # fixed "discard a land card" additional cost, and is not exiled on
         # resolution (MEC-53).
+        if obj.is_instant or obj.is_sorcery:
+            if ("jump_start" in obj.intrinsic_keywords or continuous.zone_keyword_cost(self.state, obj, "jump_start") is not None):
+                return "jump_start"
         if "Retrace" in (getattr(obj.card, "keywords", None) or []):
             return "retrace"
         if continuous.granted_retrace_for(self.state, obj) is not None:

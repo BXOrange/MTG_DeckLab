@@ -1323,6 +1323,7 @@ class GameSession:
             graveyard_exile_choices=(None if action.get("graveyard_exile_choices") is None
                                     else [int(i) for i in action["graveyard_exile_choices"]]),
             discard_choices=discard_choices,
+            hand_card_choices=self._resolve_hand_card_choices(action.get("hand_card_choices")),
             buyback=bool(action.get("buyback", False)),
             mutate=bool(action.get("mutate", False)),
             mutate_under=bool(action.get("mutate_under", False)),

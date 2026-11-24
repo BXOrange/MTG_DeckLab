@@ -561,6 +561,8 @@ COMBAT_RESTRICTIONS: frozenset[str] = frozenset(
         # ``block_cost`` also takes an attacker ``filter``: "can't block creatures with power 3 or greater unless you pay").
         "attack_cost",
         "block_cost",
+        "companion_attack",
+        "companion_block",
         "cant_attack_alone",  # needs a fellow attacker
         "cant_block_alone",  # needs a fellow blocker
         # RULE 509.1b multi-block *permissions* — the mirror image of a
@@ -722,7 +724,7 @@ _FILTER_KEYS: frozenset[str] = frozenset(
         # instant or sorcery") that no permanent filter needed until now —
         # kept here, on the one shared filter, so a static or a target phrase
         # can use them too.
-        "multicolored", "colorless", "min_mana_value", "max_mana_value",
+        "multicolored", "colorless", "all_types", "min_mana_value", "max_mana_value", "mana_value_below",
         # RULE 202.3: "each permanent with mana value equal to the number of charge counters on ~" (Ratchet Bomb).
         "exact_mana_value",
         # RULE 205.2: "a spell with two or more card types" (Visitor from Planet Q) -- how many card types the object has.
@@ -815,6 +817,9 @@ def _matches_group_filter(obj: "GameObject", filt: "dict[str, Any]", reference: 
             return False
         if color_any and not any(str(c).upper() in obj_colors for c in color_any):
             return False
+    all_types = filt.get("all_types")
+    if all_types and not set(all_types).issubset({str(w).lower() for w in obj.type_words}):
+        return False
     card_type = filt.get("card_type")
     if card_type is not None and str(card_type).lower() not in {
         str(w).lower() for w in (getattr(obj, "type_words", None) or set())
@@ -1386,6 +1391,9 @@ def matches_object_filter(
         return False
     # "…with mana value 3 or greater" — the printed mana value, like
     # ``even_mana_value`` above (a spell on the stack keeps it, RULE 202.3).
+    mana_value_below = filt.get("mana_value_below")
+    if mana_value_below is not None and obj.mana_value >= mana_value_below:
+        return False
     min_mana_value = filt.get("min_mana_value")
     if min_mana_value is not None and obj.mana_value < min_mana_value:
         return False
@@ -1618,6 +1626,41 @@ def _restriction_cost(state: "GameState", obj: "GameObject", entry: dict[str, An
     return base
 
 
+def has_combat_companions(obj: "GameObject", group: list["GameObject"], verb: str) -> bool:
+    if len(group) < 2 and combat_restrictions(obj, f"cant_{verb}_alone"):
+        return False
+    return all(
+        sum(other is not obj and matches_object_filter(other, entry["filter"], reference=obj)
+            for other in group) >= entry["count"]
+        for entry in combat_restrictions(obj, f"companion_{verb}")
+    )
+
+
+def validate_combat_companions(declared: list["GameObject"], verb: str) -> None:
+    # RULE 508.1c / 509.1b: the other creatures must be in this declaration.
+    for obj in declared:
+        if combat_restrictions(obj, f"companion_{verb}") and not has_combat_companions(obj, declared, verb):
+            raise ValueError(f"{obj.name} needs more eligible creatures to {verb}")
+
+
+def can_join_combat_group(obj: "GameObject", candidates: list["GameObject"], verb: str) -> bool:
+    # RULE 508.1d / 509.1c: a creature can satisfy a requirement only alongside
+    # companions that themselves can be declared in the same group.
+    while obj in candidates:
+        qualified = [candidate for candidate in candidates if has_combat_companions(candidate, candidates, verb)]
+        if len(qualified) == len(candidates):
+            return True
+        candidates = qualified
+    return False
+
+
+def block_cost_applies(state, blocker, attacker, entry) -> bool:
+    return (
+        ("attacker_controller_id" not in entry or attacker.controller_id == entry["attacker_controller_id"])
+        and matches_object_filter(attacker, entry.get("filter"), reference=blocker, state=state)
+    )
+
+
 def attack_cost_for(state: "GameState", attacker: "GameObject") -> int:
     """RULE 508.1g: the generic mana its own controller must pay for ``attacker`` to be declared (0 for none)."""
     return sum(_restriction_cost(state, attacker, e) for e in combat_restrictions(attacker, "attack_cost"))
@@ -1628,8 +1671,13 @@ def block_cost_for(state: "GameState", blocker: "GameObject", attacker: "GameObj
     return sum(
         _restriction_cost(state, blocker, e)
         for e in combat_restrictions(blocker, "block_cost")
-        if matches_object_filter(attacker, e.get("filter"), reference=blocker, state=state)
+        if block_cost_applies(state, blocker, attacker, e)
     )
+
+
+def block_life_cost_for(state: "GameState", blocker: "GameObject", attacker: "GameObject") -> int:
+    return sum(entry["count"] for entry in combat_restrictions(blocker, "block_cost")
+               if entry.get("payment") == "life" and block_cost_applies(state, blocker, attacker, entry))
 
 
 def min_blockers(obj: "GameObject") -> int:

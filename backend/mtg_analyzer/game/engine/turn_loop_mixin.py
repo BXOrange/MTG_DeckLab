@@ -960,6 +960,7 @@ class TurnLoopMixin:
         # every creature's flag is stale. Same for RULE 702.179d's
         # once-per-turn speed-increase limiter, per player.
         for obj in self.state.permanents():
+            obj.encore_defender_id = None
             obj.attacked_this_turn = False
             obj.times_attacked_this_turn = 0
         for pl in self.state.players:
@@ -1536,11 +1537,10 @@ class TurnLoopMixin:
         # (like a cast payment) it stays there for responses; only a solo-played trigger settles straight away.
         opponent_pick = choice_kind in OPPONENT_CHOICE_KINDS
         leaves_on_stack = (self.state.pending_choice or {}).get("category") != "triggered_ability"
+        pending = self.state.pending_choice
         self.rules.resolve_choice(answer)
-        if choice_kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
-            from ..physical_properties import resume_cast
-            resume_cast(self)
-            return  # An announcement leaves the spell available for responses.
+        if self._resume_paused_announcement(choice_kind, pending):
+            return
         if self.state.turn_based_draws is not None:
             return self.resolve_until_stable()
         if choice_kind == 'untap_cap_selection':
@@ -1562,6 +1562,18 @@ class TurnLoopMixin:
         if self.interactive_priority and self.state.priority_player is not None:
             return self._finish_resolution_interactive()
         self.resolve_until_stable()
+
+    def _resume_paused_announcement(self, kind, pending) -> bool:
+        """Finish an announcement through its ordinary action entry point."""
+        if kind == "combat_payment":
+            from ..combat_payments import resume_declaration
+            resume_declaration(self, pending)
+            return True
+        if kind == "physical_property_measurement" and self.state.pending_physical_cast is not None:
+            from ..physical_properties import resume_cast
+            resume_cast(self)
+            return True
+        return False
 
     def _finish_resolution_interactive(self) -> None:
         """Finish the object whose resolution just paused on a choice, nothing more.

@@ -67,6 +67,7 @@ export default {
   'bd.step.main1': "Main phase I",
   'bd.step.begin_combat': "Begin combat",
   'bd.step.declare_attackers': "Attackers",
+  'bd.combatCost.life': '{count} life',
   'bd.attackTax.confirm': 'Pay the {cost} attack tax?',
   'bd.step.declare_blockers': "Blockers",
   'bd.step.first_strike_damage': "First-strike damage",

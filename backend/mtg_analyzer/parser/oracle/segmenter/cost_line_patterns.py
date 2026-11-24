@@ -768,7 +768,7 @@ _ADDITIONAL_COST_TAP_UNTAPPED_RE = re.compile(r"^tap an untapped (?P<what>artifa
 _ADDITIONAL_COST_OR_MANA_SACRIFICE_RE = re.compile(r"^sacrifice an? (?P<what>.+)$", re.IGNORECASE)
 _ADDITIONAL_COST_PAY_N_LIFE_RE = re.compile(r"^pay (?P<n>\d+) life$", re.IGNORECASE)
 _ADDITIONAL_COST_REVEAL_FROM_HAND_RE = re.compile(
-    r"^reveal an? (?P<type>[a-z]+) card from your hand$", re.IGNORECASE
+    r"^reveal an? (?P<type>colorless creature|[a-z]+) card from your hand$", re.IGNORECASE
 )
 
 
@@ -838,6 +838,9 @@ def additional_cost_dict(text: str) -> Optional[dict[str, Any]]:
     collect_evidence = re.fullmatch(r"collect evidence (?P<n>\d+)", text)
     if collect_evidence is not None:
         return {"collect_evidence": int(collect_evidence.group("n"))}
+    reveal = _ADDITIONAL_COST_REVEAL_FROM_HAND_RE.fullmatch(text)
+    if reveal and reveal["type"] in ("creature", "colorless creature"):
+        return {"reveal_from_hand": reveal["type"]}
     sac_or_mana = _ADDITIONAL_COST_SACRIFICE_OR_MANA_RE.match(text)
     if sac_or_mana is not None:
         return {"sacrifice_or_mana": {

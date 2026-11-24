@@ -67,6 +67,7 @@ export default {
   'bd.step.main1': "Hauptphase I",
   'bd.step.begin_combat': "Kampfbeginn",
   'bd.step.declare_attackers': "Angreifer",
+  'bd.combatCost.life': '{count} Lebenspunkte',
   'bd.attackTax.confirm': 'Angriffssteuer von {cost} bezahlen?',
   'bd.step.declare_blockers': "Blocker",
   'bd.step.first_strike_damage': "Erstschlagschaden",

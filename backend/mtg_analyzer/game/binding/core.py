@@ -4178,7 +4178,7 @@ def _keyword_activated_ability(obj: Any, spec: AbilitySpec) -> Optional[Activate
         return _saddle_activated_ability(obj, spec, keyword)
     if name == "station":
         return _station_activated_ability(obj, spec)
-    if name in {"unearth", "embalm", "eternalize"}:
+    if name in {"unearth", "embalm", "eternalize", "encore", "scavenge"}:
         return _graveyard_keyword_activated_ability(obj, spec, keyword)
     if name not in {"equip", "fortify", "reconfigure"}:
         return None
@@ -4308,6 +4308,13 @@ def _graveyard_keyword_activated_ability(
     cost.ability_keyword = name  # "whenever you activate an eternalize or embalm ability" reads this label
     if name == "unearth":
         effects: list[GameEffect] = [UnearthEffect(source=obj)]
+    elif name == "encore":
+        from ..effects.keyword_mechanics import EncoreEffect
+        cost.exile_self = True
+        effects = [EncoreEffect(source=obj)]
+    elif name == "scavenge":
+        cost.exile_self = True
+        effects = [AddCountersEffect(amount=max(0, int(obj.power or 0)), target_kind="creature", source=obj)]
     elif name == "eternalize":
         # RULE 702.129a: the token is a 4/4 (black Zombie) copy.
         effects = [EmbalmEternalizeEffect(set_power=4, set_toughness=4, source=obj)]
@@ -4329,49 +4336,39 @@ def granted_graveyard_keyword_ability(obj: Any, name: str, cost_text: str) -> Ac
     return ability
 
 
+def granted_outlast_ability(obj: Any, cost_text: str) -> ActivatedAbility:
+    return _keyword_activated_ability(obj, AbilitySpec("keyword", keyword={"name": "outlast", "cost": cost_text}))
+
+
 def _cycling_activated_ability(
     obj: Any, spec: AbilitySpec, keyword: dict[str, Any]
 ) -> Optional[ActivatedAbility]:
-    """RULE 702.28/702.29: "Cycling `<cost>`" — "`<cost>`, Discard this
-    card: Draw a card." The `discard_self` cost primitive (`game/costs.py`)
-    already existed; only Dismantling Wave/Renewed Faith-shaped cards ever
-    got a real activatable ability out of it, hand-authored per card
-    (`game/card_catalogue`) — an *unregistered* card's plain Cycling
-    was recognized by the parser (satisfying the coverage gate) but bound to
-    nothing, so it never became an offered action (PAR-9).
-
-    Two guards keep this from mis-firing:
-
-    * `keywords.keyword_slug` aliases every "`<type>`cycling" spelling
-      ("Landcycling", "Typecycling", "Islandcycling", …) onto this same
-      "cycling" slug, and the shared cost-extraction regex has no word
-      boundary — it matches "Landcycling {1}" as a substring just as
-      happily as a real "Cycling {1}" line. A type-restricted variant
-      searches the library instead of drawing, a different (unmodeled)
-      effect — so this only fires when the card's own *raw* Scryfall
-      keyword list carries no other "…cycling" entry alongside the plain
-      one.
-    * A card already carrying a `discard_self`-cost activated ability
-      (Dismantling Wave/Renewed Faith's own hand-authored one, bound
-      earlier in this same pass — `card_registry.specs_for` puts
-      hand-authored specs first) defines its *own* Cycling behaviour;
-      don't compete with it for the same cost.
-    """
+    """RULE 702.29: discard this card to draw, or to search for the type it names."""
     cost_text = keyword.get("cost")
     if not cost_text:
         return None
-    raw_names = [str(k).strip().lower() for k in (getattr(obj.card, "keywords", None) or [])]
-    if any(n != "cycling" and "cycling" in n for n in raw_names):
-        return None
-    if any(getattr(a.cost, "discard_self", False) for a in obj.activated_abilities):
+    typecycling = keyword.get("cycling_type") or keyword.get("quality")
+    if not keyword.get("cycling_type") and any(
+        getattr(a.cost, "discard_self", False) and not getattr(a.cost, "is_cycling", False)
+        for a in obj.activated_abilities
+    ):
         return None
     cost = parse_activation_cost(f"{cost_text}, Discard this card")
     cost.is_cycling = True
     return ActivatedAbility(
-        effects=build_effects([EffectSpec("draw", {"count": 1})], source=obj),
+        effects=build_effects([EffectSpec("search", {
+            "criteria": {"type": "land", "basic": True} if typecycling == "basic land" else {"type": typecycling},
+            "destination": "hand", "reveal": True, "optional": True, "player": "you",
+        }) if typecycling else EffectSpec("draw", {"count": 1})], source=obj),
         cost=cost,
         source=obj,
         description=_ability_description(obj, spec) or "Cycling",
+    )
+
+
+def granted_typecycling_ability(obj, cost_text, card_type):
+    return _cycling_activated_ability(
+        obj, AbilitySpec("static"), {"cost": cost_text, "cycling_type": card_type},
     )
 
 
@@ -5248,6 +5245,10 @@ def _keyword_triggered_abilities(obj: Any, spec: AbilitySpec) -> list[TriggeredA
     """
     keyword = spec.keyword or {}
     name = str(keyword.get("name") or "")
+    if name in {"fabricate", "afterlife", "modular", "frenzy", "poisonous"}:
+        from ..effects.keyword_mechanics import build_keyword_trigger
+        return [ability for _ in range(max(1, int(keyword.get("instances") or 1)))
+                for ability in build_keyword_trigger(obj, name, keyword.get("n"))]
     builder = _KEYWORD_TRIGGERED_BUILDERS.get(name)
     if builder is None:
         return []
@@ -5277,6 +5278,9 @@ def parametric_keyword_triggered_abilities(
     702 text *is* a triggered ability (firebending / annihilator / afflict /
     bushido) have a builder; anything else returns ``[]``.
     """
+    if name in {"fabricate", "afterlife", "modular", "frenzy", "poisonous"}:
+        from ..effects.keyword_mechanics import build_keyword_trigger
+        return build_keyword_trigger(obj, name, n)
     builder = _KEYWORD_TRIGGERED_BUILDERS.get(str(name))
     if builder is None:
         return []

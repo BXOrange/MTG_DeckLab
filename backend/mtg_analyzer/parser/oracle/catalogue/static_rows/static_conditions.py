@@ -114,43 +114,69 @@ _QUALIFIED_SUBJECT = (
 #: (a life payment, a sacrifice) fails closed.
 _CREATURE_COST_RE = re.compile(
     r"\{(?P<n>\d+)\}(?: for each (?P<per>\+1/\+1 counter on it|card in your hand))?", re.I)
-_CREATURE_COST_PAYER = r"(?:you|its controller) pays?"
+_CREATURE_COST_PAYER = r"(?:you|its controller|their controller)"
 
 
 def _creature_cost_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]:
-    cost = _CREATURE_COST_RE.fullmatch(m.group("cost").strip())
+    verb = m.group("payment").lower().rstrip("s")
+    cost = _CREATURE_COST_RE.fullmatch(m.group("cost").strip()) if verb == "pay" else None
     if cost is None:
-        return None
-    entry: dict = {"amount": int(cost.group("n"))}
-    per = (cost.group("per") or "").lower()
+        entry = _nonmana_combat_cost(verb, m.group("cost").lower())
+        if entry is None:
+            return None
+    else:
+        entry = {"amount": int(cost.group("n"))}
+    per = (cost.group("per") or "").lower() if cost else ""
     if per.startswith("+1/+1"):
         entry["amount_per_counter"] = "+1/+1"
     elif per:
         entry["amount_count_selector"] = "cards_in_your_hand"
     attacker_filter = None
-    if m.groupdict().get("filter"):
+    if m.groupdict().get("filter") == "creatures you control":
+        entry["attacker_you_control"] = True
+    elif m.groupdict().get("filter"):
         attacker_filter = object_filter(m.group("filter"))
         if attacker_filter is None:
             return None
     return [{"kind": k, **entry, **({"filter": attacker_filter} if attacker_filter else {})} for k in kinds]
 
 
+def _nonmana_combat_cost(verb: str, text: str) -> Optional[dict]:
+    life = re.fullmatch(r"(\d+) life(?: for each blocking creature they control)?", text)
+    if verb == "pay" and life:
+        return {"payment": "life", "count": int(life[1])}
+    if verb == "tap" and text == "an untapped creature you control not declared as an attacking or blocking creature this combat":
+        return {"payment": "tap", "count": 1, "payment_filter": {"card_type": "creature"}}
+    if verb == "return" and text == "an enchantment you control to its owner's hand":
+        return {"payment": "return", "count": 1, "payment_filter": {"card_type": "enchantment"}}
+    sacrifice = re.fullmatch(
+        r"(a|\d+) (land|islands?)(?: of their choice for each (?:black|green) creature they control that's attacking)?",
+        text,
+    )
+    if verb == "sacrifice" and sacrifice:
+        filt = {"card_type": "land"}
+        if sacrifice[2] != "land":
+            filt["subtype"] = "Island"
+        return {"payment": "sacrifice", "count": 1 if sacrifice[1] == "a" else int(sacrifice[1]), "payment_filter": filt}
+    return None
+
+
 _TAIL_RES: list[tuple[re.Pattern[str], Callable[["re.Match[str]"], Optional[list[dict]]]]] = [
     # PAR-290: the declaring player's own cost, ahead of the condition rows below (which would fail closed on it).
     (
-        re.compile(rf"can'?t attack or block unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        re.compile(rf"can'?t attack or block unless {_CREATURE_COST_PAYER} (?P<payment>pays?|sacrifices?|returns?|taps?) (?P<cost>.+)", re.I),
         lambda m: _creature_cost_restriction(m, "attack_cost", "block_cost"),
     ),
     (
-        re.compile(rf"can'?t attack unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        re.compile(rf"can'?t attack unless {_CREATURE_COST_PAYER} (?P<payment>pays?|sacrifices?|returns?|taps?) (?P<cost>.+)", re.I),
         lambda m: _creature_cost_restriction(m, "attack_cost"),
     ),
     (
-        re.compile(rf"can'?t block (?P<filter>.+?) unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        re.compile(rf"can'?t block (?P<filter>.+?) unless {_CREATURE_COST_PAYER} (?P<payment>pays?|sacrifices?|returns?|taps?) (?P<cost>.+)", re.I),
         lambda m: _creature_cost_restriction(m, "block_cost"),
     ),
     (
-        re.compile(rf"can'?t block unless {_CREATURE_COST_PAYER} (?P<cost>.+)", re.I),
+        re.compile(rf"can'?t block unless {_CREATURE_COST_PAYER} (?P<payment>pays?|sacrifices?|returns?|taps?) (?P<cost>.+)", re.I),
         lambda m: _creature_cost_restriction(m, "block_cost"),
     ),
     # PAR-290 / RULE 509.1a: the blocker-side bar scoped to the static controller's creatures (Spectral Grasp).
@@ -263,7 +289,16 @@ def _filter_restriction(m: "re.Match[str]", *kinds: str) -> Optional[list[dict]]
 
 
 def _condition_restriction(m: "re.Match[str]", *kinds: str, negate: bool = False) -> Optional[list[dict]]:
-    condition = parse_combat_condition(m.group("cond"))
+    text = _fold_number_words(m.group("cond").lower())
+    companion = re.fullmatch(r"(?:(a|an|at least \d+) (?:other )?)(.+?) (?:also )?(attacks?|blocks?)", text)
+    if companion and not negate:
+        count = int(companion[1].split()[-1]) if companion[1].startswith("at least ") else 1
+        filt = ({"power_vs_reference": "greater"} if companion[2] == "creature with greater power"
+                else object_filter(companion[2]))
+        kind = f"companion_{companion[3].rstrip('s')}"
+        if filt is not None and f"cant_{kind.removeprefix('companion_')}_unless" in kinds:
+            return [{"kind": kind, "count": count, "filter": filt}]
+    condition = parse_combat_condition(text)
     if condition is not None and negate:
         condition = {"kind": "not", "condition": condition}
     return None if condition is None else [{"kind": k, "condition": condition} for k in kinds]
@@ -320,6 +355,17 @@ def qualified_combat_restriction_specs(text: str) -> Optional[list[EffectSpec]]:
     # more creatures") folded to digits up front, so one numeric grammar
     # covers both spellings — and so the counted tails win the ordering.
     text = _fold_number_words(text)
+    if text in ("~ can't attack if it attacked during your last turn",
+                "creatures that attacked during their controller's last turn can't attack"):
+        return [EffectSpec("combat_restriction", {
+            "kind": "cant_attack_unless", "condition": {"kind": "did_not_attack_previous_turn"},
+            "affects": "self" if text.startswith("~") else {
+                "zone": "battlefield", "of": "any", "filter": {"card_type": "creature"},
+            },
+        })]
+    if text == ("creatures can't attack a player unless that player cast a spell or put "
+                "a nontoken permanent onto the battlefield during their last turn"):
+        return [EffectSpec("cant_attack_defender", {"defender_scope": "player", "unless_previous_turn_activity": True})]
     inverted = _INVERTED_CANT_BLOCK_RE.fullmatch(text)
     if inverted is not None:
         filt = object_filter(inverted.group("filter"))

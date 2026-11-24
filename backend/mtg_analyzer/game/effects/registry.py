@@ -21,6 +21,7 @@ from .exile_cost_sacrificed import ExileCostSacrificedEffect
 from .half_x_recoil import HalfXRecoilEffect
 from .mountain_recoil import MountainRecoilEffect
 from .war_cry import WarCryEffect
+from .combat_rules import EachPlayerMayCounterThenAttackBarEffect, FloatingCombatTaxEffect
 from .time_counters import TimeCountersEffect
 from .fell_beast_shriek import FellBeastShriekEffect
 from .blitzwing import BlitzwingLifeEchoEffect, BlitzwingRandomAbilityEffect, BlitzwingConvertEffect
@@ -80,6 +81,11 @@ EffectRegistry.register(
 EffectRegistry.register("half_x_recoil", lambda p: HalfXRecoilEffect())
 EffectRegistry.register("mountain_recoil", lambda p: MountainRecoilEffect())
 EffectRegistry.register("war_cry", lambda p: WarCryEffect())
+EffectRegistry.register("floating_combat_tax", lambda p: FloatingCombatTaxEffect(
+    p["verb"], p["amount"], p["payment"], p["duration"], p.get("defender_scope"),
+))
+EffectRegistry.register("each_player_counter_then_attack_bar",
+                        lambda p: EachPlayerMayCounterThenAttackBarEffect(int(p["count"])))
 EffectRegistry.register(
     # RULE 122.1 / 702.62b: "remove/put N time counters on target permanent [with a time counter on it] or suspended
     # card" and the "each permanent and each suspended card" mass form -- see `TimeCountersEffect`.
@@ -4414,6 +4420,7 @@ EffectRegistry.register(
             # `ward_cost` consumer for why this rides `grant_keyword`
             # rather than a dedicated static kind.
             **({"ward_cost": p["ward_cost"]} if p.get("ward_cost") else {}),
+            **({"outlast_cost": p["outlast_cost"]} if p.get("outlast_cost") else {}),
             **({"cumulative_upkeep_cost": p["cumulative_upkeep_cost"]}
                if p.get("cumulative_upkeep_cost") else {}),
             **_selectors(p),
@@ -4687,6 +4694,7 @@ EffectRegistry.register(
         params={
             "grant_zone_keyword": str(p["keyword"]),
             "grant_zone_keyword_cost": str(p["cost"]),
+            **{key: p[key] for key in ("all_players", "artifact_creature", "color_count", "cycling_type") if key in p},
             "card_types": list(p.get("card_types", []) or []),
             "subtypes": list(p.get("subtypes", []) or []),
         },
@@ -5238,6 +5246,7 @@ EffectRegistry.register(
     lambda p: StaticAbility(
         "cant_attack_defender", affects="self", params={
             "defender_scope": p.get("defender_scope", "player_or_planeswalker"),
+            **({"unless_previous_turn_activity": True} if p.get("unless_previous_turn_activity") else {}),
             "attacker_filter": dict(p.get("attacker_filter") or {}),
             **({"active_if": p["active_if"]} if p.get("active_if") else {}),
         }
@@ -5612,6 +5621,8 @@ EffectRegistry.register(
             **({"amount_per_counter": str(p["amount_per_counter"])} if p.get("amount_per_counter") else {}),
             **({"amount_count_selector": str(p["amount_count_selector"])} if p.get("amount_count_selector") else {}),
             **({"attacker_you_control": True} if p.get("attacker_you_control") else {}),
+            **({"payment": p["payment"]} if p.get("payment") in {"life", "sacrifice", "return", "tap"} else {}),
+            **({"payment_filter": dict(p["payment_filter"])} if p.get("payment_filter") else {}),
             **_selectors(p),
         },
     ),

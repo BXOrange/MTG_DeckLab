@@ -3514,6 +3514,15 @@ def _apply_layer_6_ability(state: "GameState", abilities: list) -> None:
                 key = (id(ability), obj.instance_id, "parametric", pname, int(pn))
                 live_grant_keys.add(key)
                 _grant_parametric_keyword_rules(state, obj, pname, int(pn), key)
+            if outlast_cost := ability.params.get("outlast_cost"):
+                from .binding.core import granted_outlast_ability
+                key = (id(ability), obj.instance_id, obj.zone_incarnation, "outlast")
+                live_grant_keys.add(key)
+                granted = state._granted_ability_cache.get(key)
+                if granted is None:
+                    granted = granted_outlast_ability(obj, outlast_cost)
+                    state._granted_ability_cache[key] = granted
+                obj._granted_activated_abilities.append(granted)
             if remove_keywords:
                 # RULE 613.7: remove earlier grants now, while retaining
                 # suppression of printed instances. A later grant can add
@@ -3918,9 +3927,38 @@ def _apply_hand_cycling_grants(state: "GameState", abilities: list[StaticAbility
 
 #: ENG-67: the keywords `_apply_zone_keyword_grants` may grant, each mapped to the zone it functions from. Only a
 #: keyword whose *printed* behaviour the engine builds as an activated ability (`binding.core.granted_graveyard_keyword_
-#: ability`) belongs here: RULE 702.84a Unearth works from the graveyard. Encore (702.141), Jump-start (702.133) and
-#: typecycling have no engine behaviour (BUG-75), so a grant of them stays refused by the parser.
-ZONE_GRANTABLE_KEYWORDS: dict[str, str] = {"unearth": "graveyard"}
+#: ability`) belongs here. Jump-start and Ninjutsu grant permissions consumed by their normal action paths.
+ZONE_GRANTABLE_KEYWORDS: dict[str, str] = {
+    "unearth": "graveyard", "encore": "graveyard", "scavenge": "graveyard",
+    "jump_start": "graveyard", "typecycling": "hand", "ninjutsu": "hand",
+}
+_ZONE_PERMISSION_KEYWORDS = frozenset({"jump_start", "ninjutsu"})
+
+
+def _zone_keyword_matches(ability, obj, player):
+    params = ability.params
+    if not params.get("all_players") and ability.source.controller_id != player.id:
+        return False
+    card_types = params.get("card_types")
+    subtypes = params.get("subtypes")
+    return (
+        (not card_types or any(_has_card_type(obj, t) for t in card_types))
+        and (not subtypes or any(_has_subtype(obj, s) for s in subtypes))
+        and (not params.get("artifact_creature") or (obj.is_artifact and obj.is_creature))
+        and (params.get("color_count") is None or len(effective_colors(obj)) == params["color_count"])
+    )
+
+
+def zone_keyword_cost(state, obj, keyword):
+    """Read a live zone permission without mutating a card's printed abilities."""
+    zone = ZONE_GRANTABLE_KEYWORDS[keyword]
+    player = state.player_by_id(obj.owner_id)
+    if player is None or obj not in getattr(player, zone):
+        return None
+    for ability in _in_layer(_battlefield_static_abilities(state), "ability"):
+        if ability.params.get("grant_zone_keyword") == keyword and _zone_keyword_matches(ability, obj, player):
+            return ability.params["grant_zone_keyword_cost"]
+    return None
 
 
 def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility]) -> None:
@@ -3935,7 +3973,7 @@ def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility
     Rogue, ..."). One ability per (grant, card, zone visit): RULE 400.7 makes a card that leaves and returns a new
     object, and RULE 113.2c keeps the grant a separate ability from any printed copy of the same keyword.
     """
-    from .binding.core import granted_graveyard_keyword_ability  # function-scoped: binding imports this module
+    from .binding.core import granted_graveyard_keyword_ability, granted_typecycling_ability
 
     previous = getattr(state, "_zone_keyword_granted", None) or []
     for obj in previous:
@@ -3947,31 +3985,35 @@ def _apply_zone_keyword_grants(state: "GameState", abilities: list[StaticAbility
 
     for ability in _in_layer(abilities, "ability"):
         keyword = ability.params.get("grant_zone_keyword")
-        if keyword not in ZONE_GRANTABLE_KEYWORDS:
+        if keyword not in ZONE_GRANTABLE_KEYWORDS or keyword in _ZONE_PERMISSION_KEYWORDS:
             continue
-        controller_id = getattr(ability.source, "controller_id", None)
-        player = next((p for p in state.players if p.id == controller_id), None)
-        if player is None:
-            continue
-        cost_text = str(ability.params.get("grant_zone_keyword_cost") or "")
-        card_types = ability.params.get("card_types")
-        subtypes = ability.params.get("subtypes")
-        for obj in list(getattr(player, ZONE_GRANTABLE_KEYWORDS[keyword])):
-            if card_types and not any(_has_card_type(obj, str(t)) for t in card_types):
-                continue
-            if subtypes and not any(_has_subtype(obj, str(s)) for s in subtypes):
-                continue
-            key = (id(ability), obj.instance_id, obj.zone_incarnation)
-            live_keys.add(key)
-            granted = state._zone_keyword_ability_cache.get(key)
-            if granted is None:
-                granted = granted_graveyard_keyword_ability(obj, str(keyword), cost_text)
-                granted._zone_keyword_grant = True
-                granted.granted_zone_incarnation = obj.zone_incarnation  # RULE 400.7: one zone visit
-                state._zone_keyword_ability_cache[key] = granted
-            obj._granted_activated_abilities.append(granted)
-            _trace(obj, 6, _source_name(ability), f"gains {keyword} {cost_text}")
-            stamped.append(obj)
+        for player in state.living_players():
+            for obj in getattr(player, ZONE_GRANTABLE_KEYWORDS[keyword]):
+                if not _zone_keyword_matches(ability, obj, player):
+                    continue
+                key = (id(ability), obj.instance_id, obj.zone_incarnation)
+                live_keys.add(key)
+                granted = state._zone_keyword_ability_cache.get(key)
+                if granted is None:
+                    cost = ability.params["grant_zone_keyword_cost"]
+                    if cost == "mana_value":
+                        cost = f"{{{obj.mana_value}}}"
+                    elif cost == "mana_cost":
+                        cost = obj.mana_cost_string
+                        if not cost:
+                            continue
+                    if keyword == "typecycling":
+                        granted = granted_typecycling_ability(obj, cost, ability.params["cycling_type"])
+                    else:
+                        granted = granted_graveyard_keyword_ability(obj, keyword, cost)
+                    if granted is None:
+                        continue
+                    granted._zone_keyword_grant = True
+                    granted.granted_zone_incarnation = obj.zone_incarnation
+                    state._zone_keyword_ability_cache[key] = granted
+                obj._granted_activated_abilities.append(granted)
+                _trace(obj, 6, _source_name(ability), f"gains {keyword}")
+                stamped.append(obj)
 
     for key in list(state._zone_keyword_ability_cache):
         if key not in live_keys:
@@ -4195,7 +4237,7 @@ def _apply_post_layer_combat_restrictions_and_goad(state: "GameState", abilities
         entry = {
             k: ability.params[k]
             for k in ("kind", "filter", "count", "condition", "defender_kind", "amount", "amount_per_counter",
-                      "amount_count_selector")
+                      "amount_count_selector", "payment", "payment_filter")
             if ability.params.get(k) is not None
         }
         entry = resolve_source_relative_entry(entry, ability.source)  # Champion of Lambholt: "power less than ~'s"
@@ -4982,8 +5024,8 @@ def forced_sorcery_speed_only(state: "GameState", player: "Player") -> bool:
 
 
 def attack_tax_per_creature_for(
-    state: "GameState", defending_player_id: str, defender_kind: str = "player",
-    attacker: Any = None,
+    state: "GameState", defending_player_id: Optional[str], defender_kind: str = "player",
+    attacker: Any = None, *, payment: str = "mana",
 ) -> int:
     """RULE 508.1g — "creatures can't attack you unless their controller pays
     {N} for each creature they control that's attacking you" (Propaganda /
@@ -5003,9 +5045,13 @@ def attack_tax_per_creature_for(
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "attack_tax":
             continue
-        if getattr(ability.source, "controller_id", None) != defending_player_id:
-            continue
         params = ability.params or {}
+        if params.get("payment", "mana") != payment:
+            continue
+        protected_id = (ability.duration_data or {}).get("player_id") or getattr(ability.source, "controller_id", None)
+        global_tax = params.get("all_defenders", False)
+        if not global_tax and (defending_player_id is None or protected_id != defending_player_id):
+            continue
         # RULE 613.6 gate ("As long as ~ is untapped, …" — Archangel of Tithes).
         gate = params.get("active_if")
         if gate and not static_conditions.condition_holds(
@@ -5013,7 +5059,7 @@ def attack_tax_per_creature_for(
         ):
             continue
         scope = str(params.get("defender_scope", "player"))
-        if defender_kind != "player" and not (
+        if not global_tax and defender_kind != "player" and not (
             defender_kind == "planeswalker" and scope == "player_or_planeswalker"
         ):
             continue
@@ -5138,9 +5184,24 @@ def defender_attack_prohibited(
         # ("Until your next turn, creatures can't attack you." — Chronomantic Escape).
         protected_id = (getattr(ability, "duration_data", None) or {}).get("player_id") or getattr(
             ability.source, "controller_id", None)
+        params = ability.params or {}
+        if params.get("unless_previous_turn_activity"):
+            from ..models.game.events import EventType
+
+            if defender_kind != "player" or getattr(ability.source, "loses_all_abilities", False):
+                continue
+            # RULE 110.2a: the player putting a permanent can differ from its controller.
+            previous_turn = state.events_during_players_previous_turn(defending_player_id)
+            if not any(
+                (event.type == EventType.SPELL_CAST and event.get("player_id") == defending_player_id)
+                or (event.type == EventType.ENTERS_BATTLEFIELD and not event.get("is_token")
+                    and event.get("put_by_player_id", event.get("controller_id")) == defending_player_id)
+                for event in previous_turn
+            ):
+                return True
+            continue
         if protected_id != defending_player_id:
             continue
-        params = ability.params or {}
         gate = params.get("active_if")
         if gate and not static_conditions.condition_holds(
             gate, state, ability.source, getattr(ability.source, "controller_id", None)
@@ -5150,6 +5211,8 @@ def defender_attack_prohibited(
         # RULE 508.1a / 310.8d: "attack you" names the player; "or planeswalkers you control" adds planeswalkers. A
         # battle's protector is not "the player" being attacked, so neither wording bars an attack on a battle.
         if defender_kind == "battle" or (defender_kind == "planeswalker" and scope != "player_or_planeswalker"):
+            continue
+        if params.get("attacker_controller_id") not in (None, attacker.controller_id):
             continue
         if _defender_attack_ban_matches(
             state, attacker, ability.source, params.get("attacker_filter") or {}
@@ -6124,7 +6187,7 @@ def max_noncreature_spells_per_turn(state: "GameState") -> Optional[int]:
 CAST_SCOPE_CONTROLLER = "you"
 
 
-def land_play_prohibited(state: "GameState", player: "Player") -> bool:
+def land_play_prohibited(state: "GameState", player: "Player", card: Any = None) -> bool:
     """RULE 305.1 / 101.2: whether a standing ``"land_play_prohibition"`` bars ``player`` from playing a land right now
     ("Players can't play lands." — Territorial Dispute; "You can't play lands." — Aggressive Mining; a floating "target
     player can't play lands this turn" — Solfatara). A prohibition overrides every permission to play a land, so this
@@ -6133,7 +6196,7 @@ def land_play_prohibited(state: "GameState", player: "Player") -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "land_play_prohibition":
             continue
-        if getattr(ability.source, "loses_all_abilities", False):
+        if ability.duration is None and getattr(ability.source, "loses_all_abilities", False):
             continue
         controller_id = getattr(ability.source, "controller_id", None)
         gate = ability.params.get("active_if")
@@ -6148,6 +6211,10 @@ def land_play_prohibited(state: "GameState", player: "Player") -> bool:
             continue
         if scope == "opponents" and player.id == controller_id:
             continue
+        if "restricted_name" in ability.params:
+            from ..models.cards.card_query import names_overlap
+            if card is None or not names_overlap(card.name, ability.params["restricted_name"]):
+                continue
         return True
     return False
 
@@ -6209,7 +6276,15 @@ def cast_prohibited(state: "GameState", player: "Player", card: Any, zone: Optio
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "cast_prohibition":
             continue
-        controller_id = getattr(ability.source, "controller_id", None)
+        controller_id = ability.params.get("effect_controller_id", getattr(ability.source, "controller_id", None))
+        if ability.params.get("during_next_turn") and (
+            state.internal_turn.number != ability.duration_data.get("active_turn")
+        ):
+            continue
+        if "restricted_name" in ability.params:
+            from ..models.cards.card_query import names_overlap
+            if not names_overlap(card.name, ability.params["restricted_name"]):
+                continue
         # RULE 613.6's own gate ("During your turn, your opponents can't cast
         # spells …" — Grand Abolisher/Myrel, Shield of Argive), evaluated the
         # same way `group_selector_objects` does for every other static —
@@ -6505,6 +6580,31 @@ def granted_retrace_for(state: "GameState", obj: "GameObject") -> Optional[dict[
             continue
         return dict(ability.params)
     return None
+
+
+def granted_modular_entry_counters(state: "GameState", obj: "GameObject") -> int:
+    """RULE 614.12 / 702.43a: read standing modular grants for the prospective entrant."""
+    from .combat import matches_object_filter
+
+    total = 0
+    for ability in _in_layer(_battlefield_static_abilities(state), "ability"):
+        selector = ability.affects
+        if not isinstance(selector, dict) or selector.get("zone", "battlefield") != "battlefield":
+            continue
+        entries = [kw for kw in ability.params.get("parametric_keywords", []) if kw.get("name") == "modular"]
+        if not entries:
+            continue
+        controller_id = getattr(ability.source, "controller_id", None)
+        scope = selector.get("of", "you")
+        if scope == "you" and controller_id != obj.controller_id:
+            continue
+        if scope == "opponents" and controller_id == obj.controller_id:
+            continue
+        if scope not in {"you", "opponents", "any"}:
+            continue
+        if matches_object_filter(obj, selector.get("filter", {}), reference=ability.source, state=state):
+            total += sum(int(kw["n"]) for kw in entries)
+    return total
 
 
 def extra_etb_counters_for(state: "GameState", obj: "GameObject") -> dict[str, int]:
@@ -6894,7 +6994,7 @@ def player_cant_win(state: "GameState", player: "Player") -> bool:
     return False
 
 
-def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
+def player_ignores_legend_rule(state: "GameState", player: "Player", obj: Any = None) -> bool:
     """Whether RULE 704.5j (the legend rule) is switched off for permanents
     ``player`` controls right now ("The 'legend rule' doesn't apply to
     permanents you control." — Sakashima of a Thousand Faces-shaped) —
@@ -6905,7 +7005,10 @@ def player_ignores_legend_rule(state: "GameState", player: "Player") -> bool:
     for ability in _battlefield_static_abilities(state):
         if ability.layer != "ignore_legend_rule":
             continue
-        if ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
+        if isinstance(ability.affects, dict):
+            if obj is not None and obj in affected_objects(state, ability):
+                return True
+        elif ability.affects == "each_player" or getattr(ability.source, "controller_id", None) == player.id:
             return True
     return False
 

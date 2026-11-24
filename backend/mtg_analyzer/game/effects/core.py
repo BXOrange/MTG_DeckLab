@@ -994,6 +994,7 @@ class GameContext:
         self.engine.return_from_graveyard(
             target, destination, controller_id=controller_id, transformed=transformed, attach_to=attach_to,
             face_down_kind=face_down_kind, entry_counters=entry_counters,
+            put_by_player_id=self.acting_player_id or self.resolving_controller_id,
         )
 
     def blink(

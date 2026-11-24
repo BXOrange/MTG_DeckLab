@@ -696,7 +696,7 @@ class StateBasedActionsMixin:
             if not obj.is_legendary:
                 continue
             controller = self.state.player_by_id(obj.controller_id)
-            if controller is not None and continuous.player_ignores_legend_rule(self.state, controller):
+            if controller is not None and continuous.player_ignores_legend_rule(self.state, controller, obj):
                 continue
             groups.setdefault((obj.controller_id, obj.name), []).append(obj)
         found: list[SbaAction] = []

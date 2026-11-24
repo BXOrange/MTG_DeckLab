@@ -17,6 +17,7 @@ export function attackControlHtml(a, attack) {
     type: 'declare_attackers', instance_ids: [iid],
     ...(defender ? { defender: defenderPayload(defender) } : {}),
     attack_tax_amount: a.attack_tax_amounts?.[index] || 0,
+    attack_life_amount: a.attack_life_amounts?.[index] || 0,
     name: a.name,
     defender_label: defender?.label,
   });
@@ -63,7 +64,7 @@ export function cardActionButtons(cardActions, attack) {
       buttons.push(
         `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
       );
-    } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost)) {
+    } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost || a.reveal_cost)) {
       buttons.push(castTargetHtml(a));
     } else if (a.type === 'cast_spell' && a.discard_cost) {
       // "As an additional cost to cast this spell, discard N cards" (RULE

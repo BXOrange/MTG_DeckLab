@@ -589,6 +589,72 @@ def static_graveyard_beam_me_up_grant(ctx: StaticContext) -> StaticResult:
 
 
 def static_zone_keyword_grant(ctx: StaticContext) -> StaticResult:
+    if ctx.text == "other nontoken artifact creatures and vehicles you control have modular 1":
+        return [EffectSpec("grant_keyword", {
+            "affects": {"zone": "battlefield", "of": "you", "filter": {
+                "nontoken": True, "not_reference": True,
+                "any_of": [{"card_type": "creature", "all_types": ["artifact"]}, {"subtype": "Vehicle"}],
+            }},
+            "parametric_keywords": [{"name": "modular", "n": 1}],
+        })]
+    if ctx.text == "nagas and serpents you control are snakes":
+        return [EffectSpec("type_change", {
+            "affects": {"zone": "battlefield", "of": "you", "filter": {
+                "any_of": [{"subtype": "Naga"}, {"subtype": "Serpent"}],
+            }},
+            "add_subtypes": ["Snake"],
+        })]
+    if ctx.text == "snakes you control have daunt, deathtouch, and poisonous 2":
+        affects = {"zone": "battlefield", "of": "you", "filter": {"subtype": "Snake"}}
+        return [
+            EffectSpec("grant_keyword", {"affects": affects, "keywords": ["deathtouch"],
+                                         "parametric_keywords": [{"name": "poisonous", "n": 2}]}),
+            EffectSpec("combat_restriction", {"affects": affects, "kind": "cant_be_blocked_by",
+                                             "filter": {"max_power": 2}}),
+        ]
+    outlast = re.fullmatch(
+        r"(?:each )?other (?P<sliver>sliver )?creatures? you control(?P<uncountered> without a \+1/\+1 counter on it)?"
+        r" (?:has|have) outlast (?P<cost>(?:\{[^}]+\})+)", ctx.text,
+    )
+    if outlast:
+        filt = {"card_type": "creature", "not_reference": True}
+        if outlast["sliver"]:
+            filt["subtype"] = "Sliver"
+        if outlast["uncountered"]:
+            filt["without_counter_kind"] = "+1/+1"
+        return [EffectSpec("grant_keyword", {
+            "affects": {"zone": "battlefield", "of": "you", "filter": filt},
+            "outlast_cost": outlast["cost"],
+        })]
+    timed = re.fullmatch(
+        r"each (?P<filter>outlaw creature|sliver creature|artifact creature|creature) card in your graveyard has "
+        r"(?:(?P<mv>encore \{x\}, where x is its mana value)|"
+        r"(?P<keyword>encore|scavenge)\. (?:its|the) (?:encore|scavenge) cost is equal to its mana cost)", ctx.text,
+    )
+    if timed:
+        filt = timed["filter"]
+        subtypes = (["Assassin", "Mercenary", "Pirate", "Rogue", "Warlock"] if filt == "outlaw creature"
+                    else ["Sliver"] if filt == "sliver creature" else [])
+        return [EffectSpec("grant_zone_keyword", {
+            "keyword": "encore" if timed["mv"] else timed["keyword"],
+            "cost": "mana_value" if timed["mv"] else "mana_cost",
+            "card_types": ["creature"], "subtypes": subtypes, "artifact_creature": filt == "artifact creature",
+        })]
+    if ctx.text == "each instant and sorcery card in your graveyard that's exactly 2 colors has jump-start":
+        return [EffectSpec("grant_zone_keyword", {
+            "keyword": "jump_start", "cost": "", "card_types": ["instant", "sorcery"], "color_count": 2,
+        })]
+    ninjutsu = re.fullmatch(r"each creature card in your hand has ninjutsu (?P<cost>(?:\{[^}]+\})+)", ctx.text)
+    if ninjutsu:
+        return [EffectSpec("grant_zone_keyword", {
+            "keyword": "ninjutsu", "cost": ninjutsu["cost"], "card_types": ["creature"],
+        })]
+    cycling = re.fullmatch(r"each sliver card in each player's hand has slivercycling (?P<cost>(?:\{[^}]+\})+)", ctx.text)
+    if cycling:
+        return [EffectSpec("grant_zone_keyword", {
+            "keyword": "typecycling", "cost": cycling["cost"], "subtypes": ["Sliver"],
+            "all_players": True, "cycling_type": "sliver",
+        })]
     m = ZONE_KEYWORD_GRANT_RE.fullmatch(ctx.text)
     if m is None:
         return None

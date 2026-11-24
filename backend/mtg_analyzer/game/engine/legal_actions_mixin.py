@@ -247,7 +247,7 @@ class LegalActionsMixin:
         if ability.cost.tap_total_power is not None:
             action['power_tap_cost'] = {'power_required': ability.cost.tap_total_power,
                 'options': [{'instance_id': obj.instance_id, 'name': obj.name, 'power': int(obj.power or 0)}
-                            for obj in self._crew_pool(player, source)]}
+                            for obj in self._crew_pool(player, source, crewing=False)]}
         if ability.cost.exile_instant_or_sorcery_spell:
             action['exile_cost'] = {'count': 1, 'spell': True, 'options': [
                 {'instance_id': obj.instance_id, 'name': obj.name}
@@ -722,6 +722,10 @@ class LegalActionsMixin:
             graveyard_keyword = self._graveyard_cast_keyword(obj) if obj in player.graveyard else None
             if graveyard_keyword is not None:
                 action["cast_from_graveyard"] = graveyard_keyword
+                if graveyard_keyword == "jump_start":
+                    action["discard_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name} for card in player.hand
+                    ]}
                 if graveyard_keyword == "escape":
                     escape_cost = self._escape_cost(obj)
                     if escape_cost is not None and escape_cost.exile_from_graveyard:
@@ -839,6 +843,11 @@ class LegalActionsMixin:
                         "options": [{"instance_id": c.instance_id, "name": c.name}
                                     for c in self._sacrifice_count_pool(player, additional_cost.return_pick, obj)],
                     }
+                if paying_additional and additional_cost.reveal_from_hand:
+                    action["reveal_cost"] = {"count": 1, "options": [
+                        {"instance_id": card.instance_id, "name": card.name}
+                        for card in self._cast_reveal_candidates(player, obj, additional_cost.reveal_from_hand)
+                    ]}
                 if paying_additional and additional_cost.blight:
                     action["blight_cost"] = self._blight_cost_choice(player, additional_cost.blight)
                 discard_n = getattr(additional_cost, "discard", 0)
@@ -1702,16 +1711,9 @@ class LegalActionsMixin:
             # the count to decide a one-step declaration (0/1 defender) vs. a
             # two-step "pick a defender" choice (RULE 508.1a).
             defenders = self.legal_defenders_for(player)
-            attack_tax_amounts = []
-            for defender in defenders:
-                defending = self._defending_player(defender)
-                attack_tax_amounts.append(
-                    continuous.attack_tax_per_creature_for(
-                        self.state,
-                        defending.id if defending is not None else "",
-                        str(defender.get("kind", "player")),
-                    )
-                )
+            defending_ids = [
+                owner.id if (owner := self._defending_player(spec)) else None for spec in defenders
+            ]
             for obj in self.state.permanents_controlled_by(player.id):
                 # RULE 508.1a: attackers are declared once per combat. A
                 # creature already attacking (most visibly a vigilant one,
@@ -1750,7 +1752,16 @@ class LegalActionsMixin:
                             # submits its one-attacker declaration instead
                             # of silently spending floating mana.
                             "attack_tax_amounts": [
-                                attack_tax_amounts[index] + combat.attack_cost_for(self.state, obj)
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj
+                                ) + combat.attack_cost_for(self.state, obj)
+                                for index in allowed
+                            ],
+                            "attack_life_amounts": [
+                                continuous.attack_tax_per_creature_for(
+                                    self.state, defending_ids[index], defenders[index]["kind"], attacker=obj,
+                                    payment="life",
+                                )
                                 for index in allowed
                             ],
                             # RULE 702.19a: whether the client may offer an
@@ -1806,7 +1817,8 @@ class LegalActionsMixin:
                         # creatures" siblings — validated across the complete
                         # assignment in `declare_blockers` — can be satisfied.
                         "legal_attackers": [
-                            {"instance_id": a.instance_id, "name": a.name} for a in blockable
+                            {"instance_id": a.instance_id, "name": a.name,
+                             "life_cost": combat.block_life_cost_for(self.state, obj, a)} for a in blockable
                         ],
                     }
                 )
@@ -1819,7 +1831,7 @@ class LegalActionsMixin:
         unblocked = self.ninjutsu_unblocked_attackers(player)
         if unblocked:
             for ninja in list(player.hand):
-                cost = self._keyword_cost_adjusted(getattr(ninja, "ninjutsu_cost", None), "ninjutsu", player, ninja)
+                cost = self._keyword_cost_adjusted(self._ninjutsu_cost(ninja), "ninjutsu", player, ninja)
                 if cost is None or not player.mana_pool.can_pay(cost):
                     continue
                 for atk in unblocked:

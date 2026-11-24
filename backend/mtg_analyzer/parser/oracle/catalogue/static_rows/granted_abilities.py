@@ -592,7 +592,7 @@ HAND_CYCLING_GRANT_RE = re.compile(
 # unclaimed (BUG-75). The cost is a literal mana cost; an "{X}, where X is its mana value" cost is not matched.
 ZONE_KEYWORD_GRANT_RE = re.compile(
     r"(?:each )?(?P<filter>[a-z][a-z, /]*?) cards? in your (?P<zone>graveyard|hand)"
-    r"(?: that'?s an? (?P<subs>[a-z][a-z, /]*?))? (?:has|have) (?P<kw>unearth|miracle) "
+    r"(?: that'?s an? (?P<subs>[a-z][a-z, /]*?))? (?:has|have) (?P<kw>unearth|miracle|encore|scavenge|ninjutsu) "
     r"(?P<cost>(?:\{[^}]+\})+)\.?",
     re.IGNORECASE,
 )

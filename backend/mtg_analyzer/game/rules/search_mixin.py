@@ -2247,6 +2247,7 @@ class SearchMixin:
         chooser_id: Optional[str] = None,
         entry_specs: Optional[list[dict]] = None,
         attacking_player_id: Optional[str] = None,
+        put_by_player_id: Optional[str] = None,
     ) -> None:
         from_zone = obj.zone.value
         if destination in ("battlefield", "battlefield_tapped", "battlefield_attacking", "battlefield_attacking_triggering"):
@@ -2289,6 +2290,7 @@ class SearchMixin:
                     EventType.ENTERS_BATTLEFIELD,
                     from_zone=from_zone,
                     controller_id=player.id,
+                    put_by_player_id=put_by_player_id or chooser_id or player.id,
                     object=obj.name,
                     instance_id=obj.instance_id,
                     object_types=sorted(obj.type_words),
@@ -2875,6 +2877,7 @@ class SearchMixin:
         effect_specs: list[dict],
         source: Optional[GameObject],
         prompt: str = "Kartennamen wählen",
+        card_filter: Optional[dict[str, Any]] = None,
     ) -> None:
         """Open a "choose a card name" choice (RULE 701.x's naming action) —
         Demonic Consultation's opener.
@@ -2904,6 +2907,7 @@ class SearchMixin:
             "player_id": player.id,
             "effect_specs": [dict(d) for d in effect_specs],
             "source": source,
+            "card_filter": card_filter,
         }
         self.open_choice({
             "kind": "name_card",
@@ -2911,7 +2915,12 @@ class SearchMixin:
             "prompt": prompt,
             # Suggestions only — `_resume_name_card` takes any string.
             "free_text": True,
-            "options": [{"id": name, "label": name} for name in sorted(known)],
+            "name_card_resume": {
+                "effect_specs": effect_specs, "source_id": getattr(source, "instance_id", None),
+                "card_filter": card_filter,
+            },
+            "options": [{"id": name, "label": name} for name in sorted(known)
+                        if not card_filter or self._validated_card_name(player.id, name, card_filter)],
         })
     @continuations.choice("name_card", answer=continuations.ANSWER_STR, rule="701.20")
     def _resume_name_card(self, choice: dict[str, Any], answer: Optional[str]) -> None:
@@ -2923,10 +2932,17 @@ class SearchMixin:
         naming a card that isn't there, not an error.
         """
         pending = self._pending_name_card
-        self._pending_name_card = None
         if pending is None:
-            return
+            resume = choice.get("name_card_resume")
+            if resume is None:
+                return
+            pending = {**resume, "player_id": choice["player_id"],
+                       "source": self.state.find_object(resume["source_id"])}
         name = "" if answer is None or answer == "decline" else str(answer)
+        if pending.get("card_filter") and not self._validated_card_name(pending["player_id"], name, pending["card_filter"]):
+            self.open_choice(choice)
+            raise ValueError("Choose a nonland card name")
+        self._pending_name_card = None
         specs = [
             {**d, "params": self._substitute_named_card(dict(d.get("params") or {}), name)}
             for d in pending["effect_specs"]
