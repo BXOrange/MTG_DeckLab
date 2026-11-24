@@ -214,7 +214,8 @@ def test_deicide_sweeps_only_when_the_exiled_enchantment_is_a_god():
         if god:
             assert _zone_names(eng, "exile") == ["Theros"] * 4 and shuffled == ["p2"]
         else:
-            assert _zone_names(eng, "exile") == ["Theros"] and shuffled == []
+            # RULE 608.2c: "Then that player shuffles" is its own sentence, so it happens although no search did
+            assert _zone_names(eng, "exile") == ["Theros"] and shuffled == ["p2"]
             assert "Theros" in _zone_names(eng, "hand")
 
 

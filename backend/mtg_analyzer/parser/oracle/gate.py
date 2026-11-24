@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
+from .catalogue.dig import THAT_MANY_FIELD
 from .catalogue.cost_text import scan_cost_text
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
 from .catalogue.keywords import parse_keywords
@@ -83,7 +84,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1046"
+PARSER_VERSION = "1047"
 
 
 def parser_source_hash() -> str:
@@ -1541,6 +1542,15 @@ def _resolve_that_much_tree(node: Any, field: Optional[str], amount: Optional[di
     nested = _nested_trigger_context(node, None, "")
     if nested is not None:
         field, amount = _THAT_MUCH_TRIGGER_FIELDS.get(nested[0]), None
+    if node.get("kind") == "trigger_event" and node.get("field") == THAT_MANY_FIELD:
+        # PAR-292 M18: a dig's "that many cards" count operand (`catalogue/dig.py`).
+        if amount is not None:
+            node.clear()
+            node.update(amount)
+        elif field is None:
+            return False
+        else:
+            node["field"] = field
     if node.get("amount_from_trigger_event") == "that_much":
         if amount is not None:
             node.pop("amount_from_trigger_event")

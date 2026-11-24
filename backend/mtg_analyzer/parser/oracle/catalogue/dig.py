@@ -78,6 +78,11 @@ _SEPARATE_ITEMS_RE = re.compile(r"(?P<a>[a-z]+) card and/or an? (?P<b>[a-z]+) ca
 #: RULE 205.2a: the card types a "distinct types" pick can tell apart (the same set the engine's
 #: `distinct_card_types` assignment reads, `misc_helpers._CARD_TYPE_WORDS`).
 _DISTINCT_TYPE_WORDS = frozenset({"artifact", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery", "battle"})
+#: PAR-292 M18: "that many cards" -- the count operand of a dig whose quantity is the firing event's payload. The
+#: ``field`` is a private sentinel the gate swaps for the real payload field of the enclosing trigger (RULE 608.2h), or
+#: refuses when no trigger names the quantity.
+THAT_MANY_FIELD = "that_much"
+THAT_MANY_COUNT = {"kind": "trigger_event", "field": THAT_MANY_FIELD}
 #: A bare "x" (an announced-X magnitude), as opposed to the "{x}" mana symbol of `_X_COST_QUAL`.
 _BARE_X_RE = re.compile(r"(?<!\{)\bx\b(?!\})")
 
@@ -283,7 +288,7 @@ def parse_reveal_top_branch(text: str) -> Optional[list[EffectSpec]]:
 
 
 def parse_dig(
-    count: "int | str", remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
+    count: "int | str | dict", remainder: str, match_tail: Callable[[str], Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:
     """The `EffectSpec`s for a dig whose first sentence ("look at/reveal the top N cards of your
     library") was already read: ``remainder`` is every sentence after it."""
@@ -404,7 +409,7 @@ def parse_dig(
         if effects is None:
             return None
         specs.extend(effects)
-    if (pick is not None and params["action"] == "library_to_hand"
+    if (pick is not None and params["action"] == "library_to_hand" and isinstance(count, (int, str))
             and rest_text == "on the bottom of your library in any order"):
         # RULE 401.4: an ordered bottom pile is the player's choice, not a
         # random permutation. The existing fixed-count hand dig owns that

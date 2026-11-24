@@ -23,8 +23,8 @@ class SameNameSearchEffect(_CompositeEffect):
     The name operand is the target of the leading ``effects`` clause (Counterbore, Surgical Extraction: the default), or,
     with ``from_previous``, the card(s) an earlier clause of this resolution picked or exiled (``previous_targets``:
     Lobotomy's chosen card, Pick the Brain's exiled card, Reap Intellect's exiled cards -- one sweep for every name, one
-    shuffle). ``reference_filter`` gates the whole sweep on the reference card (Deicide's "if the exiled card is a God
-    card"; a failed gate neither searches nor shuffles, RULE 608.2c), ``condition`` on the game as the sweep begins
+    shuffle). ``reference_filter`` gates the search on the reference card (Deicide's "if the exiled card is a God
+    card"; a failed gate does not search, but the separate "Then that player shuffles" still happens, RULE 608.2c), ``condition`` on the game as the sweep begins
     (Invasive Surgery's delirium, read after the counter resolved). ``then_effects`` run as the searched player once per
     sweep when at least one card left their *hand*, ``$n`` being that count ("draws a card for each card exiled from
     their hand this way", Test of Talents). ``zones`` narrows the sweep (Haunting Echoes: the library only).
@@ -84,7 +84,13 @@ class _SearchCapturedNameEffect(_CompositeEffect):
         return any(names_overlap(obj.name, name) for name in self.names)
 
     def apply(self, context, targets=None):
-        if not self.gated_in or (self.condition and not effect_conditions.condition_holds(self.condition, context, self.source, targets)):
+        if not self.gated_in:
+            # RULE 608.2c: "Then that player shuffles" is its own instruction after the gated search (Deicide on a
+            # non-God): the library is shuffled although nothing was searched for. RULE 701.24a.
+            if 'library' in self.zones:
+                context.shuffle_library(context.state.player_by_id(self.owner_id))
+            return
+        if self.condition and not effect_conditions.condition_holds(self.condition, context, self.source, targets):
             return
         owner = context.state.player_by_id(self.owner_id)
         chooser = context.state.player_by_id(self.chooser_id)
