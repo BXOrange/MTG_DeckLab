@@ -349,3 +349,53 @@ def is_executed_rider(sentence: str) -> bool:
 def mana_riders_executed(effect_text: str) -> bool:
     """Whether every sentence after the leading ``Add`` clause of ``effect_text`` is one the engine executes."""
     return all(is_executed_rider(sentence) for sentence in split_sentences(effect_text)[1:])
+
+
+# --- the Add clause itself ---------------------------------------------------------------------------------------
+
+#: The mana symbols an ``Add`` clause may print and the builder turns into mana (`game/mana_abilities._PIP_RE`).
+_ADD_CLAUSE_SYMBOLS = frozenset("wubrgc")
+_SYMBOL_RE = re.compile(r"\{([^}]*)\}")
+#: "mana of any type that a land / Gate you control could produce" -- the only "any type" referent the builder reads
+#: (`game/mana_abilities._LAND_TYPE_COULD_PRODUCE_RE`); the sacrificed land's types (Squandered Resources) are not.
+_ANY_TYPE_RE = re.compile(r"mana of any type")
+_ANY_TYPE_READABLE_RE = re.compile(r"mana of any type that an? (?:land|gate) you control could produce")
+_X_COMBINATION_RE = re.compile(r"\bx mana in any combination of\b")
+_X_COMBINATION_SUBJECT_RE = re.compile(r", where x is (?P<subject>.+?)\.?$")
+#: The "where X is ..." subjects `game/mana_abilities._parse_combination_selector` resolves: the greatest power among
+#: creatures you control, the source's own power, or one of `_selector_from_subject`'s count phrases.
+_X_COMBINATION_SUBJECT_READABLE_RE = re.compile(
+    r"the greatest power among creatures you control|(?:~|this creature)'s power"
+    r"|(?:the number of )?.+ (?:you control|on the battlefield)"
+    r"|(?:the number of )?(?:[a-z]+ )?cards in your graveyard"
+    r"|(?:the number of )?[+\-]?[\w/+\-]+ counters? on (?:this (?:creature|artifact|enchantment|land|permanent)|~)"
+)
+#: "Remove X <kind> counters from ..." in a cost sizes an X the builder never announces (Crucible of the Spirit Dragon).
+_REMOVE_X_COUNTERS_COST_RE = re.compile(r"\bremove x\b")
+
+
+def add_clause_readable(cost_text: str, effect_text: str) -> bool:
+    """Whether the leading ``Add`` clause of a mana ability is one `game/mana_abilities` builds a working ability from.
+
+    BUG-85 (RULE 605.1a): the segmenter claims a ``<cost>: Add ...`` line as a mana ability without a spec, so a
+    clause the builder cannot read would leave a MODELED card with no mana ability at all. The vocabulary mirrored here
+    is deliberately narrow: only the shapes known to be unreadable are refused (a symbol that is not a mana symbol, "two
+    mana of different colors", an unreadable "any type" referent, an X the cost sizes by removing counters, an X-sized
+    combination over an unread subject); the full-cache parity test in `test_bug85_add_clause_claims.py` fails when a
+    claimed line yields no `ManaAbility`, which is what keeps this list honest.
+    """
+    clause = (split_sentences(effect_text) or [""])[0].lower()
+    cost = cost_text.lower()
+    if any(symbol not in _ADD_CLAUSE_SYMBOLS for symbol in _SYMBOL_RE.findall(clause)):
+        return False  # {T}{T} (Sole Performer), {∞} (Mox Lotus), {HR}: not mana the pool can hold
+    if "different colors" in clause or "different colours" in clause:
+        return False
+    if _ANY_TYPE_RE.search(clause) and not _ANY_TYPE_READABLE_RE.search(clause):
+        return False
+    if _X_COMBINATION_RE.search(clause):
+        if _REMOVE_X_COUNTERS_COST_RE.search(cost):
+            return False
+        subject = _X_COMBINATION_SUBJECT_RE.search(clause)
+        if subject is not None and _X_COMBINATION_SUBJECT_READABLE_RE.fullmatch(subject.group("subject")) is None:
+            return False
+    return True

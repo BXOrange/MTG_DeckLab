@@ -6,6 +6,8 @@ reads (a delayed draw, a life gain, "Activate only as a sorcery") was dropped si
 below are the ones `parser/oracle/mana_riders.py` re-claims, each checked against the real `ManaAbility` the engine
 builds and, where it changes play, against `tap_for_mana`.
 """
+import re
+
 import pytest
 
 from mtg_analyzer.game.mana_abilities import parse_mana_abilities
@@ -215,18 +217,9 @@ def _carried_by(abilities, sentence):
             a.cost.once_per_turn or a.cost.only_during_your_turn or a.cost.only_before_attackers
             or a.cost.activation_condition for a in abilities
         )
+    if re.fullmatch(r"you gain x life\.", text, re.IGNORECASE):
+        return any(a.gain_life_x for a in abilities)  # the announced-X rider (Springjack Pasture)
     return any(a.spend_rider or a.next_cast_rider for a in abilities)
-
-
-#: Cards whose *Add clause* (not a rider) the builder cannot read, or whose basic land type short-circuits the line
-#: reading: a separate defect from BUG-73, recorded in the ticket's residue rather than papered over here.
-KNOWN_UNREADABLE_ADD_CLAUSES = frozenset({
-    "Sole Performer",           # "Add {T}{T}": {T} is not a mana symbol the builder reads
-    "Crucible of the Spirit Dragon",   # "Add X mana in any combination of colors" with a counters-removal cost
-    "Interplanar Beacon",       # "Add two mana of different colors"
-    "Murmuring Bosk",           # a Forest: `parse_mana_abilities` returns only the synthetic basic ability
-    "Springjack Pasture",       # "You gain X life." is the announced-X rider (`ManaAbility.gain_life_x`), own test below
-})
 
 
 @pytest.mark.full_cache
@@ -241,8 +234,6 @@ def test_every_claimed_mana_rider_is_carried_by_the_engines_mana_ability(full_ca
         if is_registered(card_.name) or parse_oracle(card_).coverage != MODELED:
             continue
         riders = []
-        if card_.name in KNOWN_UNREADABLE_ADD_CLAUSES:
-            continue
         for line in normalize(card_.oracle_text or "", card_.name).split("\n"):
             cost, sep, effect = line.partition(":")
             # A loyalty ability (+1: Add {R}{R}. ...) is an ordinary stack ability, not a mana line (RULE 605.1a).

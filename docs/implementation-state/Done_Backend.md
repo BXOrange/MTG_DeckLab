@@ -168,8 +168,19 @@ That test found three engine gaps, fixed here: "~ doesn't untap during your next
 damage to you" now hits; "Activate only if this land ..." riders are normalized before the
 activation-condition vocabulary reads them (Mirrex, Flywheel Racer, Pyramid of the Pantheon gain
 their gated ability). Parser 1061: 125 cards dropped to UNMODELED, none gained; the shared shapes
-are MEC-174 / MEC-175, unreadable Add clauses BUG-85, one-offs in `singletons.md`. Tests:
+are MEC-174 / MEC-175, one-offs in `singletons.md`. Tests:
 `test_bug73_mana_rider_claims.py`.
+
+The Add clause itself got the same treatment (BUG-85, parser 1063): `mana_riders.add_clause_readable` refuses
+the shapes the builder cannot read (non-mana symbols such as `{T}{T}`, "two mana of different colors", an
+X sized by removing counters, an unread "any type" or X-combination referent), and a full-cache parity test
+fails whenever a claimed mana line builds no `ManaAbility`, which keeps that list honest. The sweep also
+fixed the builder: a basic-typed land keeps its own printed mana lines next to the type-line ability
+(Murmuring Bosk, RULE 305.6); an Add clause without a closing period is read (Artist Alley's `{C}`); "mana
+of any type that a land / Gate you control could produce" is a new colour selector including colourless,
+with the reflection-cycle guard (Reflecting Pool, Naga Vitalist, Cactus Preserve, Plaza of Harmony, RULE
+106.7). 15 cards dropped to UNMODELED (storage lands built a wrong one-of-each ability before); the
+producible-later shapes are MEC-179. Tests: `test_bug85_add_clause_claims.py`.
 
 ### Mana cost model: Hybrid and Phyrexian mana
 

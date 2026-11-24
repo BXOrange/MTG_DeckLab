@@ -615,6 +615,9 @@ Cards that lost MODELED because a sentence after their `Add` clause is one `game
 | Diamond Lion / Lion's Eye Diamond / Grinning Ignus | "Activate only as an instant." / "Activate only as a sorcery." | RULE 602.5d/602.5e on a mana ability; the cost has no sorcery-speed flag for mana abilities |
 | Cavern of Souls / Delighted Halfling / Boseiju, Who Shelters All | "... and that spell can't be countered" / "that spell can't be countered" | triple: a spend-payoff that marks the cast spell uncounterable |
 | Ether / Magus Lucea Kane / Sunken Palace | "When you next cast ... copy that spell. You may choose new targets for the copy." | triple: next-cast copy rider (RULE 707.10) |
+| Sole Performer / Mox Lotus / Mons's Goblin Waiters | the Add clause prints a symbol the mana pool cannot hold (`{T}{T}`, `{∞}`, `{HR}`) | BUG-85 close |
+| Axebane Guardian | "X mana in any combination ..., where X is the number of creatures you control with defender" | the builder's count subjects do not read the "with defender" filter |
+| Squandered Resources | "Add one mana of any type the sacrificed land could produce" | cost-linked referent |
 | Codie, Vociferous Codex | "When you next cast a spell this turn, exile cards from the top ... until an instant or sorcery with lesser mana value ..." | next-cast dig rider |
 
 ### Unsupported Rooms (reference only; not actionable queue entries)

@@ -111,7 +111,9 @@ BASIC_LAND_MANA = {
 }
 
 #: The text inside an "Add …." clause (up to the sentence's period).
-_ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)\.")
+#: A clause printed without its closing period ("{T}: Add {C}" on Artist Alley, a line whose next line is a sentence of
+#: its own) ends at the end of the line instead.
+_ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)(?:\.|$)")
 #: "For each color among permanents you control, add one mana of that
 #: color." (ENG-27, Bloom Tender) — a deterministic *aggregate* production,
 #: not a player choice at all: tapping always makes one mana of *every*
@@ -159,6 +161,15 @@ _LEGENDARY_AMONG_RE = re.compile(
 #: control_could_produce"``.
 _LAND_COULD_PRODUCE_RE = re.compile(
     r"any colou?r that a land (?P<scope>you control|an opponent controls) could produce",
+    re.IGNORECASE,
+)
+#: BUG-85 (RULE 106.7): "Add one mana of any type that a land you control could produce." (Reflecting Pool, Naga
+#: Vitalist, Cactus Preserve) and "... that a Gate you control could produce" (Plaza of Harmony). Unlike the colour
+#: wording above, a *type* includes colourless, so the menu is every mana type (WUBRGC) the qualifying lands could
+#: produce (`mana_types_a_land_could_produce`). The qualifier is a land subtype; "the sacrificed land" (Squandered
+#: Resources) is a cost-linked referent the builder does not read and stays out of this shape.
+_LAND_TYPE_COULD_PRODUCE_RE = re.compile(
+    r"(?:one )?mana of any type that an? (?P<qualifier>land|gate) you control could produce",
     re.IGNORECASE,
 )
 #: "Add one mana of any color in your commander's color identity." (Arcane
@@ -952,6 +963,24 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        type_produce_match = _LAND_TYPE_COULD_PRODUCE_RE.search(effect_text)
+        if type_produce_match is not None:
+            cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, folded_effect)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
+                cost=cost,
+                color_selector=f"types_{type_produce_match.group('qualifier').lower()}s_you_control_could_produce",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         legendary_match = _LEGENDARY_AMONG_RE.search(effect_text)
         if legendary_match is not None:
             # Same reason as `_COLORS_AMONG_PERMANENTS_RE` above: dispatched
@@ -1211,11 +1240,14 @@ def parse_mana_abilities(card: Any) -> list[ManaAbility]:
     unconditional, same as a non-Leveler card.
     """
     basic = _basic_options(card)
-    if basic:
-        return [ManaAbility(cost=ActivationCost(taps_self=True), options=basic)]
-
     name = getattr(card, "name", None)
     raw_text = getattr(card, "oracle_text", "") or ""
+    if basic:
+        # RULE 305.6: the basic land type's own mana ability comes from the type line. BUG-85: a land of that type may
+        # print mana lines of its own (Murmuring Bosk, a Forest with "{T}: Add {W} or {B}"); its reminder-text line is
+        # stripped, so a plain basic or a typed dual parses to nothing extra.
+        return [ManaAbility(cost=ActivationCost(taps_self=True), options=basic),
+                *_parse_mana_ability_lines(raw_text, name)]
 
     if getattr(card, "is_leveler", False):
         preamble_lines, blocks = _split_leveler_blocks_raw(raw_text)
@@ -1626,6 +1658,22 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None,
         if not colors_present:
             return []
         return [{color: 1} for color in colors_present]
+    if ability.color_selector in ("types_lands_you_control_could_produce", "types_gates_you_control_could_produce"):
+        # BUG-85 (RULE 106.7): Reflecting Pool/Naga Vitalist/Plaza of Harmony. The menu is every mana type, colourless
+        # included, that a qualifying land of the controller could produce. The source itself is among the lands but
+        # contributes only through the cycle guard, so a lone Reflecting Pool produces nothing.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        gates_only = ability.color_selector == "types_gates_you_control_could_produce"
+        types_present: set[str] = set()
+        for permanent in state.permanents():
+            if not permanent.is_land or permanent.controller_id != controller_id:
+                continue
+            if gates_only and "gate" not in continuous.derived_subtype_words(permanent):
+                continue
+            types_present |= mana_types_a_land_could_produce(permanent, state, _seen_lands)
+        return [{mana_type: 1} for mana_type in sorted(types_present)]
     if ability.color_selector == "colors_in_commanders_color_identity":
         # Arcane Signet/Command Tower/Commander's Sphere/Path of Ancestry/…:
         # a menu of exactly the WUBRG colours in this controller's
