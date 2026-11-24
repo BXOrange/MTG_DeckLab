@@ -3368,6 +3368,11 @@ class SearchMixin:
         rest_ids = [o.instance_id for o in revealed if o is not matched]
         if rest_destination == "library_bottom_random":
             self._bottom_remaining(player, rest_ids)
+        elif rest_destination == "library_bottom_order":
+            # RULE 401.4: "…the rest on the bottom of your library in any order" is the player's own decision (the
+            # sibling of `inspect_top_choose`'s PAR-292 M11 ordering). The exiled revealed cards re-enter the library
+            # and the shared bottom-ordering choice moves them under it (a single card has one order: no prompt).
+            self._order_remaining_to_bottom(player, rest_ids)
         elif rest_destination == "library_shuffled":
             # "…shuffles all other cards revealed this way into their
             # library." (Polymorph/Transmogrify-shaped) — genuinely
@@ -3492,6 +3497,17 @@ class SearchMixin:
         return next((o for o in player.exile if o.instance_id == instance_id), None)
     def _bottom_exiled(self, player: Player, exiled: list[GameObject]) -> None:
         self._bottom_remaining(player, [o.instance_id for o in exiled])
+    def _order_remaining_to_bottom(self, player: Player, exiled_ids: list[int]) -> None:
+        """Return every still-exiled card of this effect to ``player``'s library and let the player order them on the
+        bottom (RULE 401.4, 701.20). Cards already cast or taken are no longer in exile and are skipped."""
+        wanted = set(exiled_ids)
+        remaining = [o for o in list(player.exile) if o.instance_id in wanted]
+        for obj in remaining:
+            player.remove_from_zone(obj, Zone.EXILE)
+            obj.zone = Zone.LIBRARY
+            player.library.append(obj)
+        self._order_library_bottom(player, [o.instance_id for o in remaining])
+
     def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
                           visits: Optional[dict[str, int]] = None) -> None:
         """Put every still-exiled card from this effect on the bottom of the

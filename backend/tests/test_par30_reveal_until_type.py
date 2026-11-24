@@ -5,8 +5,8 @@ rest <bottom / graveyard / shuffle>."
 `RulesEngine.dig_until` / `effects.DigUntilEffect` (the generalized cascade
 dig — predicate + both destinations parameterized) is the engine primitive;
 only the "reveal until a *type* predicate" recognition was missing.
-Documented simplification: "in any order" is modeled as `dig_until`'s only
-bottoming mode, a random order. Fails closed on "onto the battlefield
+"In any order" is the player-ordered `library_bottom_order` (BUG-80, RULE 401.4).
+Fails closed on "onto the battlefield
 **tapped**" (no tapped-entry mode).
 """
 
@@ -29,7 +29,7 @@ def test_clause_forms():
     ) == [EffectSpec("dig_until", {
         "criteria": {"type": "land"},
         "hit_destination": "battlefield",
-        "rest_destination": "library_bottom_random",
+        "rest_destination": "library_bottom_order",
     })]
     assert match_clause(
         "reveal cards from the top of your library until you reveal a creature "
