@@ -1137,6 +1137,16 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   Seeker, Sire of Insanity, Myojin of Night's Reach, Mindslicer, Jace's Archivist and more. Awaken the
   Erstwhile's false claim (a "creates that many" read as an event amount, count 0) was withdrawn. Tests:
   `test_par291_set_life_total.py`.
+- **M2 (v1072, +7):** non-sacrifice edicts over the affected player's own permanents: `edicts._own_pool_pick`
+  reads "<each player | each opponent | target player | target opponent | that player> exiles / returns a <pool>
+  they control [to its owner's hand]" on the shared `edict_pool` vocabulary. `SacrificeEffect.action` gained
+  `return_to_hand`; `_pick_and_act_on_own` lets each affected player pick from their own permanents in APNAP
+  order, and "can't be sacrificed" does not stop an exile or a bounce (RULE 701.17a). Shared fixes: the "unless
+  they pay" punisher takes the bounce and a life payment; `EachPlayerPayOrEffect`'s `event_player` scope now
+  resolves "that player" under a step or damage head (`targeting.trigger_player_antecedent`; before, an upkeep
+  "that player ... unless they pay" asked nobody). Cards: Curfew, Debt to the Kami, Doomfall, Early Winter,
+  Sunken Hope, Blizzard Specter, Blood Clock. Mass graveyard returns were sized at two cards per shared piece
+  and went to `singletons.md`. Tests: `test_par291_own_pool_picks.py`.
 
 ### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
 

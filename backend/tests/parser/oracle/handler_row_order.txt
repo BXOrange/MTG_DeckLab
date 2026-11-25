@@ -83,6 +83,7 @@ edict_sequence
 optional_edict
 repeat_edict
 sacrifice_greatest_power
+own_pool_pick
 sacrifice_edict
 sacrifice_edict_shared_type
 target_player_edict

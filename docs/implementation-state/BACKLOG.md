@@ -164,6 +164,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 ## BUG — Bugs
 
+- **BUG-88 · "Target opponent sacrifices" targets any player.** Found in PAR-291 M2: the older sacrifice edict row emits `target_kind: player` for "target opponent sacrifices ..." (`parser_probe.py card "Tribute to Hunger"` → `sacrifice {target_kind: player}`), so the caster may target themselves. The M2 non-sacrifice row already uses `target_kind: opponent`. Fix the row, sweep other "target opponent <verb>" rows for the same loss, report the corrected cards.
 
 ## REL — Release & deployment
 

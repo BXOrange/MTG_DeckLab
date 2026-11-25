@@ -7,7 +7,9 @@ from typing import Optional
 from ...spec import EffectSpec
 from ..clause_hooks import parse_effect_body
 from ..clause_reading import ClauseReading
-from .shared import compile_clause, edict_pool, EffectHandler, GROUP_REFERENCE_TRIGGER_SUBJECT
+from .shared import (
+    compile_clause, edict_pool, EffectHandler, EVENT_PLAYER_EVENTS_KEY, GROUP_REFERENCE_TRIGGER_SUBJECT,
+)
 
 
 #: RULE 601.2c mass edict — "each player sacrifices a nontoken creature of
@@ -202,10 +204,13 @@ _PUNISHER_WHO: dict[str, str] = {
     "each opponent": "each_opponent", "each player": "each_player", "that player": "event_player",
     "you": "controller",
 }
+#: PAR-291 M2: the bounce spelling "that player returns a permanent they control to its owner's hand unless they pay 2
+#: life" (Blood Clock) and a life payment as the cost -- the same punisher over `SacrificeEffect`'s own-pool picks.
 _SACRIFICE_UNLESS_RE = compile_clause(
-    rf"(?:(?P<who>each opponent|each player|that player) sacrifices|(?P<you>sacrifice)) "
-    rf"(?P<count>a|an) (?P<pool>{_EDICT_POOL})(?: of their choice)? "
-    r"unless (?P<payer>they|you) (?P<cost>pay (?:\{[a-z0-9]\})+|discard a card)"
+    rf"(?:(?P<who>each opponent|each player|that player) (?P<verb>sacrifices|returns)|(?P<you>sacrifice)) "
+    rf"(?P<count>a|an) (?P<pool>{_EDICT_POOL})(?: of their choice)?(?P<theirs> they control)?"
+    r"(?P<hand> to its owner'?s hand)? "
+    r"unless (?P<payer>they|you) (?P<cost>pay (?:\{[a-z0-9]\})+|pay \d+ life|discard a card)"
 )
 
 
@@ -213,6 +218,11 @@ def _sacrifice_unless(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     pool = _edict_pool_params(m.group("count"), m.group("pool"))
     if pool is None:
         return None
+    bounce = m.group("verb") == "returns"
+    if bounce != bool(m.group("hand")) or bounce != bool(m.group("theirs")):
+        return None  # a bounce names "they control" and the hand; a sacrifice names neither
+    if bounce:
+        pool["action"] = "return_to_hand"
     who = _PUNISHER_WHO[m.group("who") or "you"]
     cost = m.group("cost")
     if (who == "controller") != (m.group("payer") == "you"):
@@ -378,11 +388,46 @@ def _repeat_edict(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     return [EffectSpec("seq", {"effects": effects})]
 
 
+#: PAR-291 M2: the non-sacrifice edicts -- "target opponent **exiles** a creature they control" (Debt to the Kami, Doomfall,
+#: Early Winter), "each player **returns** a creature they control **to its owner's hand**" (Curfew). The affected
+#: player picks one of their own permanents (RULE 101.4: each in APNAP order for a mass one), over the same
+#: `edict_pool` vocabulary as the sacrifice edicts; `SacrificeEffect.action` names what happens to the pick.
+_OWN_POOL_PICK_WHO: dict[str, dict] = {
+    "each player": {"selector": "each_player"}, "each opponent": {"selector": "each_opponent"},
+    "each other player": {"selector": "each_opponent"},
+    "target player": {"target_kind": "player"}, "target opponent": {"target_kind": "opponent"},
+    # RULE 109.5: "that player" is the player the firing event names (the upkeep's active player, the damaged player,
+    # the caster); the gate (`_resolve_event_player_tree`) keeps the row only under a head that names one.
+    "that player": {"player": {"of": "trigger_player", "as": "self"}},
+}
+#: The events whose player a "that player" edict may act as -- a step's active player (Sunken Hope), a damaged player
+#: (Blizzard Specter), a caster, a land's player; the gate refuses any other head.
+_OWN_POOL_PICK_EVENTS = ["STEP_BEGIN", "DAMAGE", "CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER", "SPELL_CAST", "LAND_PLAYED"]
+_OWN_POOL_PICK_RE = compile_clause(
+    rf"(?P<who>{'|'.join(_OWN_POOL_PICK_WHO)}) (?:(?P<exile>exiles)|(?P<ret>returns)) "
+    rf"(?P<count>a|an|\d+) (?P<pool>{_EDICT_POOL}) they control(?P<hand> to (?:its|their) owner'?s'? hands?)?"
+)
+
+
+def _own_pool_pick(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    if bool(m.group("ret")) != bool(m.group("hand")):
+        return None  # a bounce names the hand; an exile never does
+    pool = _edict_pool_params(m.group("count"), m.group("pool"))
+    if pool is None:
+        return None
+    who = _OWN_POOL_PICK_WHO[m.group("who")]
+    params = {**who, **pool, "action": "exile" if m.group("exile") else "return_to_hand"}
+    if "player" in who:
+        params[EVENT_PLAYER_EVENTS_KEY] = list(_OWN_POOL_PICK_EVENTS)
+    return [EffectSpec("sacrifice", params)]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler("edict_sequence", _EDICT_SEQUENCE_RE, _edict_sequence),
     EffectHandler("optional_edict", _OPTIONAL_EDICT_RE, _optional_edict),
     EffectHandler("repeat_edict", _REPEAT_EDICT_RE, _repeat_edict),
     EffectHandler("sacrifice_greatest_power", _SACRIFICE_GREATEST_POWER_RE, _sacrifice_greatest_power),
+    EffectHandler("own_pool_pick", _OWN_POOL_PICK_RE, _own_pool_pick),
     # "each player/opponent sacrifices a[n] [nontoken] creature/artifact/
     # land/permanent of their choice" (Accursed Marauder/Liliana, Dreadhorde
     # General's -4 mass edict).

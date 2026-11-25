@@ -2203,6 +2203,10 @@ class LoseAllPlayerCountersEffect(GameEffect):
 POOL_FRACTION_DIVISORS = (2, 3)
 
 
+#: The actions a `SacrificeEffect` pick can take: a player acts on a permanent they control that they choose.
+OWN_POOL_PICK_ACTIONS: tuple[str, ...] = ("sacrifice", "exile", "return_to_hand")
+
+
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
     (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
@@ -2295,7 +2299,9 @@ class SacrificeEffect(GameEffect):
         self.greatest = "power" if greatest_power and not greatest else (greatest if greatest in ("power", "mana_value") else None)
         #: ``"exile"`` — "target opponent **exiles** a creature or planeswalker they control with the greatest
         #: mana value" (Blot Out, End of the Hunt): the same pick, a different action on it.
-        self.action = action if action in ("sacrifice", "exile") else "sacrifice"
+        #: PAR-291 M2: ``"return_to_hand"`` -- "each player returns a creature they control to its owner's hand" (Curfew):
+        #: the same per-player pick of their own permanent, a different action on it (RULE 400.7 hand move).
+        self.action = action if action in OWN_POOL_PICK_ACTIONS else "sacrifice"
         #: An int, or the ``"all_but_one"`` sentinel (`RulesEngine.sacrifice`
         #: resolves it against the live candidate count at apply-time).
         self.count = count
@@ -2431,9 +2437,33 @@ class SacrificeEffect(GameEffect):
                 )
                 return
 
+    def _pick_and_act_on_own(self, context: GameContext, player: "Player") -> None:
+        """"<player> exiles / returns to its owner's hand `<pool>` they control": that player picks which of their
+        own matching permanents (RULE 701.21-style, the affected player chooses), nothing when they control none.
+        Unlike a sacrifice, an exile or a bounce is not stopped by "can't be sacrificed" (RULE 701.17a)."""
+        from ..combat import matches_object_filter
+        from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules<->effects cycle
+
+        pool = [
+            o for o in context.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(o, self.what)
+            and (not self.object_filter or matches_object_filter(o, self.object_filter, state=context.state))
+            and not (self.exclude_source and o is self.source)
+        ]
+        count = self.count if isinstance(self.count, int) else 1
+        if not pool or count < 1:
+            return
+        context.engine._request_choose_objects(
+            player, pool, self.action, count=min(count, len(pool)), source=self.source,
+            prompt="Wähle eine eigene bleibende Karte",
+        )
+
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
         if self.chooser == "opponent" and self._extreme_stat is None:
             context.engine._request_opponent_sacrifice(player, self.what, self.count)
+            return
+        if self._extreme_stat is None and self.action != "sacrifice":
+            self._pick_and_act_on_own(context, player)
             return
         if self._extreme_stat is None:
             count = self.count
@@ -3149,6 +3179,13 @@ class EachPlayerPayOrEffect(GameEffect):
             # -- the controller): one asked player instead of a sweep.
             asked = (_event_player(context, key="player_id") if self.scope == "event_player"
                      else _controller_of(self.source, context))
+            if asked is None and self.scope == "event_player":
+                # PAR-291 M2 / RULE 102.1: a step head ("at the beginning of each player's upkeep, that player ...",
+                # Blood Clock) or a damage head names its player through the shared antecedent, not ``player_id``.
+                from ..targeting import trigger_player_antecedent  # function-scoped: targeting<->effects cycle
+
+                antecedent = trigger_player_antecedent(context.state, context.trigger_event)
+                asked = context.state.player_by_id(antecedent) if antecedent is not None else None
             if asked is None:
                 return
             only_ids = [asked.id]

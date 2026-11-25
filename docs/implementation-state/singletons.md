@@ -667,6 +667,25 @@ The bound itself (`max_mana_value {"count_selector"}` / `stat_count_bound` over 
 | Saruman of Many Colors | `when one or more cards are milled this way, exile target ... with mana value less than or equal to that spell's mana value ... copy the exiled card` | "milled this way" reflexive trigger, the cast spell as referent, and copy-and-cast of the exiled card |
 | Annex Sentry | `artifact_or_creature_you_dont_control` target frame ignores `max_mana_value` | a one-line `TargetFrame(apply_max_mana_value=True)` check, found by the MEC-172 frame sweep; unrelated to referents |
 
+### Player-scoped residue (PAR-291 M2 sizing)
+
+Sized with `parser_probe blocked` at v1071: "each player returns / exiles / puts ... from their graveyard / hand" has 10 solo cards and no shared piece larger than two.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Living End, Scrap Mastery | `each player exiles all <type> cards from their graveyard, then sacrifices all <type>s they control, then puts all cards they exiled this way onto the battlefield.` | per-player mass exile into a per-player pool, a mass sacrifice, then a return of that pool under owners' control; needs an "exiled this way" per-player pool (the mass-exile row has none) |
+| Memory Jar, Magus of the Jar | `each player exiles all cards from their hand face down and draws 7 cards. At the beginning of the next end step, each player discards their hand and returns to their hand each card they exiled this way.` | per-player face-down hand exile pool plus a delayed return |
+| Balthor the Defiled | `each player returns all black and all red creature cards from their graveyard to the battlefield.` | a colour union on the mass return (`ReturnFromGraveyardEffect` mass path ignores `colors`); the only colour-qualified mass return open |
+| Bloodbond March | `each player returns all cards with the same name as that spell from their graveyard to the battlefield.` | spell-relative name filter on the mass return |
+| Patriarch's Bidding | `each player returns all creature cards of a type chosen this way from their graveyard to the battlefield.` | per-player creature-type choices (union) feeding a mass return |
+| Bringer of the Last Gift | `each player returns all creature cards from their graveyard that weren't put there this way to the battlefield.` | "put there this way" exclusion set after a mass sacrifice |
+| All Hallow's Eve | `put it into your graveyard and each player returns all creature cards from their graveyard to the battlefield.` | the mass return itself is claimed; the open part is the self-move of the exiled source from exile |
+| Sadistic Augermage | `when ~ dies, each player puts a card from their hand on top of their library.` | per-player hand-to-library pick (PAR-292's hand-to-library action, scoped to each player) |
+| Overburden, Confounding Conundrum | `that player returns a land they control to its owner's hand.` | the bounce itself is claimed; the head names the player of a land / creature entering (`ENTERS_BATTLEFIELD` is not in the edict's "that player" event list) |
+| Strategic Betrayal | `target opponent exiles a creature they control and their graveyard.` | an exile edict plus the same player's whole graveyard in one sentence |
+| Discovery // Dispersal | `each opponent returns a nonland permanent they control with the greatest mana value among permanents they control to its owner's hand, then discards a card.` | the "greatest mana value" bounce over a nonland pool plus a chained discard |
+| Umbilicus | `that player may pay 2 life. If they don't, they return a permanent they control to its owner's hand.` | the may-pay-else form of the punisher (Blood Clock's sibling) |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.
