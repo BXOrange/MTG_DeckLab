@@ -416,7 +416,7 @@ def parse_graveyard_play_window(text: str) -> Optional[list[EffectSpec]]:
 
 # --- "exile cards from the top of your library until you exile a nonland card. You may cast that card ..." -------
 
-_DIG_PREDICATES: dict[str, dict] = {
+DIG_PREDICATES: dict[str, dict] = {
     "a nonland": {"without_type": "land"},
     "an instant or sorcery": {"type": ["instant", "sorcery"]},
     "a creature": {"type": "creature"},
@@ -427,7 +427,7 @@ _DIG_PREDICATES: dict[str, dict] = {
 #: PAR-292 M20: the dug card's quality may also be a mana-value cap ("a nonland card with mana value 3 or less", Treasure
 #: Keeper); the closed table above keeps its own spelling so every earlier parse is unchanged.
 _DIG_CAST_PREDICATE = (
-    "(?P<pred>" + "|".join(map(re.escape, _DIG_PREDICATES)) + r")(?: card with mana value (?P<cap>\d+) or less)?"
+    "(?P<pred>" + "|".join(map(re.escape, DIG_PREDICATES)) + r")(?: card with mana value (?P<cap>\d+) or less)?"
 )
 _DIG_CAST_RE = re.compile(
     r"(?P<who>exile|reveal|target opponent exiles|that player exiles) cards from the top of (?P<lib>your|their) library "
@@ -470,7 +470,7 @@ def parse_dig_cast_free(text: str, *, event_player: bool = False) -> Optional[li
         return None
     if tail and (m.group("owner").lower() == "your") == opponent:
         return None  # the bottom is the dug library: "your" for the own dig, "their" / "that" for another player's
-    criteria = dict(_DIG_PREDICATES[m.group("pred").lower()])
+    criteria = dict(DIG_PREDICATES[m.group("pred").lower()])
     if m.group("cap"):
         if m.group("pred").lower() not in ("a nonland", "a nonlegendary, nonland"):
             return None

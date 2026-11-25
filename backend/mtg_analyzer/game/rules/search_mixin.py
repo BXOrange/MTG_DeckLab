@@ -2890,18 +2890,76 @@ class SearchMixin:
         exiled: list[GameObject] = []
         matched: Optional[GameObject] = None
         while player.library:
-            obj = player.library.pop()  # top of deck
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
+            obj = self._exile_library_top(player)
             exiled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
             is_land = exclude_lands and obj.card.is_land
             if not is_land and card_query.matches(obj.card, criteria):
                 matched = obj
                 break
         return matched, exiled
+
+    def _exile_library_top(self, player: Player) -> GameObject:
+        """RULE 701.13a: exile the top card of ``player``'s library (the caller checked it is not empty)."""
+        obj = player.library.pop()  # top of deck
+        obj.zone = Zone.EXILE
+        player.exile.append(obj)
+        self.state.fire_event(
+            GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+        )
+        return obj
+
+    def _exile_top_until_total_mana_value(self, player: Player, total: int) -> list[GameObject]:
+        """Exile cards from the top of ``player``'s library until the cards exiled this way have total mana value
+        ``total`` or greater (RULE 701.13a), or the library runs out. A land has mana value 0 (RULE 202.3), so it adds
+        nothing but is exiled all the same; the running sum is this one instruction's own (the cards already in exile
+        do not count)."""
+        exiled: list[GameObject] = []
+        running = 0
+        while player.library and running < total:
+            obj = self._exile_library_top(player)
+            exiled.append(obj)
+            running += obj.mana_value
+        return exiled
+
+    #: `_dig_each_opponent` pool shapes: the cards the controller may cast afterwards ("any number of spells from among
+    #: those cards", during this resolution) or for the rest of the turn ("until end of turn, you may cast cards exiled
+    #: this way").
+    DIG_POOL_RESOLUTION = "cast_pool_resolution"
+    DIG_POOL_WINDOW = "cast_pool_window"
+
+    def _dig_each_opponent(
+        self, controller: Player, *, criteria: Any = None, total_mana_value: Optional[int] = None,
+        pool_destination: Optional[str] = None, source: Optional[GameObject] = None,
+    ) -> list[GameObject]:
+        """"Each opponent exiles cards from the top of their library until <they exile a <card> | the cards exiled this
+        way have total mana value N or greater>" (RULE 701.13a), in turn order from the active player (RULE 101.4).
+
+        Every opponent digs their own library and owns what they exile (RULE 108.3, 400.3); ``source`` is linked to
+        every exiled card ("exiled with ~", RULE 607.2a). The cards the controller may cast afterwards are the hits (a
+        card-quality stop) or every card exiled (a total-mana-value stop); a land can never be cast, and the cards
+        nobody casts stay exiled. The controller, not the owner, casts them (RULE 601.2, 601.3e) and a cast card goes
+        to its owner's graveyard. Returns the pool."""
+        pool: list[GameObject] = []
+        for opponent in self.state.living_players_apnap():
+            if opponent.id == controller.id:
+                continue
+            if total_mana_value is not None:
+                exiled = self._exile_top_until_total_mana_value(opponent, total_mana_value)
+                pool.extend(exiled)
+            else:
+                hit, exiled = self._exile_top_until(opponent, criteria or {}, exclude_lands=False)
+                if hit is not None:
+                    pool.append(hit)
+            if source is not None:
+                for obj in exiled:
+                    self.state.track_exiled_with(source, obj)
+        castable = [obj for obj in pool if not obj.card.is_land and obj.zone == Zone.EXILE]
+        if pool_destination == self.DIG_POOL_RESOLUTION:
+            self._request_resolution_play(controller, castable, repeat=True, only_spells=True, zone="exile")
+        elif pool_destination == self.DIG_POOL_WINDOW:
+            for obj in castable:
+                self.grant_free_cast_window_from_exile(obj, caster=controller)
+        return pool
 
     def _reveal_top_until(
         self, player: Player, criteria: Any, exclude_lands: bool = False

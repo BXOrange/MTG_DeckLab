@@ -1124,7 +1124,7 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
 - **Files:** `parser/oracle/catalogue/{static_rows/static_conditions.py,count_phrase.py}`, `parser/oracle/segmenter/{conditions,effect_body,where_x,trigger_heads,line_rows_abilities,cost_line_patterns,line_rows_costs}.py`, `parser/oracle/spec.py`, `game/{static_conditions,effect_conditions,condition_query,continuous}.py`, `game/effects/core.py`, cost sites in `game/engine/{activation,casting}_mixin.py`, `game/rules/{damage_death,copies}_mixin.py`, `models/game/game_object.py`; tests `tests/test_par283_condition_vocabulary.py` (~90, real-engine for Blot Out the Sky, Built to Last, Falkenrath Aristocrat, Hellish Sideswipe, Boomerang Basics, twelve Traps via `can_cast`, ...).
 - **Validation:** version-masked full-pool diffs per milestone: v924–925 +71 (10 shape-only), v926 +13, v927 +5, v928 +15, v929 +4 (Battle of Wits, Near-Death Experience, Queen Marchesa, Jerren); 0 lost throughout. Re-scan at v929: `P1-A Bedingungen` 609 / 581 / 210 (from 707 / 674 / 278). Complete suite including `--full-cache` at close: 24,040 passed, 4 skipped.
 
-### Player-scoped actions (PAR-291, PARSER_VERSION 1071–, in progress)
+### Player-scoped actions (PAR-291 M1–M5, PARSER_VERSION 1071–1075, +45, 0 regressed)
 
 - **M1 (v1071, +14):** "<player>'s life total becomes <amount>" is one row (`life_loss._SET_LIFE_TOTAL_RE`) for
   your / target player's / target opponent's / each player's / each opponent's total; amounts are a number, a
@@ -1163,6 +1163,18 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   previous clause's referent (Tempt with Reflections). Cards: Tempt with Glory, Immortality, Reflections, Tempting
   Contract. "you and that player each draw ..." under a damage head folds into two draws (Black Widow Intel Expert,
   Diviner Spirit, Sergeant John Benton, Xyris). Tests: `test_par291_m4_tempting_offer.py`.
+- **M5 (v1075, +4):** `DigUntilEffect` gained `digger: "each_opponent"` (`RulesEngine._dig_each_opponent`): each
+  opponent digs their own library in turn order (RULE 101.4) and owns what they exile; a `total_mana_value` stop sums
+  that instruction's own exiles (a land adds 0, RULE 202.3); `track_exiled_with` links the source to every exiled card
+  (RULE 607.2a). Two cast riders: "any number of spells from among those nonland cards" during resolution and "until
+  end of turn you may cast cards exiled this way", both cast by the controller and going to the owner's graveyard.
+  Cards: Fevered Suspicion, Dream Harvest, Tasha's Hideous Laughter, Krang & Shredder. Tests:
+  `test_par291_m5_dig_each_opponent.py`.
+- **Close:** no player-scoped shape of three or more solo cards with one shared body is left (v1075 sweep of "each
+  player / each opponent / target player / that player <verb>": the largest groups are hand-reveal riders that all
+  differ). Residue is in `singletons.md` ("Player-scoped residue", M2–M5 and close); the "if you would lose the game,
+  instead" life sets went to PAR-294, the x/x "where x is" token shape (34 solo) to PAR-297, and the older "target
+  opponent sacrifices" row's missing opponent restriction to BUG-88.
 
 ### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
 

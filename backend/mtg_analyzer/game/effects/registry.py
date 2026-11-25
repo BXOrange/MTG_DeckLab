@@ -2668,6 +2668,8 @@ EffectRegistry.register(
         hit_rider=p.get("hit_rider"),
         uncast_hit=str(p.get("uncast_hit", "library_bottom")),
         reveal=bool(p.get("reveal", False)),
+        total_mana_value=p.get("total_mana_value"),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(

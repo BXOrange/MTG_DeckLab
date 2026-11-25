@@ -2330,8 +2330,15 @@ class DigUntilEffect(GameEffect):
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
         reveal: bool = False,
+        total_mana_value: Optional[int] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "... until they have exiled cards with total mana value N or greater" (Dream Harvest, Tasha's Hideous
+        #: Laughter): the stop condition of the ``each_opponent`` dig is a running sum, not a card predicate.
+        self.total_mana_value = int(total_mana_value) if total_mana_value is not None else None
+        #: "exiled with ~" (RULE 607.2a): the source is linked to every card this dig exiles (Krang & Shredder).
+        self.track_exiled_with = bool(track_exiled_with)
         #: RULE 701.20a vs 406.1: "reveal cards ... until you reveal" leaves the cards in the library, "exile cards
         #: ... until you exile" exiles them (`RulesEngine.dig_until`).
         self.reveal = bool(reveal)
@@ -2361,6 +2368,18 @@ class DigUntilEffect(GameEffect):
         return _event_player(context, key="target_id") or _event_player(context, key="player_id")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.digger == "each_opponent":
+            # "Each opponent exiles cards from the top of their library until ..." (Fevered Suspicion, Dream Harvest):
+            # every opponent digs their own library in turn order, the controller casts from the combined pool.
+            controller = _controller_of(self.source, context)
+            if controller is not None:
+                pools = (context.engine.DIG_POOL_RESOLUTION, context.engine.DIG_POOL_WINDOW)
+                context.engine._dig_each_opponent(
+                    controller, criteria=self.criteria, total_mana_value=self.total_mana_value,
+                    pool_destination=self.hit_destination if self.hit_destination in pools else None,
+                    source=self.source if self.track_exiled_with else None,
+                )
+            return
         if self.digger == "facing":
             player = targets[0] if targets else None
         elif self.digger == "previous_target_controller":

@@ -813,6 +813,7 @@ assimilate_reveal_until
 assimilate_exile_until
 exile_return_assimilated
 exile_opponent_graveyard
+dig_each_opponent
 reveal_until_all_to_hand
 exile_then_each_dig
 reveal_until_controller_put

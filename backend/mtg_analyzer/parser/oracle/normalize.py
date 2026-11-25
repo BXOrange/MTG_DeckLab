@@ -635,6 +635,18 @@ def _fold_shared_damage_draw(text: str) -> str:
     )
 
 
+#: PAR-291 M5: "each opponent exiles cards ... until that player has exiled cards with total mana value N or greater"
+#: (Tasha's Hideous Laughter) -- "that player" is the opponent the dig is currently running for, the same person "they"
+#: names in the sibling printing (Dream Harvest), so it reads as "they" instead of waiting for a firing event.
+_EACH_OPPONENT_DIG_THAT_PLAYER_RE = re.compile(
+    r"(?P<head>each opponent exiles cards from the top of their library until )that player has exiled"
+)
+
+
+def _fold_each_opponent_dig_that_player(text: str) -> str:
+    return _EACH_OPPONENT_DIG_THAT_PLAYER_RE.sub(lambda m: f"{m.group('head')}they have exiled", text)
+
+
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
     """Canonicalise ``text`` for the segmenter and handler table (docs/09).
 
@@ -664,6 +676,7 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
     text = _fold_shared_damage_draw(text)
+    text = _fold_each_opponent_dig_that_player(text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)

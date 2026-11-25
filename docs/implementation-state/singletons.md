@@ -722,6 +722,35 @@ Sized with `parser_probe blocked` at v1073, then rebuilt at v1074 (tempting offe
 | Overburden, Confounding Conundrum, Discovery // Dispersal, Umbilicus | the M2 sizing rows (entering-permanent "that player", greatest-mana-value bounce, may-pay-else) | still one card each |
 | Nature's Wrath | `whenever a player puts an island or blue permanent onto the battlefield, that player sacrifices an island or blue permanent of their choice.` | the only open cross-dimension "<land type> or <color> permanent" pool at v1074 (orchestrator sizing) |
 
+### Player-scoped residue (PAR-291 M5 sizing)
+
+The "each opponent exiles cards from the top of their library until ..." family was built at v1075 (Fevered Suspicion, Dream Harvest, Tasha's Hideous Laughter, Krang & Shredder). What is left of it is one-off riders. Friend / foe was re-sized: the head (a per-player choice by the controller, then two filtered per-player loops) would unlock Pir's Whim alone; every other friend / foe body, and even Pir's foe body ("each player sacrifices an artifact or enchantment of their choice"), is an open plain `each player` row, so the head costs engine work for one card until the nine bodies exist.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Bismuth Mindrender | `that player exiles cards from the top of their library until they exile a nonland card. You may cast that card by paying life equal to the spell's mana value rather than paying its mana cost.` | the dig is the claimed `event_player` row; the cast rider needs a per-card life-for-mana alternative cost inside the resolution play (the existing `pay_life_equal_mv` is a standing static grant) |
+| Black Widow, Super Spy | `... until they exile a nonland card. You may put a +1/+1 counter on Black Widow. If you don't, you may cast the exiled nonland card until end of turn and mana of any type can be spent to cast that spell.` | an optional counter, an "if you don't" branch and a mana-type wildcard cast window (one card) |
+| Wand of Wonder | `Roll a d20. Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. You may cast up to X instant and/or sorcery spells ...` | die-result table sets X (1 / 2 / 3), a "shuffles the rest" tail and the "instant and/or sorcery" cast cap; the dig itself is `dig_each_opponent` plus the predicate "an instant or sorcery" |
+| Umbris, Fear Manifest | `~ gets +1/+1 for each card your opponents own in exile.` | the trigger body ("target opponent exiles ... until they exile a land card") has no row for a bare land hit; the static counts opponent-owned exile cards |
+| Guff Rewrites History, Seek Bolas's Counsel | `Each player who controlled one of those permanents exiles cards ... until they exile a nonland card, then puts the rest on the bottom ... Each player may cast the nonland card they exiled.` / `For each opponent, exile cards from the top of their library until you exile a nonland card. You may cast those cards ...` | per-player casts of their own digs after a shuffle-away; a random mode among six with an emblem, a planeswalk and a mass destroy |
+| Khorvath's Fury, Pir's Whim, Regna's Sanction, Virtus's Maneuver, Zndrsplt's Judgment | `for each player, choose friend or foe. Each friend <X>. Each foe <Y>.` | the nine bodies: wheel plus one / damage equal to hand size (Khorvath); land search tapped / sacrifice an artifact or enchantment (Pir); counters on each creature they control / choose one untapped creature, tap the rest (Regna); return a creature card from graveyard / sacrifice a creature (Virtus); copy a creature they control / return a creature they control to hand (Zndrsplt): all open as plain `each player` rows; promote the bodies as a PAR ticket before the head |
+
+### Player-scoped residue (PAR-291 close)
+
+The residue PAR-291 carried that the M2..M5 sizing sections do not list. Raging River is in PAR-298, Worldfire in
+PAR-303, Dark Deal above, and the "if you would lose the game, instead" life sets in PAR-294.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Stand or Fall, Butcher Orgg | multi-player scopes (piles per defending player, damage divided among several players' creatures) | each scope is its own choice structure |
+| Cait Cage Brawler, The River Warlock | `you and defending player each draw a card, then discard a card` plus a greatest-mana-value rider | also listed in the M4 section; "defending player" has no shared-draw row |
+| Master of Cruelties | `that player's life total becomes 1` on an attack trigger | needs a defending-player selector for the life-set row |
+| Invincible Hymn, Touch of the Eternal | `... life total becomes that number` after a count sentence | the amount is the previous sentence's count |
+| Long Rest, Elderscale Wurm | conditional life sets ("if ... ", "as long as ... life total can't be reduced below 7") | condition / floor, not the set itself |
+| Sway of the Stars, Once More with Feeling, Oketra's Last Mercy | a life set after unclaimed sentences (shuffles, restarts, land skips) | the set claims; the other sentences do not |
+| Awaken the Erstwhile | `each player discards all the cards in their hand, then creates that many 2/2 black Zombie tokens` | per-player "that many" from their own discard |
+| Flux | `each player discards any number of cards, then draws that many cards` | "any number" chooser discard per player |
+| Collision of Realms | `each player shuffles a creature they control into their library. each player who shuffled ... reveals cards until ...` | per-player dig keyed to the shuffled card |
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.
