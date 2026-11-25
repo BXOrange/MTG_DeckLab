@@ -702,11 +702,14 @@ EffectRegistry.register(
     # RULE 118.5/119.6: "<player>'s life total becomes N." — see `SetLifeEffect`.
     "set_life",
     lambda p: SetLifeEffect(
-        amount=int(p.get("amount", 0) or 0),
+        amount=p.get("amount", 0) if isinstance(p.get("amount"), dict) else int(p.get("amount", 0) or 0),
         target_kind=p.get("target_kind", "player"),
         only_reduce=bool(p.get("only_reduce", False)),
         optional=bool(p.get("optional", False)),
         fraction_of_starting=p.get("fraction_of_starting"),
+        selector=p.get("selector"),
+        measure_per_player=bool(p.get("measure_per_player", False)),
+        round_up=bool(p.get("round_up", False)),
     ),
 )
 EffectRegistry.register(

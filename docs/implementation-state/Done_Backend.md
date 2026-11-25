@@ -1124,6 +1124,20 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
 - **Files:** `parser/oracle/catalogue/{static_rows/static_conditions.py,count_phrase.py}`, `parser/oracle/segmenter/{conditions,effect_body,where_x,trigger_heads,line_rows_abilities,cost_line_patterns,line_rows_costs}.py`, `parser/oracle/spec.py`, `game/{static_conditions,effect_conditions,condition_query,continuous}.py`, `game/effects/core.py`, cost sites in `game/engine/{activation,casting}_mixin.py`, `game/rules/{damage_death,copies}_mixin.py`, `models/game/game_object.py`; tests `tests/test_par283_condition_vocabulary.py` (~90, real-engine for Blot Out the Sky, Built to Last, Falkenrath Aristocrat, Hellish Sideswipe, Boomerang Basics, twelve Traps via `can_cast`, ...).
 - **Validation:** version-masked full-pool diffs per milestone: v924–925 +71 (10 shape-only), v926 +13, v927 +5, v928 +15, v929 +4 (Battle of Wits, Near-Death Experience, Queen Marchesa, Jerren); 0 lost throughout. Re-scan at v929: `P1-A Bedingungen` 609 / 581 / 210 (from 707 / 674 / 278). Complete suite including `--full-cache` at close: 24,040 passed, 4 skipped.
 
+### Player-scoped actions (PAR-291, PARSER_VERSION 1071–, in progress)
+
+- **M1 (v1071, +14):** "<player>'s life total becomes <amount>" is one row (`life_loss._SET_LIFE_TOTAL_RE`) for
+  your / target player's / target opponent's / each player's / each opponent's total; amounts are a number, a
+  fraction of the starting life total (rounded down or up), the highest / lowest life total among all players
+  (measured once, RULE 608.2c) or a per-player count ("the number of creatures they control"). `SetLifeEffect`
+  was generalised (`selector`, operand `amount`, `measure_per_player`, `round_up`), still applied as the
+  resulting gain or loss (RULE 119.5). "Each player / opponent discards their hand" plus the wheel's "draws
+  cards equal to the greatest number discarded this way" generalises the hand-authored Windfall bind. Cards:
+  Biorhythm, Repay in Kind, Arbiter of Knollridge, Blessed Wind, Magister Sphinx, The Endstone, Vraska Relic
+  Seeker, Sire of Insanity, Myojin of Night's Reach, Mindslicer, Jace's Archivist and more. Awaken the
+  Erstwhile's false claim (a "creates that many" read as an event amount, count 0) was withdrawn. Tests:
+  `test_par291_set_life_total.py`.
+
 ### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
 
 - **What (search):** dynamic mana-value bounds through `bind` + `$n` and any-number searches (M1); a hand reveal or discard naming the search (`pick_then_search_specs`, M2); "basic land or <subtype>" and the reveal-split / mana-value-destination tails (M3–M4); "if <cond>, instead search" as one `if_else` (M5); riders on the found card as the search's `then_specs` (M6); searches by each player, a target player or "its controller" (M7); one search of independent slots (`criteria_each`, M8); found cards exiled, two qualities on one card, "different names / powers" (`distinct_keys`), "exactly two" (M9, M17); "shuffle then put on top in any order" (M10); Cranial-Extraction sweeps by a name taken from an earlier pick (`same_name_search` `from_previous`, M16); Intuition-style opponent splits on the regular search (`opponent_split`, M17); searches of a target opponent's library with "Then that player shuffles" and a measured count (M24).

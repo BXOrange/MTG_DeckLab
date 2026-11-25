@@ -106,6 +106,7 @@ tokens_per_target_player_creature
 choose_target_players
 any_opponents_sacrifice_lose
 wheel
+mass_discard_hand
 may_wheel
 may_shuffle_hand_graveyard_draw
 draw_then_discard_that_many
@@ -175,7 +176,7 @@ each_player_lose_life_unless
 discard_and_sacrifice_triple
 drain_triggering_saga
 set_life_half_starting
-set_own_life
+set_life_total
 gain_life
 gain_life_equal_devotion
 gain_life_lost_this_way

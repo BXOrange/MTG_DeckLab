@@ -408,50 +408,79 @@ class GainLifeEffect(GameEffect):
 
 
 class SetLifeEffect(GameEffect):
-    """RULE 118.5 / 119.6: "`<player>`'s life total becomes N." (Sorin
-    Markov's −3, Magister Sphinx, Repay in Kind-adjacent) — modelled purely
-    as the resulting gain or loss: current > N loses ``current - N``,
-    current < N gains ``N - current`` (RULE 118.4 — "becomes" is a one-shot
-    set, not a lock). ``target_kind`` picks the player the same way
-    `GainLifeEffect` does; default targets a player.
+    """RULE 118.5 / 119.5: "`<player>`'s life total becomes N." (Sorin Markov's -3, Magister Sphinx, Repay in Kind,
+    Biorhythm) -- modelled purely as the resulting gain or loss: current > N loses ``current - N``, current < N
+    gains ``N - current`` (RULE 119.5 -- "becomes" is a one-shot set, not a lock). ``target_kind`` picks the player the
+    same way `GainLifeEffect` does; default targets a player. ``selector="each_player"`` / ``"each_opponent"``
+    (RULE 101.4: APNAP order) sets every matching player's total instead.
+
+    ``amount`` is a number or an `effect_amounts` operand. A plain operand is measured once, before any total changes
+    (RULE 608.2c: "the highest life total among all players" is the same for everyone); ``measure_per_player`` measures
+    it for each affected player in turn ("the number of creatures they control", RULE 109.5).
     """
 
     def __init__(
         self,
-        amount: int = 0,
+        amount: Union[int, dict] = 0,
         target_kind: Optional[str] = "player",
         source: Optional["GameObject"] = None,
         only_reduce: bool = False,
         optional: bool = False,
         fraction_of_starting: Optional[int] = None,
+        selector: Optional[str] = None,
+        measure_per_player: bool = False,
+        round_up: bool = False,
     ) -> None:
         super().__init__(source)
-        self.amount = int(amount)
-        #: "up to one target player" (RULE 601.2c): the target may be declined.
+        self.amount = amount if isinstance(amount, dict) else int(amount)
+        #: "up to one target player" (RULE 601.2c): the target may be declined. A mass ``selector`` names no target.
+        self.selector = selector if selector in _LOSE_LIFE_SELECTORS else None
+        if self.selector is not None:
+            target_kind = None
         self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind is not None else None
         #: RULE 119.5: the life total becomes this fraction of the player's own starting life total, rounded down
-        #: (Torgaar, Famine Incarnate: ``2`` for "half their starting life total").
+        #: (Torgaar, Famine Incarnate: ``2`` for "half their starting life total"); ``1`` is "your starting life
+        #: total" itself (Exquisite Archangel). ``round_up`` is The Endstone's "rounded up".
         self.fraction_of_starting = fraction_of_starting
+        self.round_up = bool(round_up)
+        self.measure_per_player = bool(measure_per_player)
         #: "If your life total is greater than N, it becomes N." (You
-        #: Compleat Me, MEC-54) — the conditional half-set: never raises a
+        #: Compleat Me, MEC-54) -- the conditional half-set: never raises a
         #: lower total, only clamps a higher one down.
         self.only_reduce = bool(only_reduce)
 
     def target_polarity(self) -> Optional[str]:
         return None  # can help or hurt depending on the target's current life
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self._resolve_target_or_controller(context, targets)
-        if player is None:
-            return
-        current = int(getattr(player, "life", 0))
-        amount = self.amount
+    def _new_total(self, player: Any, shared: int, context: GameContext) -> int:
         if self.fraction_of_starting:
-            amount = int(getattr(player, "starting_life", 0)) // int(self.fraction_of_starting)
-        if current > amount:
-            context.lose_life(player, current - amount)
-        elif current < amount and not self.only_reduce:
-            context.gain_life(player, amount - current)
+            starting = int(getattr(player, "starting_life", 0))
+            divisor = int(self.fraction_of_starting)
+            return -(-starting // divisor) if self.round_up else starting // divisor
+        if self.measure_per_player and isinstance(self.amount, dict):
+            from ..effect_amounts import amount_of
+
+            return amount_of({**self.amount, "of": "target"}, context, self.source, [player])
+        return shared
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            controller_id = getattr(self.source, "controller_id", None)
+            affected = [
+                p for p in context.state.living_players()
+                if not (self.selector == "each_opponent" and p.id == controller_id)
+            ]
+        else:
+            player = self._resolve_target_or_controller(context, targets)
+            affected = [player] if player is not None else []
+        shared = self._measured(self.amount, context, targets) if not self.measure_per_player else 0
+        for player in affected:
+            amount = self._new_total(player, shared, context)
+            current = int(getattr(player, "life", 0))
+            if current > amount:
+                context.lose_life(player, current - amount)
+            elif current < amount and not self.only_reduce:
+                context.gain_life(player, amount - current)
 
 
 class SetMaxLifeTotalEffect(GameEffect):

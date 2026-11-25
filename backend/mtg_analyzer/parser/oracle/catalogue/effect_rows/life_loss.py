@@ -6,6 +6,7 @@ import re
 
 from ..clause_reading import ClauseReading
 from typing import Optional
+from ..count_phrase import parse_amount_term
 from ..subgrammars import (
     COUNT,
     count_of,
@@ -738,6 +739,59 @@ def _drain_triggering_saga(m: re.Match[str]) -> list[EffectSpec]:
     ]})]
 
 
+#: PAR-291 / RULE 119.5: "<player>'s life total becomes <amount>" -- one row for every printed subject and amount. The
+#: subject is "your" (the controller, no target), "target player's" / "target opponent's" (a RULE 115 target) or "each
+#: player's" / "each opponent's" (a mass set in APNAP order, RULE 101.4). The amount is a number, a fraction of the
+#: player's own starting life total ("equal to your starting life total" = Oketra's Last Mercy, "half your starting
+#: life total, rounded up" = The Endstone), "the highest / lowest life total among all players" (Arbiter of Knollridge,
+#: Repay in Kind: measured once, RULE 608.2c) or a board count ("the number of creatures they control" = Biorhythm,
+#: measured for each player, RULE 109.5).
+_SET_LIFE_WHO: dict[str, dict] = {
+    "your": {"target_kind": None},
+    "target players": {"target_kind": "player"},
+    "target opponents": {"target_kind": "opponent"},
+    "each players": {"selector": "each_player"},
+    "each opponents": {"selector": "each_opponent"},
+}
+_SET_LIFE_TOTAL_RE = compile_clause(
+    r"(?P<who>your|target player'?s|target opponent'?s|each player'?s|each opponent'?s) life total becomes "
+    r"(?:(?P<n>\d+)"
+    r"|(?:equal to )?(?P<starting>your starting life total)"
+    r"|half your starting life total, rounded (?P<round>up|down)"
+    r"|the (?P<extreme>highest|lowest) life total among all players"
+    r"|(?P<count>the number of [^.]+? (?:they|you) control))"
+)
+_SET_LIFE_EXTREME_AGGREGATE: dict[str, str] = {"highest": "max", "lowest": "min"}
+
+
+def _set_life_total(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    key = m.group("who").replace("'", "")  # the apostrophe is optional in the pattern
+    params: dict = dict(_SET_LIFE_WHO[key])
+    if m.group("n") is not None:
+        params["amount"] = int(m.group("n"))
+    elif m.group("starting") is not None:
+        params["fraction_of_starting"] = 1
+    elif m.group("round") is not None:
+        params["fraction_of_starting"] = 2
+        params["round_up"] = m.group("round") == "up"
+    elif m.group("extreme") is not None:
+        params["amount"] = {"kind": "resource", "resource": "life", "scope": "each_player",
+                            "aggregate": _SET_LIFE_EXTREME_AGGREGATE[m.group("extreme")]}
+    else:
+        # "they control" is the affected player's own count; "you control" is the controller's.
+        text = m.group("count")
+        per_player = text.endswith("they control")
+        if per_player == (key == "your"):
+            return None  # "your life total becomes the number of ... they control" names two players
+        selector = parse_amount_term(text[: -len("they control")] + "you control" if per_player else text)
+        if not isinstance(selector, dict) or (per_player and selector.get("of") != "you"):
+            return None
+        params["amount"] = {"kind": "count_selector", "selector": selector}
+        if per_player:
+            params["measure_per_player"] = True
+    return [EffectSpec("set_life", params)]
+
+
 ROWS: list[EffectHandler] = [
     EffectHandler(
         "drain_triggering_saga",
@@ -756,11 +810,7 @@ ROWS: list[EffectHandler] = [
             "target_kind": "player", "optional": True, "fraction_of_starting": 2,
         })],
     ),
-    EffectHandler(
-        "set_own_life",
-        compile_clause(r"your life total becomes (?P<n>\d+)"),
-        lambda m: [EffectSpec("set_life", {"amount": int(m.group("n")), "target_kind": None})],
-    ),
+    EffectHandler("set_life_total", _SET_LIFE_TOTAL_RE, _set_life_total),
     # "you gain 3 life" / "gain 5 life" / "target player gains 3 life" /
     # "you gain x life" (an {X}-cost spell/ability's own announced X).
     EffectHandler(

@@ -317,7 +317,7 @@ def _create_named_token_quoted_cda(m: re.Match[str]) -> Optional[list[EffectSpec
 #: <kw>]" tail (a fixed literal count needs none of `_inline_create_token_
 #: params`'s ``n``/``who`` groups).
 _CREATE_TOKEN_THAT_MANY_RE = compile_clause(
-    r"creates? that many "
+    r"create that many "
     r"(?P<tapped>tapped )?(?P<legendary>legendary )?(?P<p>\d+)/(?P<t>\d+) "
     r"(?P<mid>[a-z ]*?)creature tokens?"
     r"(?: with (?P<kw>[a-z, ]+))?"

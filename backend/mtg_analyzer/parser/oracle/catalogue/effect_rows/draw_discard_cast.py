@@ -131,6 +131,30 @@ def _shuffle_graveyard_mill_that_many(m: re.Match[str]) -> Optional[list[EffectS
 _WHEEL_RE = compile_clause(r"each player discards (?:their|all the cards in their) hand, then draws (?P<n>\d+) cards?")
 _MAY_WHEEL_RE = compile_clause(r"each player may discard their hand and draw (?P<n>\d+) cards?")
 
+#: PAR-291 (RULE 701.8): the mass whole-hand discard on its own -- "each player / each opponent discards their hand"
+#: (Mindslicer, Sire of Insanity, Myojin of Night's Reach) -- and the wheel that draws the greatest discard: "each player
+#: discards their hand, then draws cards equal to the greatest number of cards a player discarded this way" (Windfall,
+#: Jace's Archivist, Whispering Madness). Every player discards the whole hand, so that greatest number is the largest hand
+#: before the discard: a `bind` measures it once (RULE 608.2c) and feeds the mass draw.
+_MASS_DISCARD_HAND_RE = compile_clause(
+    r"(?P<who>each player|each opponent) discards (?:their|all the cards in their) hand"
+    r"(?P<wheel>, then draws cards equal to the greatest number of cards a player discarded this way)?"
+)
+
+
+def _mass_discard_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    scope = "each_player" if m.group("who") == "each player" else "each_opponent"
+    discard = {"type": "discard", "params": {"scope": scope, "whole_hand": True}}
+    if m.group("wheel") is None:
+        return [EffectSpec("discard", discard["params"])]
+    if scope != "each_player":
+        return None  # the greatest discard is only compared across every player's hand
+    return [EffectSpec("bind", {
+        "name": "n",
+        "amount": {"kind": "resource", "resource": "hand_size", "aggregate": "max", "scope": "each_player"},
+        "effects": [discard, {"type": "draw", "params": {"selector": "each_player", "count": "$n"}}],
+    })]
+
 
 def _wheel(m: re.Match[str]) -> list[EffectSpec]:
     return [EffectSpec("seq", {"effects": [
@@ -1985,6 +2009,7 @@ ROWS: list[EffectHandler] = [
         "any_opponents_sacrifice_lose", _ANY_OPPONENTS_SACRIFICE_LOSE_RE, _any_opponents_sacrifice_lose,
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
+    EffectHandler("mass_discard_hand", _MASS_DISCARD_HAND_RE, _mass_discard_hand),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
     EffectHandler("may_shuffle_hand_graveyard_draw", _MAY_SHUFFLE_HAND_GRAVEYARD_RE, _may_shuffle_hand_graveyard),
     EffectHandler("draw_then_discard_that_many", _DRAW_THEN_DISCARD_THAT_MANY_RE, _draw_then_discard_that_many),
