@@ -82,6 +82,25 @@ _BOUND_STAT_KEY = {"power": "power", "toughness": "toughness", "mana value": "ma
 _BOUND_CMP_PREFIX = {"less": "max_", "greater": "min_"}
 #: "a creature card and/or a land card": separate "a" items joined by and/or (one card per type word).
 _SEPARATE_ITEMS_RE = re.compile(r"(?P<a>[a-z]+) card and/or an? (?P<b>[a-z]+) card")
+#: PAR-292 M29: the same one-card-per-slot list with any number of slots and subtype / qualified items ("a Cleric card, a
+#: Rogue card, a Warrior card, and/or a Wizard card"; the leading "a" is the selection's `quant`). Items are separated by
+#: a comma and/or an "and/or" / "and", each introduced by its own article.
+SLOT_SPLIT_RE = re.compile(r"(?:,\s*(?:and/or\s+|and\s+)?|\s+and/or\s+|\s+and\s+)an?\s+")
+#: The most slots a "one card per slot" pick names (Harper Recruiter prints four); more is not a known printing.
+MAX_PICK_SLOTS = 4
+
+
+def parse_pick_slots(crit: str) -> Optional[list[dict]]:
+    """The slots of "a <A> card[,] [and/or] a <B> card ..." (``crit`` is what follows the first article), one
+    `card_query` dict per slot, ``None`` when it is not a slot list (a single kind, a union, an unreadable item). Each
+    slot may be filled by at most one card, each card fills at most one slot (RULE 608.2c)."""
+    items = SLOT_SPLIT_RE.split(crit.strip())
+    if not 2 <= len(items) <= MAX_PICK_SLOTS or not all(item.endswith(" card") for item in items):
+        return None
+    slots = [parse_criteria(item) for item in items]
+    if any(not slot for slot in slots):
+        return None
+    return slots
 #: RULE 205.2a: the card types a "distinct types" pick can tell apart (the same set the engine's
 #: `distinct_card_types` assignment reads, `misc_helpers.CARD_TYPE_WORDS`).
 _DISTINCT_TYPE_WORDS = frozenset({"artifact", "creature", "enchantment", "instant", "land", "planeswalker", "sorcery", "battle"})
@@ -107,7 +126,7 @@ _SELECTION_RE = re.compile(
     r"(?P<where>from among (?:them|the revealed cards)|revealed this way)"
     r"(?P<andput> and put (?:it|that card|them|those cards|the revealed cards))?"
     r" (?P<dest>into your hand|on top of your library|onto the battlefield(?: tapped(?: and attacking)?)?)"
-    r"(?: and the rest (?P<rest>.+))?"
+    r"(?:, (?P<shuffle>then shuffle)| and the rest (?P<rest>.+))?"
 )
 #: PAR-292 M12: the exile pick, which has no destination word of its own ("you may exile a creature card from among them",
 #: "exile 1 of them face down", "exile 1 face down and put the rest ...") and is followed by a casting window.
@@ -126,7 +145,7 @@ _REST_SENTENCE_RE = re.compile(
     r"all (?:the )?cards revealed this way that weren't put (?:onto the battlefield|into your hand)) "
     r"(?P<dest>.+)"
 )
-_SHUFFLE_REST_RE = re.compile(r"(?:then )?shuffle the rest into your library")
+_SHUFFLE_REST_RE = re.compile(r"(?:then )?shuffle(?: the rest into your library)?")
 _ELSE_TAIL_RE = re.compile(r"if you didn't put a card into your hand this way, (?P<effect>.+)")
 _SENTENCE_SPLIT_RE = re.compile(r"\.\s+")
 
@@ -403,6 +422,7 @@ def parse_dig(
     rest_text: Optional[str]
     single_rest = False
     exile_rest = False
+    shuffle_rest = False
     if exile_pick is not None:
         # RULE 406.3: the picked card goes to exile (face down when printed so); the window sentence after the rest is
         # parsed below. A bare "exile one" with no window is not claimed here (nothing reads the exiled card).
@@ -431,7 +451,12 @@ def parse_dig(
         quant = sel.group("quant")
         plural = quant in ("all", "any number of") or quant.startswith("up to")
         separate = None if plural else _SEPARATE_ITEMS_RE.fullmatch(sel.group("crit"))
-        if separate is not None:
+        slots = None if plural or separate is not None or quant not in ("a", "an") else parse_pick_slots(sel.group("crit"))
+        if slots is not None:
+            # RULE 608.2c: one card per named slot, the pool being every card that fills some slot.
+            criteria = {"or": slots}
+            params["pick_slots"] = [dict(slot) for slot in slots]
+        elif separate is not None:
             # "a creature card and/or a land card": at most one card per named type (RULE 205.2a), the engine's
             # `distinct_card_types` pick. Only real card types can be told apart this way.
             kinds = [separate.group("a"), separate.group("b")]
@@ -456,16 +481,22 @@ def parse_dig(
             action=action,
             max_picks=(
                 "all" if everything else int(quant.split()[-1]) if quant.startswith("up to")
-                else len(kinds) if separate is not None else 1
+                else len(kinds) if separate is not None else len(slots) if slots is not None else 1
             ),
             optional=optional,
         )
         if criteria:
             params["criteria"] = criteria
         rest_text = sel.group("rest")
+        if sel.group("shuffle"):
+            # RULE 701.24a / 401.2: "put ... onto the battlefield, then shuffle": the unpicked cards never left the
+            # library, which is shuffled once the pick is done (Famished Worldsire, Through the Forest Gate).
+            rest_text, shuffle_rest = None, True
 
     rest_dest = None
-    if exile_rest:
+    if shuffle_rest:
+        rest_dest = "library_shuffled"
+    elif exile_rest:
         rest_dest = "exile"
     elif rest_text is None and tails and _SHUFFLE_REST_RE.fullmatch(tails[0]):
         rest_dest, tails = "library_shuffled", tails[1:]

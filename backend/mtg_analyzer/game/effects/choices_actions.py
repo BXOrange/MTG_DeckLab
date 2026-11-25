@@ -1648,6 +1648,7 @@ class ChooseObjectsEffect(GameEffect):
         permanent_filter: Optional[dict[str, Any]] = None,
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         pool_zone: str = "battlefield",
         minimum_card_types: int = 0,
         pool_player_selector: str = "chooser",
@@ -1689,6 +1690,8 @@ class ChooseObjectsEffect(GameEffect):
         self.permanent_filter = permanent_filter
         self.then_that_many = then_that_many
         self.distinct_card_types = distinct_card_types
+        #: One card per slot (`RulesEngine._pick_labels`): each slot an object-filter ``{"filter": ...}`` dict here.
+        self.pick_slots = [dict(slot) for slot in (pick_slots or [])] or None
         self.minimum_card_types = minimum_card_types
         self.pool_zone = pool_zone
         self.pool_zones = list(pool_zones) if pool_zones else None
@@ -1733,7 +1736,7 @@ class ChooseObjectsEffect(GameEffect):
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
             else_specs=self.else_effects, then_that_many=self.then_that_many,
-            distinct_card_types=self.distinct_card_types,
+            distinct_card_types=self.distinct_card_types, pick_slots=self.pick_slots,
             minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
             record_referent=self.record_referent,
         )

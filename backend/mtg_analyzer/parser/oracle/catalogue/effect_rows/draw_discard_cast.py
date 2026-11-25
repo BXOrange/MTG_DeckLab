@@ -20,6 +20,7 @@ from ..casting_window import (
 from ..characteristic_phrase import parse_object_phrase, PERMANENT_CARD_TYPES
 from ..clause_hooks import parse_effect_body
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
+from ..dig import MAX_PICK_SLOTS, SLOT_SPLIT_RE
 from ..inspection import parse_criteria as parse_hand_class
 from ..subgrammars import (
     COUNT,
@@ -414,9 +415,29 @@ _RECOVER_MILLED_RE = compile_clause(
 )
 
 
+def _milled_pick_slots(quant: str, what: str) -> Optional[list[dict]]:
+    """PAR-292 M29: "a creature card and/or a land card" / "a Saga card and/or a land card" from the milled cards: one
+    object-filter per slot (`dig.parse_pick_slots`' item split, `parse_object_phrase`'s vocabulary), ``None`` when
+    ``what`` is not a slot list."""
+    if quant not in ("a", "an"):
+        return None
+    items = SLOT_SPLIT_RE.split(what.strip())
+    if not 2 <= len(items) <= MAX_PICK_SLOTS or not all(item.endswith(" card") for item in items):
+        return None
+    filters = [parse_object_phrase(item, plural=True) for item in items]
+    if any(f is None or f[1] is not None or not f[0] for f in filters):
+        return None
+    return [f[0] for f in filters]
+
+
 def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    parsed = parse_object_phrase(m.group("what"), plural=True)
+    slot_filters = _milled_pick_slots(m.group("quant"), m.group("what"))
+    if slot_filters is not None:
+        # RULE 608.2c: at most one card per slot, the pool being every milled card that fills some slot.
+        parsed = ({"any_of": slot_filters}, None)
+    else:
+        parsed = parse_object_phrase(m.group("what"), plural=True)
     if parsed is None or parsed[1] is not None:
         return None
     destination = {"into your hand": "hand", "onto the battlefield": "battlefield",
@@ -425,7 +446,7 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         return None
     quant = m.group("quant")
     count = int(quant.split()[-1]) if quant.startswith("up to ") else "all" if quant in {"all", "any number of"} else 1
-    return [EffectSpec("choose_objects", {
+    params: dict = {
         "action": "select_referent", "what": "card", "pool_zone": "milled",
         "permanent_filter": parsed[0], "count": count,
         "optional": bool(m.group("may")) or quant.startswith("up to ") or quant == "any number of",
@@ -433,7 +454,11 @@ def _recover_milled(m: re.Match[str]) -> Optional[list[EffectSpec]]:
             "previous_subject": True, "destination": destination,
             "under_your_control": destination == "battlefield",
         }}],
-    })]
+    }
+    if slot_filters is not None:
+        params["count"] = len(slot_filters)
+        params["pick_slots"] = [{"filter": f} for f in slot_filters]
+    return [EffectSpec("choose_objects", params)]
 
 
 #: PAR-254: "you may exile a creature card from among the cards milled this way" (Shadow Kin) -- the optional pick of one

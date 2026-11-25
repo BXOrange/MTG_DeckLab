@@ -4016,6 +4016,7 @@ class SearchMixin:
         criteria: Optional[dict[str, Any]] = None,
         else_specs: Optional[list[dict]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
         entry_counters: Optional[dict[str, int]] = None,
@@ -4114,7 +4115,7 @@ class SearchMixin:
             rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
             else_specs=else_specs,
-            distinct_card_types=distinct_card_types,
+            distinct_card_types=distinct_card_types, pick_slots=pick_slots,
             then_specs=then_specs,
             entry_counters=entry_counters, entry_specs=entry_specs,
         )

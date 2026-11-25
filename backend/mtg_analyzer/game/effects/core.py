@@ -830,6 +830,7 @@ class GameContext:
         else_specs: Optional[list[dict[str, Any]]] = None,
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         minimum_card_types: int = 0,
         all_or_nothing: bool = False,
         record_referent: bool = False,
@@ -841,7 +842,7 @@ class GameContext:
             prompt=prompt, source=source, then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander,
             else_specs=else_specs, then_that_many=then_that_many,
-            distinct_card_types=distinct_card_types,
+            distinct_card_types=distinct_card_types, pick_slots=pick_slots,
             minimum_card_types=minimum_card_types, all_or_nothing=all_or_nothing,
             record_referent=record_referent,
         )

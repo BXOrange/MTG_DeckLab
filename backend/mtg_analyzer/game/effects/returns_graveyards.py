@@ -2542,6 +2542,7 @@ class InspectTopChooseEffect(GameEffect):
         max_picks: Union[int, str] = 1,
         max_picks_if_teamwork: Optional[int] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
         criteria: Optional[dict[str, Any]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
@@ -2578,6 +2579,9 @@ class InspectTopChooseEffect(GameEffect):
         #: Grand Unifier) — each pick represents a different card type; multi-type cards may
         #: share types when a distinct assignment exists (`RulesEngine._resume_choose_objects`).
         self.distinct_card_types = bool(distinct_card_types)
+        #: "A Cleric card, a Rogue card, and/or a Wizard card" (Harper Recruiter): each pick fills a different slot, each
+        #: slot a `card_query` ``criteria`` dict (`RulesEngine._pick_labels`); the pool is ``criteria`` (their union).
+        self.pick_slots = [{"criteria": dict(slot)} for slot in (pick_slots or [])] or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -2601,7 +2605,7 @@ class InspectTopChooseEffect(GameEffect):
             max_picks=max_picks,
             criteria=criteria,
             else_specs=self.else_effects,
-            distinct_card_types=self.distinct_card_types,
+            distinct_card_types=self.distinct_card_types, pick_slots=self.pick_slots,
             then_specs=self.placed_effects or None,
             reveal=self.reveal, entry_counters=self.entry_counters, entry_specs=self.entry_specs,
         )

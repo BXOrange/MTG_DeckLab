@@ -25,6 +25,9 @@ _DEST = {
     'back on top of your library in any order': 'top',
     'on top of their library in any order': 'top',
     'on the bottom of your library': 'bottom',
+    # RULE 401.4: the same piles with "of your library" implied after a "from among them" pick (Fertile Thicket, Munda).
+    'on top of your library': 'top', 'on the bottom in any order': 'bottom',
+    'on the bottom in a random order': 'bottom_random',
     # RULE 400.3: a card put into a library or graveyard goes to its *owner's*, whoever owns the library it was
     # looked at in ("on the bottom of that player's library" after "look at the top card of target player's library").
     "on the bottom of that player's library": 'bottom', 'on the bottom of their library': 'bottom',
@@ -94,6 +97,8 @@ def parse_inspection(text: str, parse_tail: Callable) -> list[EffectSpec] | None
         part = re.sub(r', (?:and )?(\d+) (into your (?:hand|graveyard)|on the bottom of your library)',
                       r'. put \1 of them \2', part)
         part = re.sub(r' and the rest ', '. put the rest ', part)
+        # PAR-292 M29: "reveal ... from among them, then put those cards on top of your library": the put is its own step.
+        part = re.sub(r', then (?=put (?:that card|those cards|them) on top of your library)', '. ', part)
         sentences.extend(re.split(r'\. |,? (?:and |then )?(?=(?:put|exile) the rest\b)', part))
     for sentence in sentences:
         sentence = re.sub(r'^then ', '', sentence)

@@ -622,6 +622,18 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Stream of Thought / Tamiyo, Seasoned Scholar | untargeted "shuffle up to N cards from your graveyard" pick | pair |
 | Plunge into Darkness / Karn, Living Legacy | "pay any amount, then look at that many" | pair |
 | Genesis Hydra / Knickknack Ouphe | announced X read under a cast / enters trigger | pair |
+| Glacial Revelation | "snow permanent cards" (a supertype word with "permanent"; the criteria vocabulary refuses an AND of a type OR-list) | PAR-292 M29 |
+| Michelangelo's Technique / Smelting Vat | "up to two ... cards with total mana value 6 or less" / "less than or equal to the sacrificed artifact's mana value": a total mana value cap on a dig pick (the choose-objects budget exists, the dig has no such bound) | PAR-292 M29; a pair |
+| Rip, Spawn Hunter | "any number of creature and/or Vehicle cards with different powers" (a pairwise-distinct pick) | PAR-292 M29 |
+| Eivor, Wolf-Kissed / Nashi, Searcher in the Dark / Rampant Frogantua | "you mill that many cards" (a mill count from the combat damage dealt) before a "from among them" pick (Eivor's Saga card and/or land card, Nashi's legendary and/or enchantment cards plus an "if you put no cards into your hand this way" counter, Frogantua's lands); the one-card-per-slot pick itself parses (Sludge Titan) | PAR-292 M29; Frogantua also prints a life-lost pump |
+| Gilgamesh, Master-at-Arms | "when you put 1 or more Equipment onto the battlefield this way, attach one of them to target creature you control" after an any-number pick | PAR-292 M29 |
+| Xenagos, the Reveler | "-6: exile the top 7 cards of your library. You may put any number of creature and/or land cards from among them onto the battlefield." (an exile dig, not a look) plus its mana ability | PAR-292 M29 |
+| Doubling Chant / Clarion Ultimatum / Dire-Strain Rampage / From the Ashes / Wave of Vitriol | per-permanent search loops ("for each <permanent>, search ... same name" and one search per destroyed permanent, then "each player who searched their library this way shuffles"); Krenko's Buzzcrusher is the same loop | PAR-292 close; one loop primitive, unmeasured per card, no shape with 3 solo cards in the v1080 scan |
+| Stomping Slabs / Sanity Grinding / Petals of Insight | reveal-then-bottom-all with no pick (the whole revealed pile goes to the bottom) | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Jodah, Archmage Eternal / Possibility Storm / Tibalt's Trickery / Unpredictable Cyclone / Guff Rewrites History | dig hits relative to a spell (a hit measured against the spell that triggered or was cast) | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Fludge / The Gunky Runner and the other gunk cards | "shuffle N <name> cards into their library" | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Field of Dreams / Wizened Snitches / Lantern of Insight / Yet Another Aether Vortex | static "players play with the top card of their libraries revealed" (the "your library" form is `activation_clauses`; the each-player form has no row); Lantern also prints "target player shuffles" | PAR-292 M29 re-measure: 2 solo (Field, Snitches) |
+| Boggart Forager / Soldier of Fortune / Lantern of Insight | "target player shuffles [their library]" as an effect (the shuffle primitive and its target exist; M25 built only the controller's own form) | PAR-292 M29 re-measure: 2 solo (Forager, Soldier); with the static above Lantern is a third |
 
 ### Mana-ability rider residue (BUG-73 close, PARSER_VERSION 1061)
 

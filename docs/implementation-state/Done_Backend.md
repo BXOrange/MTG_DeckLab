@@ -1176,7 +1176,7 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   instead" life sets went to PAR-294, the x/x "where x is" token shape (34 solo) to PAR-297, and the older "target
   opponent sacrifices" row's missing opponent restriction to BUG-88.
 
-### Library inspection and search (PAR-292 M1–M28, PARSER_VERSION 1027–1079, +238, in progress)
+### Library inspection and search (PAR-292 M1–M29, PARSER_VERSION 1027–1080, +247, 0 regressed)
 
 - **What (search):** dynamic mana-value bounds through `bind` + `$n` and any-number searches (M1); a hand reveal or discard naming the search (`pick_then_search_specs`, M2); "basic land or <subtype>" and the reveal-split / mana-value-destination tails (M3–M4); "if <cond>, instead search" as one `if_else` (M5); riders on the found card as the search's `then_specs` (M6); searches by each player, a target player or "its controller" (M7); one search of independent slots (`criteria_each`, M8); found cards exiled, two qualities on one card, "different names / powers" (`distinct_keys`), "exactly two" (M9, M17); "shuffle then put on top in any order" (M10); Cranial-Extraction sweeps by a name taken from an earlier pick (`same_name_search` `from_previous`, M16); Intuition-style opponent splits on the regular search (`opponent_split`, M17); searches of a target opponent's library with "Then that player shuffles" and a measured count (M24).
 - **What (inspection):** the "look at / reveal the top N, take some, rest to the bottom" dig with numeric per-card bounds and the player-ordered `library_bottom_order` (M11); exile-and-cast picks (M12); "shuffle ... into library" by owner (M13); reveal-until digs by another player, hits under the ability controller (M14–M15); "that many cards" bound to the trigger payload (M18); free casts from among the looked-at cards and X-bounded criteria (`look_top_cast_free`, M19); exile-until with a free cast and the uncast rest to the bottom (M20); exile-top-N cast pools with a cap and a bottom tail (`cast_window_exiled_pool`, M23).
@@ -1224,6 +1224,18 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   existing "library and/or graveyard" searches with the conditional tail. `card_query` gained `no_abilities`; name
   searches take any zone union and "that spell" from a cast trigger. Cards: Agency Outfitter, Fang-Druid Summoner,
   Mishra Artificer Prodigy. Tests: `test_par292_m28_multi_zone_search.py`.
+- **M29 (v1080, +9):** "from among them" picks after a dig. One card per class slot ("a <A> card and/or a <B>
+  card ... from among them") is `pick_slots`, the generalised `distinct_card_types`: a card stands for every slot it
+  meets and the distinct-assignment check decides (Harper Recruiter, Kaalia Zenith Seeker, Sludge Titan through its
+  mill). "Reveal up to N <class> cards from among them, then put those cards on top" splits the top placement into
+  its own step with the existing top/bottom ordering (RULE 401.4; Fertile Thicket, Planar Atlas, Munda Ambush
+  Leader). "Put any number of <class> cards from among them ..., then shuffle" (Ajani Outland Chaperone, Famished
+  Worldsire, Through the Forest Gate). Tests: `test_par292_m29_from_among_picks.py`.
+- **Close (v1080 re-measure, `find_fragments --axes --slots`, Commander-legal: pool 32,643, covered 26,366):** no
+  library shape with three or more solo cards is left; the largest shared templates have two (each-player revealed
+  top card, "target player shuffles", "you mill that many" before a pick, "exile the top X" plus a cast window).
+  Residue is in `singletons.md` "Library residue"; piles stay on PAR-298, outside-the-game cards on MEC-144, prowl
+  on PAR-299. Known: `test_continuations.py` fails when run alone (BUG-89, pre-existing).
 - **Process note:** milestones M19–M24 drifted toward whole-card leftovers (one to three cards each); the v1054 re-measure showed every split-off tail ("then shuffle", "put the rest on the bottom") open only because of its front sentence. The ticket was re-scoped to generic shapes; single cards moved to `singletons.md` ("Library residue (PAR-292 re-scope)").
 - **Validation:** per milestone a full IR dump of every MODELED card against HEAD (0 changed except the M11 38-card `library_bottom_order` correction), the fast suite and, every five milestones, `--full-cache` (green at 1038, 1043, 1049, 1054: 27,360 passed, 4 skipped). Coverage at v1054: 26,990 / 35,444; Commander-legal 26,418 / 32,595.
 - **Files:** `game/effects/{library,name_reference,exile_control,piles,registry}.py`, `game/rules/search_mixin.py`, `game/name_reference.py`, `game/player_counts.py`; `parser/oracle/catalogue/{dig,casting_window,name_reference,count_phrase,history_phrase}.py`, `catalogue/effect_rows/{search_control_attach,reveal_until_other,revealed_piles,separated_piles,party,draw_discard_cast,tokens_animate_misc}.py`, `segmenter/{effect_body,where_x,trigger_heads}.py`; tests `tests/test_par292_*.py`.
