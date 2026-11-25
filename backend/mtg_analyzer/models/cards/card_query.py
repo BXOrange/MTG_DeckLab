@@ -62,6 +62,8 @@ A criteria value is one of:
                       module deliberately imports nothing from `game/` (see
                       the module docstring), and the heuristic already
                       matches every real printed mana ability template.
+  ``no_abilities``    bool — the card prints no abilities at all ("a creature card **with no abilities**", Fang-Druid
+                      Summoner): an empty rules text (RULE 113.1; keyword abilities are rules text too).
   ``or``              list[dict] — this whole criteria dict matches if *any*
                       alternative in the list does ("an artifact card with a
                       mana ability **or** a basic land card" — each
@@ -104,7 +106,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "same_name_as", "not_name", "not_names", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
-        "shares_creature_type_with", "min_color_count",
+        "shares_creature_type_with", "min_color_count", "no_abilities",
     }
 )
 
@@ -226,6 +228,8 @@ def matches(card: Card, criteria: Criteria) -> bool:
         ):
             return False
     if crit.get("has_mana_ability") and not _has_mana_ability(card):
+        return False
+    if crit.get("no_abilities") and ((card.oracle_text or "").strip() or card.keywords):
         return False
     has_keyword = crit.get("has_keyword")
     if has_keyword and not any(

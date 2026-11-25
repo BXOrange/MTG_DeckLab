@@ -3892,6 +3892,7 @@ EffectRegistry.register(
         opponent_split=p.get("opponent_split"),
         exact_count=bool(p.get("exact_count", False)),
         searched_by_controller=bool(p.get("searched_by_controller", False)),
+        choose_zones=bool(p.get("choose_zones", False)),
     ),
 )
 EffectRegistry.register(

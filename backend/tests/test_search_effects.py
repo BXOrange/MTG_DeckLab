@@ -228,6 +228,8 @@ def test_zone_search_named_criteria_to_hand():
         "criteria": {"name": "command tower"},
         "destination": "hand",
         "zones": ["library", "graveyard"],
+        "choose_zones": True,
+        "reveal": True,
     }
 
 
@@ -243,6 +245,7 @@ def test_zone_search_named_criteria_no_reveal_to_battlefield():
         "criteria": {"name": "sunlit hoplite"},
         "destination": "battlefield",
         "zones": ["library", "graveyard"],
+        "choose_zones": True,
     }
 
 
@@ -256,6 +259,8 @@ def test_zone_search_type_criteria():
         "criteria": {"type": "artifact"},
         "destination": "hand",
         "zones": ["library", "graveyard"],
+        "choose_zones": True,
+        "reveal": True,
     }
 
 
@@ -402,6 +407,9 @@ def test_real_zone_search_card_finds_a_graveyard_hit():
     eng.cast_spell(p1, creature_obj)
     eng.resolve_until_stable()
 
+    # PAR-292 M28 (RULE 701.23a): the library holds a card and the graveyard a match, so the player names the zone(s).
+    assert eng.state.pending_choice["kind"] == "search_zones"
+    eng.resolve_pending_choice("graveyard")
     choice = eng.state.pending_choice
     assert choice is not None and choice["kind"] == "search"
     assert {e["name"] for e in choice["eligible"]} == {"Command Tower"}
@@ -410,7 +418,8 @@ def test_real_zone_search_card_finds_a_graveyard_hit():
     assert eng.state.pending_choice is None
     assert tower_obj in p1.hand
     assert tower_obj not in p1.graveyard
-    assert any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
+    # "If you search your library this way, shuffle": only the graveyard was searched, so no shuffle.
+    assert not any(e.type == EventType.SHUFFLE for e in eng.state.event_log)
 
 
 def test_real_split_destination_card_binds_and_resolves_end_to_end():

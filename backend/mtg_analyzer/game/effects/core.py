@@ -778,6 +778,7 @@ class GameContext:
         distinct_keys: Optional[list[str]] = None,
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -799,6 +800,7 @@ class GameContext:
             distinct_keys=distinct_keys,
             opponent_split=opponent_split,
             exact_count=exact_count,
+            choose_zones=choose_zones,
         )
 
     def _request_intuition(

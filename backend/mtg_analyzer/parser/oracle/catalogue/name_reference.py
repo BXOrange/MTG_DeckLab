@@ -294,8 +294,10 @@ def same_name_specs(body: str, reading: ClauseReading):
 
 
 _NAME_SEARCH = re.compile(
-    r"(?P<before>(?:you may )?search your library(?: and/or graveyard)? for .+?) "
-    r"with the same name as (?P<reference>.+?)(?P<after>, (?:reveal|put).+)"
+    # PAR-292 M28: any union of the library, graveyard and hand ("search your graveyard, hand, and/or library"), and
+    # "and put it ..." after the criteria as well as ", put it ..." (Mishra, Artificer Prodigy).
+    r"(?P<before>(?:you may )?search your (?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){0,2}"
+    r" for .+?) with the same name as (?P<reference>.+?)(?P<after>(?:, | and )(?:reveal|put).+)"
 )
 
 
@@ -305,6 +307,11 @@ def _reference_search(body: str, reading: ClauseReading):
         return None
     ref = name_reference(match['reference'])
     announce = []
+    if (ref is None and match['reference'] == 'that spell' and (reading.group_subject or reading.self_subject)
+            and not reading.previous_subject and not reading.referents):
+        # RULE 201.2a / 603.2: under "whenever you cast <a spell>" the spell is the trigger's own object (Mishra,
+        # Artificer Prodigy); its name is read from the SPELL_CAST event.
+        ref = {'kind': 'trigger_subject'}
     if ref is None:
         operand = parse_operand(match['reference'], reading)
         if operand is None or operand.count != 1:

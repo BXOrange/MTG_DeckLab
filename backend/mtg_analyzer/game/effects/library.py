@@ -166,9 +166,13 @@ class SearchLibraryEffect(GameEffect):
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
         searched_by_controller: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "search your graveyard, hand, and/or library for ..." (PAR-292 M28): ``zones`` are the zones the player may
+        #: pick among, and only the library actually searched is shuffled (`RulesEngine._request_search`).
+        self.choose_zones = bool(choose_zones)
         #: "Choose target permanent an opponent controls. Search THAT PLAYER's library for a card with the same name and
         #: put it onto the battlefield under your control." (Mimeofacture, RULE 701.19a / 401.2): with
         #: ``player="previous_target_controller"`` the library (and its shuffle) is the chosen permanent's controller's,
@@ -381,6 +385,7 @@ class SearchLibraryEffect(GameEffect):
             distinct_keys=self.distinct_keys or None,
             opponent_split=self._resolved_split(targets),
             exact_count=self.exact_count,
+            choose_zones=self.choose_zones,
         )
 
     def _resolved_split(self, targets: Optional[list[Any]]) -> Optional[dict[str, Any]]:

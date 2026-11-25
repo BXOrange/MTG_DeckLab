@@ -118,6 +118,18 @@ _BASIC_LAND_TYPE_WORDS: frozenset[str] = frozenset(
 )
 
 
+#: `_request_search` arguments that are not part of the serialisable request a zone prompt carries (the objects are
+#: re-resolved from their ids when the prompt is answered; ``zones`` is replaced by the answer).
+_ZONE_REQUEST_EXCLUDED: frozenset[str] = frozenset({"self", "player", "chooser", "source", "zones", "choose_zones"})
+#: RULE 701.23b: a hidden zone may be searched without finding a match, a public one may not. The library is hidden
+#: from everyone, the hand from the opponents; the others (graveyard, face-up exile) are open information.
+_HIDDEN_SEARCH_ZONES: frozenset[str] = frozenset({"library", "hand"})
+#: German zone names for the zone prompt (the UI language).
+_ZONE_LABELS: dict[str, str] = {"library": "Bibliothek", "graveyard": "Friedhof", "hand": "Hand", "exile": "Exil"}
+#: The separator joining zones inside one option id of the zone prompt.
+_ZONE_JOIN = "+"
+
+
 def _land_types_of(card: Card) -> frozenset[str]:
     """The basic land type word(s) printed on ``card``'s type line."""
     type_line = (card.type_line or "").lower()
@@ -1278,6 +1290,7 @@ class SearchMixin:
         distinct_keys: Optional[list[str]] = None,
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1374,6 +1387,12 @@ class SearchMixin:
         ``chosen_destination`` and the rest to ``rest_destination``, and the library is shuffled once. The chooser's
         pick is the existing `intuition_choose` choice (`_resume_intuition_choose`).
 
+        ``choose_zones`` ("search your graveyard, hand, and/or library", PAR-292 M28): ``zones`` is the set the player
+        may pick from rather than the set searched. The player first says which of them to search (`search_zones`
+        choice); only the chosen zones are looked through, and the library is shuffled, and `LIBRARY_SEARCHED` fired,
+        only when it was one of them (RULE 701.23a/b/d: a card found in the graveyard does not mean the library was
+        searched; "if you search your library this way, shuffle").
+
         ``criteria_each`` (Conflux's "search your library for a white card, a blue card, ..., and a green
         card"; Krosan Verge, Gem of Becoming, Axgard Armory's "and/or") is one search made of independent
         slots, each its own criteria: the player is asked slot by slot for at most one card matching that
@@ -1404,6 +1423,12 @@ class SearchMixin:
         if self.is_search_prohibited_for(chooser or player):
             return
         zones = list(zones) if zones else ["library"]
+        if choose_zones and len(zones) > 1:
+            # Captured before anything below rebinds a parameter: the zone prompt re-enters this method with them.
+            request = {name: value for name, value in locals().items() if name not in _ZONE_REQUEST_EXCLUDED}
+            zones = self._ask_search_zones(player, zones, criteria, criteria_each, chooser, source, request)
+            if zones is None:
+                return
         if "library" in zones:
             self.state.fire_event(
                 GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
@@ -1677,6 +1702,68 @@ class SearchMixin:
             else:
                 self._move_to_graveyard(obj)  # RULE 614.1; flags a commander (RULE 903.9a)
         self.shuffle_library(searcher)
+
+    def _ask_search_zones(
+        self, player: Player, zones: list[str], criteria: Any, criteria_each: Optional[list[Any]],
+        chooser: Optional[Player], source: Optional[GameObject], request: dict[str, Any],
+    ) -> Optional[list[str]]:
+        """RULE 701.23a: "search your graveyard, hand, and/or library" lets the player pick which of the named zones to
+        look through. Returns the zones to search when the choice is trivial (at most one zone is worth naming), else
+        opens the `search_zones` prompt and returns None (the search continues when it is answered).
+
+        A zone is worth naming when searching it can matter: the library and the hand are hidden (RULE 701.23b), so
+        looking through them is always possible, even with no match, and it is what makes "if you search your library
+        this way, shuffle" happen; a public zone (graveyard, exile) only when it holds a card the search could find.
+        An empty zone is never offered."""
+        searcher = chooser or player
+        slots = list(criteria_each) if criteria_each else [criteria]
+        offered: list[str] = []
+        for zone in zones:
+            pool = self._search_zone_objects(player, [zone], searcher)
+            if not pool:
+                continue
+            if zone in _HIDDEN_SEARCH_ZONES or any(card_query.matches(o.card, slot) for o in pool for slot in slots):
+                offered.append(zone)
+        if len(offered) <= 1:
+            return offered or zones
+        options: list[dict[str, Any]] = []
+        # Every non-empty combination, fewest zones first (the library-only and graveyard-only picks before "both").
+        for mask in sorted(range(1, 1 << len(offered)), key=lambda m: (bin(m).count("1"), m)):
+            picked = [z for i, z in enumerate(offered) if mask >> i & 1]
+            options.append({"id": _ZONE_JOIN.join(picked), "label": " + ".join(_ZONE_LABELS[z] for z in picked)})
+        self.open_choice({
+            "kind": "search_zones",
+            "player_id": searcher.id,
+            "library_owner_id": player.id,
+            "prompt": "Welche Zonen durchsuchen? (" + ", ".join(_ZONE_LABELS[z] for z in offered) + ")",
+            "options": options,
+            "request": request,
+            "source_id": getattr(source, "instance_id", None),
+            "optional": False,
+        })
+        return None
+
+    @continuations.choice("search_zones", answer=continuations.ANSWER_STR, rule="701.23")
+    def _resume_search_zones(self, choice: dict[str, Any], answer: str) -> None:
+        """Answer the zone prompt: search exactly the named zones (RULE 701.23a). A "you may" in the card's text is
+        its own earlier choice, so the prompt itself always names at least one zone."""
+        if answer not in {o["id"] for o in choice["options"]}:
+            self.open_choice(choice)  # the refused answer leaves the prompt pending
+            raise ValueError(f"{answer!r} is not a zone choice")
+        zones = answer.split(_ZONE_JOIN)
+        request = dict(choice["request"])
+        if not (set(zones) & _HIDDEN_SEARCH_ZONES) and not request.get("exact_count"):
+            # RULE 701.23b: only a hidden zone lets the searcher miss a card that is there; a public zone must be
+            # searched honestly, so a find is no longer optional once the player named only public zones.
+            request["optional"] = False
+        owner = self.state.player_by_id(choice["library_owner_id"])
+        searcher = self.state.player_by_id(choice["player_id"])
+        source_id = choice.get("source_id")
+        self._request_search(
+            owner, **request, zones=zones, choose_zones=False,
+            chooser=searcher if searcher is not owner else None,
+            source=self.state.find_object(source_id) if source_id is not None else None,
+        )
 
     def _search_zone_objects(self, player: Player, zones: list[str], searcher: Optional[Player] = None) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws

@@ -401,6 +401,7 @@ search_found_rider
 search_this_way_self_shuffle
 search_two_cards_split
 search_zone_put
+search_multi_zone
 search_exile_rest
 shuffle_self_into_library
 shuffle_enchanted_into_library

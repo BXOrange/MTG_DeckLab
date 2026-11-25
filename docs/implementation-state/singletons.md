@@ -541,6 +541,11 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Mirror-Mad Phantasm | "if that player does, they reveal cards from the top of that library until a card named ~ is revealed; the player puts that card onto the battlefield and all other cards revealed this way into their graveyard" | PAR-292 M27 |
 | Riftsweeper | "choose target face-up exiled card. Its owner shuffles it into their library" (a face-up exile target kind) | PAR-292 M27 |
 | This Is How It Ends | "faces a villainous choice: they lose 5 life, or they shuffle another creature they own into their library" | PAR-292 M27 |
+| Arachnus Spinner | "put it onto the battlefield attached to target creature" after a multi-zone search (the found card is attached to the ability's own target, which is gone once the search choice resumes) | PAR-292 M28; the zone search, the shuffle tail and the cost parse |
+| Say Its Name | cost "exile this card and two other cards named ~ from your graveyard" (the source plus N other same-named cards, only Calim shares "from your graveyard") | PAR-292 M28; the multi-zone search and the sorcery-speed restriction parse |
+| The Five Doctors | "if this spell was kicked, put those cards onto the battlefield instead of putting them into your hand" after an "up to five Doctor cards" search | PAR-292 M28; the library-and-graveyard search itself parses |
+| The Hunger Tide Rises | chapter IV: "sacrifice any number of creatures. Search ... for a creature card with mana value less than or equal to the number of creatures sacrificed this way" (a count from an unbounded sacrifice) | PAR-292 M28; the search parses |
+| Vision Quest | "put it onto the battlefield with X additional +1/+1 counters on it. If X is 4 or greater, it gains haste until end of turn" with the bound "mana value X or less" | PAR-292 M28; the search parses |
 | Turtle Tracks | "any number of target players" |  |
 | Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
 | Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |
