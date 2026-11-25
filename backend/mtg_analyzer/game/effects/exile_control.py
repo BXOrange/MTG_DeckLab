@@ -2871,9 +2871,12 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
     """
 
     def __init__(self, owner_of_source: bool = False, source: Optional["GameObject"] = None,
-                 target_kind: Optional[str] = None) -> None:
+                 target_kind: Optional[str] = None, with_source: bool = False) -> None:
         super().__init__(source)
         self.owner_of_source = owner_of_source
+        #: "Shuffle ~ and your graveyard into their owner's library." (Elixir of Immortality): the source goes into
+        #: its own owner's library with the graveyard, and each affected library is shuffled once (RULE 701.24a).
+        self.with_source = with_source
         self.target_spec = TargetSpec(kind=target_kind) if target_kind else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
@@ -2895,8 +2898,13 @@ class ShuffleGraveyardIntoLibraryEffect(GameEffect):
         owns_hold = not context.state._batch_hold
         if owns_hold:
             context.state.hold_batches()
-        effects = [ReturnToLibraryEffect(target=obj, target_kind=None, source=self.source)
-                   for obj in list(player.graveyard)]
+        moved = list(player.graveyard)
+        source = self.source
+        if self.with_source and source is not None and source.zone in (Zone.BATTLEFIELD, Zone.STACK):
+            moved.insert(0, source)  # RULE 400.7: only a source still in play is the object that activated
+        effects = [ReturnToLibraryEffect(target=obj, target_kind=None, source=self.source) for obj in moved]
+        if self.with_source and source in moved and source.owner_id != player.id:
+            effects.append(FinishGraveyardShuffleEffect(source.owner_id, False, source=self.source))
         effects.append(FinishGraveyardShuffleEffect(player.id, owns_hold, source=self.source))
         _apply_effects_partitioned(effects, context, None, None, source=self.source)
 
@@ -2909,9 +2917,15 @@ class ShuffleTargetGraveyardCardsIntoLibraryEffect(GameEffect):
     The picks are the spell's controller's to make (RULE 601.2c), out of the
     *targeted* player's graveyard, and each returns to that player's own
     library (RULE 404 "their"). Modeled as a resolve-time
-    `_request_choose_objects` (action ``graveyard_to_library``, which also
-    shuffles) rather than three separate card `TargetSpec`s — an accepted
-    RULE 115 precision loss in line with this module's norms.
+    `_request_choose_objects` (action ``graveyard_to_library``) rather than
+    separate card `TargetSpec`s — an accepted RULE 115 precision loss in line
+    with this module's norms. The library is shuffled once after the last pick
+    (RULE 701.24a).
+
+    PAR-292 M27: ``count_max=None`` is "any number of target cards" (Loaming
+    Shaman) and ``own=True`` the untargeted "you shuffle up to N cards from
+    your graveyard into your library" (Stream of Thought): the controller is
+    both chooser and owner, with no RULE 115 player target.
     """
 
     #: Quandrix Command's own "up to three".
@@ -2920,28 +2934,33 @@ class ShuffleTargetGraveyardCardsIntoLibraryEffect(GameEffect):
     def __init__(
         self,
         source: Optional["GameObject"] = None,
-        count_max: int = DEFAULT_CARD_CAP,
+        count_max: Optional[int] = DEFAULT_CARD_CAP,
+        own: bool = False,
     ) -> None:
         super().__init__(source)
-        self.count_max = int(count_max)
-        self.target_spec = TargetSpec(kind="player")
+        self.count_max = None if count_max is None else int(count_max)
+        self.own = bool(own)
+        self.target_spec = None if self.own else TargetSpec(kind="player")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        target_player = (targets[0] if targets else None) or getattr(self, "target", None)
         chooser = _controller_of(self.source, context)
+        target_player = chooser if self.own else ((targets[0] if targets else None) or getattr(self, "target", None))
         if target_player is None or chooser is None:
             return
         pool = list(target_player.graveyard)
         if not pool:
             return
+        count = len(pool) if self.count_max is None else self.count_max
         context.engine._request_choose_objects(
             chooser,
             pool,
             "graveyard_to_library",
-            count=self.count_max,
+            count=count,
             optional=True,
-            prompt="Bis zu drei Karten aus dem Friedhof in die Bibliothek mischen",
+            prompt=("Beliebig viele Karten" if self.count_max is None else f"Bis zu {count} Karten")
+            + " aus dem Friedhof in die Bibliothek mischen",
             source=self.source,
+            then_specs=[{"type": "shuffle", "params": {"player_id": target_player.id}}],
         )
 
 

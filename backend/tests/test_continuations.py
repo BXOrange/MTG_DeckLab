@@ -254,7 +254,9 @@ class TestPublicSurfaceShrank:
         # Mossbridge Troll: regenerate_instead is called by the replacement
         # effect (`context.engine.regenerate_instead`), not by another
         # RulesEngine method — the RULE 701.19 destruction replacement.
-        assert count <= 181, f"RulesEngine still exposes {count} public methods"
+        # PAR-292 M27: shuffle_objects_into_libraries is called by `GameContext` (`ReturnToLibraryEffect`), the
+        # RULE 701.24a "shuffle ~ and <objects> into their owners' libraries" operation (each library shuffled once).
+        assert count <= 182, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

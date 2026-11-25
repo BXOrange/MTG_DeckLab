@@ -1300,6 +1300,20 @@ class DamageDeathMixin:
         self._move_for_library_shuffle(obj, Zone.LIBRARY)
         self.shuffle_library(self.state.player_by_id(obj.owner_id))
 
+    def shuffle_objects_into_libraries(self, objs: list[GameObject]) -> None:
+        """"Shuffle <objects> into their owners' libraries" (RULE 400.3: each object goes to its own owner's library;
+        RULE 701.24a: every affected library is then shuffled, once, however many of the objects it received).
+        An empty list, or an object already gone from play, shuffles nothing (RULE 400.7: a stale object is not the
+        same object any more)."""
+        owners: list[Player] = []
+        for obj in objs:
+            owner = self.state.player_by_id(obj.owner_id)
+            self._move_for_library_shuffle(obj, Zone.LIBRARY)
+            if owner not in owners:
+                owners.append(owner)
+        for owner in owners:
+            self.shuffle_library(owner)
+
     def _move_for_library_shuffle(self, obj: GameObject, destination: Zone) -> None:
         """Move one member of a shuffle, honoring any chosen command-zone replacement."""
         was_on_battlefield = obj in self.state.battlefield

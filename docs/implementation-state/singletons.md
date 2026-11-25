@@ -530,6 +530,17 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Wand of Denial | "look at the top card of target player's library. If it's a nonland card, you may pay 2 life. If you do, put it into that player's graveyard" (pay-life rider on the look) | PAR-292 M26 |
 | S.N.E.A.K. Dispatcher | "if it has an agents of s.n.e.a.k. watermark, you may reveal it and put it into your hand. Otherwise, put it on your choice of the top or bottom of its owner's library" | PAR-292 M26 |
 | Klaw, Master of Sound | "mana of any type can be spent to cast a spell this way" as its own sentence after the play window, plus "whenever you play a card from exile" | PAR-292 M26 |
+| Elixir | "shuffle all nonland cards from your graveyard into your library. You gain life equal to the number of cards shuffled into your library this way." (a class filter on the whole graveyard plus a "shuffled this way" count) | PAR-292 M27 |
+| Campfire | "put all commanders you own from the command zone and from your graveyard into your hand" (the shuffle sentence parses) | PAR-292 M27 |
+| Time Spiral | "you untap up to six lands" (the hand-and-graveyard shuffle and draw parse) | PAR-292 M27 |
+| Diminishing Returns | "you exile the top ten cards of your library. Then each player draws up to seven cards" (the shuffle parses) | PAR-292 M27 |
+| Glimpse of Tomorrow | "shuffle all permanents you own into your library, then reveal that many cards ... put all non-Aura permanent cards revealed this way onto the battlefield, then do the same for Aura cards" (needs a count from the shuffled set and a two-pass entry) | PAR-292 M27 |
+| Etrata, the Silencer | "that player loses the game if they own three or more exiled cards with hit counters on them" (the owner shuffle parses) | PAR-292 M27 |
+| Fblthp, Impossibly Lost | trigger head "when one or more of your opponents are dealt combat damage during your turn" (the owner shuffle and the library-empty win parse) | PAR-292 M27 |
+| Inferno Hellion | "at the beginning of each end step, if ~ attacked or blocked this turn" (the owner shuffle parses) | PAR-292 M27 |
+| Mirror-Mad Phantasm | "if that player does, they reveal cards from the top of that library until a card named ~ is revealed; the player puts that card onto the battlefield and all other cards revealed this way into their graveyard" | PAR-292 M27 |
+| Riftsweeper | "choose target face-up exiled card. Its owner shuffles it into their library" (a face-up exile target kind) | PAR-292 M27 |
+| This Is How It Ends | "faces a villainous choice: they lose 5 life, or they shuffle another creature they own into their library" | PAR-292 M27 |
 | Turtle Tracks | "any number of target players" |  |
 | Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
 | Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |

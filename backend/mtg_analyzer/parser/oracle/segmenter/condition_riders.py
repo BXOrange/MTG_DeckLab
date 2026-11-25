@@ -518,8 +518,11 @@ CREATED_ENTERS_ATTACKING_RE = re.compile(
 #: bottom, and exile 1" — Expressive Iteration) correctly stays unclaimed too,
 #: since the ``dest`` alternation only knows the four two-way destinations
 #: real cards actually print.
+#: PAR-292 M27: the controller may be named ("target player shuffles ... into their library. You look at the top 4 cards
+#: of your library, then put 1 of those cards into your hand ...", Witness the Future), the sentence before it having
+#: another subject.
 LOOK_TOP_SELECT_RE = re.compile(
-    r"^look at the top (?P<n>\d+|x) cards? of your library"
+    r"^(?:you )?look at the top (?P<n>\d+|x) cards? of your library"
     r"(?:, where x is the number of (?P<removed>[a-z]+) counters removed this way"
     # MEC-143 (Hoshi Sato): "…, where X is the number of creature types among non-Borg creatures you control."
     r"|, where x is (?P<measured>the number of creature types among [^.]+?))?"

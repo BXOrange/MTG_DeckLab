@@ -983,6 +983,9 @@ class GameContext:
     def shuffle_into_library(self, target: "GameObject") -> None:
         self.engine.shuffle_into_library(target)
 
+    def shuffle_objects_into_libraries(self, targets: list["GameObject"]) -> None:
+        self.engine.shuffle_objects_into_libraries(targets)
+
     def return_from_graveyard(
         self,
         target: "GameObject",

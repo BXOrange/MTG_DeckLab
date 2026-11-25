@@ -1675,6 +1675,7 @@ EffectRegistry.register(
     "shuffle_graveyard_into_library",
     lambda p: ShuffleGraveyardIntoLibraryEffect(
         owner_of_source=bool(p.get("owner_of_source", False)), target_kind=p.get("target_kind"),
+        with_source=bool(p.get("with_source", False)),
     ),
 )
 EffectRegistry.register(
@@ -1682,7 +1683,8 @@ EffectRegistry.register(
     # into their library." (Quandrix Command mode 4)
     "shuffle_target_graveyard_cards_into_library",
     lambda p: ShuffleTargetGraveyardCardsIntoLibraryEffect(
-        count_max=int(p.get("count_max", 3) or 3),
+        count_max=None if p.get("any_number") else int(p.get("count_max", 3) or 3),
+        own=bool(p.get("own", False)),
     ),
 )
 EffectRegistry.register(
@@ -1949,6 +1951,8 @@ EffectRegistry.register(
         depth=p.get("depth", 1),
         group=p.get("group"),
         creature_filter=p.get("creature_filter"),
+        with_source=bool(p.get("with_source", False)),
+        same_graveyard=bool(p.get("same_graveyard", False)),
     ),
 )
 EffectRegistry.register("put_hand_on_bottom", lambda p: PutHandOnBottomEffect())
