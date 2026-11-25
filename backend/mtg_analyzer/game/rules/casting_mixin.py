@@ -2238,6 +2238,7 @@ class CastingResolutionMixin:
         targets: Optional[list[Any]] = None,
         specs: Optional[list[dict[str, Any]]] = None,
         item_as_target: bool = False,
+        previous_targets: Optional[list[Any]] = None,
     ) -> None:
         """Park a loop body so it resumes at ``items[index]`` (ENG-35).
 
@@ -2260,6 +2261,10 @@ class CastingResolutionMixin:
         hands the current item to the body as its ``targets`` — which is what
         lets an ordinary registered effect ("draw a card", "deal 2 damage")
         serve as a loop body with no knowledge that it is in one.
+
+        ``previous_targets`` is the referent the body reads as "that creature" (RULE 608.2): without it every
+        iteration starts with none, so only a loop that opts in (`ForEachEffect` ``over.carry_previous``) sees the
+        clause that came before it.
         """
         if index >= len(items):
             return
@@ -2272,6 +2277,7 @@ class CastingResolutionMixin:
             "source": source,
             "targets": targets,
             "item_as_target": bool(item_as_target),
+            "previous_targets": list(previous_targets) if previous_targets else None,
             # RULE 608.2h: every paused iteration retains the same firing spell.
             "trigger_event": copy.deepcopy(self.context.trigger_event),
             "source_incarnation": self.context.resolving_source_incarnation,
@@ -2408,6 +2414,7 @@ class CastingResolutionMixin:
                 source=frame.get("source"), targets=frame.get("targets"),
                 specs=frame.get("specs"),
                 item_as_target=bool(frame.get("item_as_target")),
+                previous_targets=frame.get("previous_targets"),
             )
             self.state.deferred_effects[-1]["acting_player_id"] = frame.get("acting_player_id")
         item = items[index]
@@ -2437,6 +2444,7 @@ class CastingResolutionMixin:
                 targets,
                 None,
                 source=frame.get("source"),
+                previous_targets=frame.get("previous_targets"),
                 created_sink=self.context.created_objects,
             )
         finally:

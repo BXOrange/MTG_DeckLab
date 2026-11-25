@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ...models.cards.card_query import PERMANENT_CARD_TYPES
-from ...models.game.events import EventType
+from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import Zone
 from ..targeting import TargetSpec
 from .core import GameEffect, EffectRegistry, _apply_effects_partitioned
@@ -231,6 +231,18 @@ class MarkEventLogEffect(GameEffect):
     def apply(self, context, targets=None):
         if self.source is not None:
             self.source.window_event_mark = len(context.state.event_log)
+
+
+class AcceptOfferEffect(GameEffect):
+    """Record that the acting player took an offer: "Each opponent may <X>. For each opponent who does, <Y>." (the Tempt
+    cycle, Tempting Contract). Runs first in the accepted body of the opponent's `optional`, which stamps that
+    opponent as the acting player, and fires `EventType.OFFER_ACCEPTED` with their id; the payoff's `for_each` counts
+    those events (RULE 608.2c: "does" is deciding to, whatever the instruction then changes)."""
+
+    def apply(self, context, targets=None):
+        player = _controller_of(self.source, context)
+        if player is not None:
+            context.state.fire_event(GameEvent(EventType.OFFER_ACCEPTED, player_id=player.id))
 
 
 class DiscardedThisWayRidersEffect(GameEffect):
@@ -558,6 +570,7 @@ class CastExiledWithSourceEffect(GameEffect):
 
 
 EffectRegistry.register("mark_event_log", lambda p: MarkEventLogEffect())
+EffectRegistry.register("accept_offer", lambda p: AcceptOfferEffect())
 EffectRegistry.register(
     "discarded_this_way_riders",
     lambda p: DiscardedThisWayRidersEffect(

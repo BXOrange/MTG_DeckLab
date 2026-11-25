@@ -1156,6 +1156,13 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   Trapfinder's Trick, Shatter Assumptions). `keep_types` choices read after the pool and "a land of each basic land
   type" (Cataclysm, Global Ruin). Player-scoped token creation already had its scope; its open cards need token data
   or where-X token sizes and went to `singletons.md`. Tests: `test_par291_m3_player_scoped.py`.
+- **M4 (v1074, +8):** tempting offers (`catalogue/tempting_offer.py`): "<X>. Each opponent may <X>. For each opponent
+  who does, <X>." asks every opponent in turn order as the acting player (`optional.acting="chooser"`), marks each
+  acceptance with `OFFER_ACCEPTED`, then repeats the payoff once per acceptor (RULE 101.4, 608.2c); the offer must
+  be the controller's sentence with pronouns turned third-person, or the parser refuses. `for_each` can carry the
+  previous clause's referent (Tempt with Reflections). Cards: Tempt with Glory, Immortality, Reflections, Tempting
+  Contract. "you and that player each draw ..." under a damage head folds into two draws (Black Widow Intel Expert,
+  Diviner Spirit, Sergeant John Benton, Xyris). Tests: `test_par291_m4_tempting_offer.py`.
 
 ### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
 

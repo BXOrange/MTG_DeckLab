@@ -409,6 +409,10 @@ class EventType:
     #: A player searched their library (RULE 701.19) / shuffled it (RULE 701.20).
     LIBRARY_SEARCHED = "LIBRARY_SEARCHED"
     SHUFFLE = "SHUFFLE"
+    #: A player took an optional offer ("each opponent may <X>. For each opponent who does, ..."): fired by
+    #: `AcceptOfferEffect` as the first step of the accepted body, carries ``player_id`` (the one who said yes).
+    #: What a `for_each` ``action_result`` counts for "for each opponent who does" (RULE 608.2c, 101.4).
+    OFFER_ACCEPTED = "OFFER_ACCEPTED"
 
     # Spells/abilities. SPELL_CAST carries ``free=True`` when the spell was
     # cast without paying its mana cost (RULE 118.9 — cascade/discover/etc.),

@@ -702,6 +702,26 @@ Sized with `parser_probe blocked` at v1072 after the M3 rows landed: player-scop
 | Stick Together | `each player chooses a party from among creatures they control, then sacrifices the rest.` | party slots (one each of Cleric, Rogue, Warrior, Wizard, a creature fills one slot, RULE 700.8) are not the per-type keepers of `keep_types` |
 | Destined Confrontation, Balancing Act, Mythos of Snapdax | `each player chooses any number of creatures with total power 4 or less ...` / `a number of permanents ... equal to the fewest ...` / `... if {B}{R} was spent, you choose` | a total-power cap, a fewest-count measure, and a cost-conditional chooser |
 
+### Player-scoped residue (PAR-291 M4 sizing)
+
+Sized with `parser_probe blocked` at v1073, then rebuilt at v1074 (tempting offer, shared damage draw). No player-scoped shape of three or more solo cards is left: every row below is a one- or two-card shape, or its bodies are distinct one-offs.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Master of Ceremonies, Seize the Spotlight | `each opponent chooses money, friends, or secrets. For each player who chose money, you and that player each create a Treasure token ...` / `each opponent chooses fame or fortune. For each player who chose fame, gain control ...` | a per-opponent named choice, then per-choice payoffs counted over the choosers (2 cards, distinct payoffs) |
+| Maître Tree | `each opponent may also create a token from the menu. For each opponent who does, you create a token of the same type.` | the offer shape is claimed (`tempting_offer`); open is the menu (modal token choice) |
+| Tempt with Discovery, Tempt with Mayhem | `For each opponent who searches a library this way ...` / `You copy that spell once plus an additional time for each opponent who copied the spell this way.` | Discovery is hand-authored; Mayhem counts copies of a spell (amount "plus one per acceptor") |
+| Khorvath's Fury, Pir's Whim, Regna's Sanction, Virtus's Maneuver, Zndrsplt's Judgment | `for each player, choose friend or foe. Each friend <X>. Each foe <Y>.` | the friend / foe head is one shape (5 cards) but only Pir's Whim has both bodies claimed today ("each player puts a counter on each creature they control", "each player returns a creature card from their graveyard to their hand", "each player creates a token that's a copy of a creature they control", "taps the rest", "discards all then draws that many plus 1" are all open as plain `each player` rows); promote the bodies first |
+| Cait Cage Brawler, The River Warlock | `you and defending player each draw a card, then discard a card. <conditional on the discarded mana values>` | the shared draw / discard is claimable, the greatest-mana-value-among-both-discards rider is not (2 cards) |
+| Yume, Chronicler of Valor | `when you cast that spell, if another player spent mana to cast it, you and that player each draw a card.` | "that player" is the assisting player (no referent row) |
+| Battle at the Helvault, Vault 13: Dweller's Journey | `for each player, exile up to 1 target ... that player controls until this saga leaves the battlefield.` | per-player target rounds are claimed; the saga-lifetime exile ("until this saga leaves") is not (2 cards) |
+| Demonic Junker, Unexplained Absence, Krenko's Buzzcrusher, Guff Rewrites History, Vaevictis Asmadi, Ghouls' Night Out, Winnowing | `for each player, destroy / exile up to 1 ... that player controls.` plus a per-player rider | each rider is different ("if a creature you controlled was destroyed this way", "its controller cloaks the top card", "for each land destroyed this way its controller may search", ...) |
+| Incite Rebellion | `for each player, ~ deals damage to that player and each creature that player controls equal to the number of creatures they control.` | per-player damage amount measured per player |
+| Lim-Dul's Hex | `for each player, ~ deals 1 damage to that player unless they pay {B} or {3}.` | an OR of two costs in the mass "unless" row |
+| Elminster's Simulacrum | `For each opponent, you create a token that's a copy of up to one target creature that player controls.` | per-opponent copy target round |
+| Overburden, Confounding Conundrum, Discovery // Dispersal, Umbilicus | the M2 sizing rows (entering-permanent "that player", greatest-mana-value bounce, may-pay-else) | still one card each |
+| Nature's Wrath | `whenever a player puts an island or blue permanent onto the battlefield, that player sacrifices an island or blue permanent of their choice.` | the only open cross-dimension "<land type> or <color> permanent" pool at v1074 (orchestrator sizing) |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

@@ -614,8 +614,13 @@ class OptionalEffect(_CompositeEffect):
         source: Optional[GameObject] = None,
         else_effects: Optional[list[Any]] = None,
         if_you_do_from: Optional[int] = None,
+        acting: Optional[str] = None,
     ) -> None:
         super().__init__(effects, source)
+        #: ``"chooser"``: the body is run *as* the player who is asked ("**Each opponent may** put a +1/+1 counter on each
+        #: creature **they** control", the Tempt cycle) -- every "you" in it is that player (RULE 109.5), through
+        #: `GameContext.acting_player_id`. ``None`` keeps the ability's own controller acting.
+        self.acting = acting if acting == "chooser" else None
         #: "You may X. **If you do**, Y." (RULE 608.2c): the number of leading ``effects`` that are X. Y (the rest)
         #: runs only when X actually changed the game (`IfYouDoEffect`), not whenever the question was answered
         #: "yes". ``None`` is the older "you may do all of this" body with no outcome test.
@@ -770,7 +775,7 @@ class OptionalEffect(_CompositeEffect):
             "revealed_card_incarnation": context.revealed_card_incarnation,
             # RULE 109.5: a body run *as* another player ("that attacking player may create a
             # token") has to still be that player's once the question is answered.
-            "acting_player_id": (getattr(context, "acting_player_id", None)
+            "acting_player_id": (chooser.id if self.acting == "chooser" else getattr(context, "acting_player_id", None)
                                  or getattr(context, "resolving_controller_id", None)),
         })
 
@@ -968,7 +973,7 @@ class ForEachEffect(_CompositeEffect):
         if isinstance(result, dict):
             start = result.get("start")
             event_type = result.get("event")
-            if not isinstance(start, int) or start < 0 or event_type not in ('DISCARD_CARD', 'DRAW', 'SACRIFICE', 'LIBRARY_SEARCHED'):
+            if not isinstance(start, int) or start < 0 or event_type not in ('DISCARD_CARD', 'DRAW', 'SACRIFICE', 'LIBRARY_SEARCHED', 'OFFER_ACCEPTED'):
                 return
             counts = {}
             events = list(context.state.events_this_turn())
@@ -1009,6 +1014,7 @@ class ForEachEffect(_CompositeEffect):
         context.engine.defer_iteration(
             [], items, source=self.source,
             specs=[dict(spec) for spec in self.inner_specs], item_as_target=True,
+            previous_targets=list(context.previous_targets) if self.over.get("carry_previous") else None,
         )
         while (
             not context.state.pending_choice
@@ -1249,6 +1255,7 @@ EffectRegistry.register(
         player=p.get("player", "you"),
         else_effects=p.get("else_effects"),
         if_you_do_from=p.get("if_you_do_from"),
+        acting=p.get("acting"),
     ),
 )
 EffectRegistry.register(

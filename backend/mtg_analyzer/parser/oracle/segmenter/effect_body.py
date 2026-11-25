@@ -26,6 +26,7 @@ from ..catalogue.clause_primitives import (
     announces_creature_target,
     stamp_counters_on_referent,
 )
+from ..catalogue.tempting_offer import tempting_offer_specs
 from ..catalogue.flicker_sequences import (
     flicker_sequence_specs,
     linked_pool_return_specs,
@@ -428,6 +429,10 @@ def _parse_effect_body_unstamped(
     exile_grant = exile_grant_specs(body)
     if exile_grant is not None:
         return exile_grant
+    # PAR-291 M4: the Tempt cycle's "each opponent may ... for each opponent who does, ..." offer (RULE 608.2c, 101.4).
+    offer = tempting_offer_specs(body, lambda text: parse_effect_body(text, reading=reading.unattached()))
+    if offer is not None:
+        return offer
     physical_fight = physical_fight_specs(body)
     if physical_fight is not None:
         return physical_fight

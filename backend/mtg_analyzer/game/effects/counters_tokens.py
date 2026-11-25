@@ -439,7 +439,9 @@ class AddCountersEffect(GameEffect):
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             if amount > 0:
-                controller_id = getattr(self.source, "controller_id", None)
+                # RULE 109.5: a body run as another player ("each opponent may put a counter on each creature they
+                # control") reads "you control" as that player.
+                controller_id = context.acting_player_id or getattr(self.source, "controller_id", None)
                 members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
                 if self.group_other:
                     members = [o for o in members if o is not self.source]
