@@ -148,21 +148,29 @@ const ILLEGAL_REASON_LABELS = {
 
 function renderCoveredOracleText(card) {
   const lines = card.coverage?.unmodeled_lines;
+  const ranges = card.coverage?.unmodeled_ranges;
   const title = escapeAttr(t('cardTile.coverage.unmodeledAbility'));
-  const renderFace = (text, marked) => {
-    if (!marked?.length) return renderOracleText(text);
+  const mark = (text) =>
+    `<mark class="card-tile-unmodeled-ability" title="${title}">${renderOracleText(text)}</mark>`;
+  const renderFace = (text, face) => {
+    if (!lines?.[face]?.length) return renderOracleText(text);
     return text.split('\n').map((line, index) => {
-      const html = renderOracleText(line);
-      return marked.includes(index)
-        ? `<mark class="card-tile-unmodeled-ability" title="${title}">${html}</mark>`
-        : html;
+      if (!lines[face].includes(index)) return renderOracleText(line);
+      const range = ranges?.[face]?.[index];
+      if (!range) return mark(line);
+      // The backend counts Unicode code points. JS string offsets count UTF-16 units.
+      const points = Array.from(line);
+      const [start, end] = range;
+      return renderOracleText(points.slice(0, start).join(''))
+        + mark(points.slice(start, end).join(''))
+        + renderOracleText(points.slice(end).join(''));
     }).join('\n');
   };
   const front = card.oracle_text
-    ? `<p class="card-tile-text">${renderFace(card.oracle_text, lines?.front)}</p>` : '';
+    ? `<p class="card-tile-text">${renderFace(card.oracle_text, 'front')}</p>` : '';
   const back = lines?.back?.length && card.back_oracle_text
     ? `<p class="card-tile-back-name">${escapeHtml(card.back_name)}</p>
-       <p class="card-tile-text">${renderFace(card.back_oracle_text, lines.back)}</p>` : '';
+       <p class="card-tile-text">${renderFace(card.back_oracle_text, 'back')}</p>` : '';
   return front + back;
 }
 

@@ -1,4 +1,4 @@
-from mtg_analyzer.api.cards import _unmodeled_oracle_lines, list_cards
+from mtg_analyzer.api.cards import _unmodeled_oracle_marks, list_cards
 from mtg_analyzer.models.cards.card import Card
 
 
@@ -40,9 +40,41 @@ def test_unclaimed_fragments_only_mark_unambiguous_original_lines():
         back_oracle_text="Flying",
     )
 
-    assert _unmodeled_oracle_lines(card, [
+    assert _unmodeled_oracle_marks(card, [
         "flying",
         "that spell can't be countered.",
         "when ~ attacks, draw a card.",
         "synthetic diagnostic",
-    ]) == {"front": [1, 2]}
+    ]) == {
+        "front": {
+            1: (len("{T}: Add one mana of any color. "), len(card.oracle_text.splitlines()[1])),
+            2: None,
+        },
+    }
+
+
+def test_card_cache_marks_only_the_unmodeled_sentence_of_starfall_invocation():
+    wipe = "Destroy all creatures. "
+    rider = (
+        "If the gift was promised, return a creature card put into your graveyard "
+        "this way to the battlefield under your control."
+    )
+    card = Card(
+        id="vis23-starfall",
+        name="Starfall Invocation",
+        type_line="Sorcery",
+        is_sorcery=True,
+        oracle_text=f"Gift a card\n{wipe}{rider}",
+        keywords=["Gift"],
+    )
+
+    class Cache:
+        def list_cards(self):
+            return [card]
+
+    [result] = list_cards(scope="all", database=Cache(), decks=None)
+    coverage = result["coverage"]
+    assert coverage["modeled"] is False
+    assert coverage["unmodeled_lines"] == {"front": [1]}
+    assert coverage["unmodeled_ranges"] == {"front": {1: (len(wipe), len(wipe + rider))}}
+    assert coverage["unclaimed"] == [(wipe + rider).lower()]

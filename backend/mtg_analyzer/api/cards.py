@@ -19,7 +19,9 @@ from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, 
 from mtg_analyzer.api.schemas import CardResolveRequest
 from mtg_analyzer.game import card_registry
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
+from mtg_analyzer.parser.oracle.gate import ParseResult, unclaimed_spans
 from mtg_analyzer.parser.oracle.normalize import normalize
+from mtg_analyzer.parser.oracle.residue import split_parts
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -51,33 +53,48 @@ def coverage_for(card: Any) -> dict[str, object]:
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
 
 
-def _unmodeled_oracle_lines(card: Any, unclaimed: list[str]) -> dict[str, list[int]]:
-    """Locate diagnostics that match a unique printed line across both faces.
+def _oracle_fragment_range(text: str, card: Any, fragment: str) -> tuple[int, int] | None:
+    """Find a unique original sentence or connector part, in code points."""
+    matches = []
+    end = 0
+    for separator, part in split_parts(text):
+        start = end + len(separator)
+        end = start + len(part)
+        if normalize(part, card.name, card.keywords) == fragment:
+            matches.append((start, end))
+    return matches[0] if len(matches) == 1 else None
 
-    Parser diagnostics can contain rewrites or synthesized text. Keep those
-    available in the tooltip and only highlight what can be located directly.
-    """
+
+def _unmodeled_oracle_marks(
+    card: Any, unclaimed: list[str],
+) -> dict[str, dict[int, tuple[int, int] | None]]:
+    """Locate each diagnostic on a unique printed line, then narrow where possible."""
     candidates = []
-    for face, text, name, keywords in (
-        ("front", card.oracle_text, card.name, card.keywords),
-        ("back", card.back_oracle_text, card.back_name, card.back_keywords),
-    ):
-        for index, line in enumerate(text.split("\n")):
-            canonical = normalize(line, name, keywords)
+    for face, face_card in (("front", card), ("back", card.back_face() or card.flip_face())):
+        if face_card is None:
+            continue
+        for index, line in enumerate(face_card.oracle_text.split("\n")):
+            canonical = normalize(line, face_card.name, face_card.keywords)
             if canonical:
-                candidates.append((face, index, canonical))
+                candidates.append((face, index, line, canonical, face_card))
 
-    marked: dict[str, set[int]] = {}
+    marked: dict[str, dict[int, tuple[int, int] | None]] = {}
     for diagnostic in unclaimed:
         fragment = diagnostic.strip().removeprefix("• ").strip()
         if not fragment:
             continue
         pattern = re.compile(r"(?<!\w)" + re.escape(fragment) + r"(?!\w)")
-        matches = [(face, index) for face, index, line in candidates if pattern.search(line)]
-        if len(matches) == 1:
-            face, index = matches[0]
-            marked.setdefault(face, set()).add(index)
-    return {face: sorted(indices) for face, indices in marked.items()}
+        matches = [candidate for candidate in candidates if pattern.search(candidate[3])]
+        if len(matches) != 1:
+            continue
+        face, index, line, canonical, face_card = matches[0]
+        [residue] = unclaimed_spans(face_card, ParseResult(unclaimed=[fragment]))
+        bounds = None if residue.span == canonical else _oracle_fragment_range(line, face_card, residue.span)
+        face_marks = marked.setdefault(face, {})
+        if index in face_marks and face_marks[index] != bounds:
+            bounds = None
+        face_marks[index] = bounds
+    return marked
 
 
 def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase) -> list[Any]:
@@ -117,7 +134,9 @@ def list_cards(
     `scope=all` (default) is every cached card, including the full bulk
     Oracle import (docs/09). `scope=decks` narrows that down to cards
     actually referenced by a saved deck, for a much smaller/more relevant
-    list once the bulk cache is loaded.
+    list once the bulk cache is loaded. Unmodeled lines are zero-based
+    within each face. Optional ranges are half-open code-point offsets within
+    a line and narrow its highlight when the diagnostic maps to printed text.
     """
     source = _cards_referenced_by_decks(database, decks) if scope == "decks" else database.list_cards()
     cards = []
@@ -126,7 +145,12 @@ def list_cards(
         coverage = coverage_for(card)
         unclaimed = coverage.get("unclaimed")
         if unclaimed:
-            coverage["unmodeled_lines"] = _unmodeled_oracle_lines(card, unclaimed)
+            marks = _unmodeled_oracle_marks(card, unclaimed)
+            coverage["unmodeled_lines"] = {face: sorted(lines) for face, lines in marks.items()}
+            coverage["unmodeled_ranges"] = {
+                face: {index: bounds for index, bounds in lines.items() if bounds is not None}
+                for face, lines in marks.items()
+            }
         card_dict["coverage"] = coverage
         cards.append(card_dict)
     return cards
