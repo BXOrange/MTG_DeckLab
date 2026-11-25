@@ -1147,6 +1147,15 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   "that player ... unless they pay" asked nobody). Cards: Curfew, Debt to the Kami, Doomfall, Early Winter,
   Sunken Hope, Blizzard Specter, Blood Clock. Mass graveyard returns were sized at two cards per shared piece
   and went to `singletons.md`. Tests: `test_par291_own_pool_picks.py`.
+- **M3 (v1073, +12):** "<each player | each opponent | target player | target opponent> exiles the top N cards of
+  their library" is the existing library-exile slice with a player subject, so the cast / play riders attach as
+  before (Fathom Feeder, Thought Harvester, Dimensional Infiltrator, Knacksaw Clique, Ornate Kanzashi, Sifa Grent,
+  Doom Reigns Supreme). "<player> [reveals their hand and] discards all <class> cards": `DiscardEffect.hand_criteria`
+  is a `card_query` criteria discarded without a choice (`discard_matching`; new `min_color_count` key for
+  "multicolored"), and `reveal_hand` makes the whole hand public through `reveal_card` first (RULE 701.16; Amnesia,
+  Trapfinder's Trick, Shatter Assumptions). `keep_types` choices read after the pool and "a land of each basic land
+  type" (Cataclysm, Global Ruin). Player-scoped token creation already had its scope; its open cards need token data
+  or where-X token sizes and went to `singletons.md`. Tests: `test_par291_m3_player_scoped.py`.
 
 ### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
 

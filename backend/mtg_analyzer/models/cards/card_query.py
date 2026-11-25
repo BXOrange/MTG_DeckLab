@@ -52,6 +52,7 @@ A criteria value is one of:
                       creature card") — the opposite check, since nothing is
                       ever "colorless" *in* an identity set.
   ``color_count``     int — exactly this many actual printed colors (RULE 105.2).
+  ``min_color_count`` int — at least this many actual printed colors ("multicolored" is 2, RULE 105.2c).
   ``double_faced``    bool — a transforming, modal double-faced or meld card (RULE 712.1; meld cards are no longer double-faced, RULE 713.1, but stay grouped here).
   ``has_mana_ability`` bool — the card's own printed oracle text reads like a
                       mana ability ("an artifact card **with a mana
@@ -103,7 +104,7 @@ _ALLOWED_KEYS: frozenset[str] = frozenset(
         "max_power", "min_power", "max_toughness", "min_toughness",
         "name", "same_name_as", "not_name", "not_names", "color", "without_type", "has_mana_ability", "or",
         "nonlegendary", "has_keyword", "all_types", "has_x_cost", "not_basic", "color_count", "double_faced",
-        "shares_creature_type_with",
+        "shares_creature_type_with", "min_color_count",
     }
 )
 
@@ -212,6 +213,8 @@ def matches(card: Card, criteria: Criteria) -> bool:
     if not _color_matches(card, crit.get("color")):
         return False
     if "color_count" in crit and len(printed_colors(card)) != int(crit["color_count"]):
+        return False
+    if "min_color_count" in crit and len(printed_colors(card)) < int(crit["min_color_count"]):
         return False
     if "double_faced" in crit and is_double_faced_card(card) != bool(crit["double_faced"]):
         return False

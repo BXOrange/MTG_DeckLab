@@ -686,6 +686,22 @@ Sized with `parser_probe blocked` at v1071: "each player returns / exiles / puts
 | Discovery // Dispersal | `each opponent returns a nonland permanent they control with the greatest mana value among permanents they control to its owner's hand, then discards a card.` | the "greatest mana value" bounce over a nonland pool plus a chained discard |
 | Umbilicus | `that player may pay 2 life. If they don't, they return a permanent they control to its owner's hand.` | the may-pay-else form of the punisher (Blood Clock's sibling) |
 
+### Player-scoped residue (PAR-291 M3 sizing)
+
+Sized with `parser_probe blocked` at v1072 after the M3 rows landed: player-scoped token creation, "exiles the top card of their library" with riders, "chooses ... then sacrifices the rest" and "discards all <class> cards" have no shape of three or more solo cards left; every row below is a one-off or a pair.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Balefang the Unslayable, Hansk Slayer Zealot, Davvol's Birthdaymobile, The Sentry Golden Guardian | `target opponent creates a [tapped] <named token>` | the creator scope exists (`create_token` `creators: target`); the tokens (Baneslayer Angel, Walker, Carnival of Souls, The Void) are not curated in `data/tokens.json`, so `NAMED_TOKEN_WORDS` cannot claim them (a blank synthesized token would drop its abilities); four distinct tokens, authored or added one by one |
+| Eiganjo Uprising | `each opponent creates x minus 1 2/2 white samurai creature tokens with vigilance.` | "x minus 1" token count under a player scope |
+| Death by Dragons | `each player other than target player creates a 5/5 red dragon creature token with flying.` | "each player other than target player" scope |
+| Inscription of Insight, Phantasmal Sphere, Dovescape, Pure Reflection | `<player> creates an x/x <token>, where x is ...` | the x/x token with a where-x power is open even for "you create" (no creator scope involved); a PAR ticket on its own, 4 cards plus the "you" form |
+| Pursued Whale, Relic Robber, Kibo Uktabi Prince, Rite of the Raging Storm | `<player> creates a token with "<quoted ability>"` | the quoted-ability tail of a player-scoped token |
+| Pyxis of Pandemonium, Rocco Street Chef, Timesifter, Triple Triad, Crabomination, Xander's Pact | `each player / opponent exiles the top card ... ` plus a per-player "exiled this way" play / cast rider | the exile row is claimed; each rider is different (face-down turn up, play "the card they exiled this way", greatest mana value takes a turn, cast with life payment) |
+| Mind Extraction, Crosis the Purger, Persecute Artist, Tsabo's Decree, Void, Rare-B-Gone | `reveals their hand and discards all <class> cards` where the class is a referent (a sacrificed creature's colors, a chosen color / artist / type / number) or a rarity | the row takes printed classes only; each referent is a different antecedent |
+| Stick Together | `each player chooses a party from among creatures they control, then sacrifices the rest.` | party slots (one each of Cleric, Rogue, Warrior, Wizard, a creature fills one slot, RULE 700.8) are not the per-type keepers of `keep_types` |
+| Destined Confrontation, Balancing Act, Mythos of Snapdax | `each player chooses any number of creatures with total power 4 or less ...` / `a number of permanents ... equal to the fewest ...` / `... if {B}{R} was spent, you choose` | a total-power cap, a fewest-count measure, and a cost-conditional chooser |
+
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

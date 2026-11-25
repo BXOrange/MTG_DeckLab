@@ -786,7 +786,7 @@ class DrawDiscardMixin:
     @_one_event
     def discard_matching(
         self, player: Player, mana_value: Optional[int] = None,
-        cause: Optional[GameObject] = None,
+        cause: Optional[GameObject] = None, criteria: Optional[dict[str, Any]] = None,
     ) -> None:
         """Non-interactive "discards all cards with `<X>` mana value" (PAR-74
         — Infernal Kirin: "target player reveals their hand and discards all
@@ -797,11 +797,18 @@ class DrawDiscardMixin:
         chooser over a foregone conclusion. ``cause`` — see `discard`'s own
         docstring (MEC-101).
         """
-        if mana_value is None:
+        if mana_value is None and criteria is None:
             return
+        from ...models.cards import card_query  # function-scoped: rules mixin <-> models import boundary
+
         for obj in list(player.hand):
-            if obj.mana_value == mana_value:
-                self.discard_specific(obj, cause=cause)
+            # PAR-291 M3, RULE 701.8 / 400.2: "discards all <class> cards" -- the class is a `card_query` criteria
+            # over the card as it is in hand; an empty class (or hand) discards nothing.
+            if mana_value is not None and obj.mana_value != mana_value:
+                continue
+            if criteria is not None and not card_query.matches(obj.card, criteria):
+                continue
+            self.discard_specific(obj, cause=cause)
 
     def look_at_hand(
         self, player: Player, owner: Player, source: Optional[GameObject] = None,

@@ -392,9 +392,9 @@ class GameContext:
 
     def discard_matching(
         self, player: "Player", mana_value: Optional[int] = None,
-        cause: Optional["GameObject"] = None,
+        cause: Optional["GameObject"] = None, criteria: Optional[dict] = None,
     ) -> None:
-        self.engine.discard_matching(player, mana_value=mana_value, cause=cause)
+        self.engine.discard_matching(player, mana_value=mana_value, cause=cause, criteria=criteria)
 
     def look_at_hand(self, player: "Player", owner: "Player", source: Optional["GameObject"] = None) -> None:
         self.engine.look_at_hand(player, owner, source=source)

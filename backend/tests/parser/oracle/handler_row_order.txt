@@ -108,6 +108,7 @@ choose_target_players
 any_opponents_sacrifice_lose
 wheel
 mass_discard_hand
+discard_all_class
 may_wheel
 may_shuffle_hand_graveyard_draw
 draw_then_discard_that_many

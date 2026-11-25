@@ -20,6 +20,7 @@ from ..casting_window import (
 from ..characteristic_phrase import parse_object_phrase, PERMANENT_CARD_TYPES
 from ..clause_hooks import parse_effect_body
 from ..count_phrase import parse_amount_phrase, parse_count_phrase
+from ..inspection import parse_criteria as parse_hand_class
 from ..subgrammars import (
     COUNT,
     count_of,
@@ -154,6 +155,34 @@ def _mass_discard_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "amount": {"kind": "resource", "resource": "hand_size", "aggregate": "max", "scope": "each_player"},
         "effects": [discard, {"type": "draw", "params": {"selector": "each_player", "count": "$n"}}],
     })]
+
+
+#: PAR-291 M3, RULE 701.8 / 701.20: "<player> reveals their hand and discards all <class> cards" (Amnesia, Trapfinder's
+#: Trick, Shatter Assumptions): no choice, every hand card of the class leaves. The class is a `card_query` criteria
+#: (the shared dig vocabulary, plus "multicolored" = two or more colors, RULE 105.2c); a class outside the vocabulary
+#: leaves the clause unclaimed.
+_DISCARD_ALL_CLASS_RE = compile_clause(
+    r"(?P<who>each player|each opponent|target player|target opponent) (?P<reveal>reveals their hand and )?discards all "
+    r"(?P<cls>[a-z -]+? cards?)(?: from their hand)?"
+)
+_MULTICOLORED_CLASS = "multicolored cards"
+_MULTICOLORED_MIN_COLORS = 2  # RULE 105.2c: a multicolored object has two or more colors
+
+
+def _discard_all_class(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    cls = m.group("cls")
+    criteria = {"min_color_count": _MULTICOLORED_MIN_COLORS} if cls == _MULTICOLORED_CLASS else parse_hand_class(cls)
+    if criteria is None or not criteria:
+        return None  # "all cards" is the whole-hand row; an unknown class stays unclaimed
+    who = m.group("who")
+    params: dict = {"hand_criteria": criteria}
+    if m.group("reveal"):
+        params["reveal_hand"] = True  # RULE 701.20a: the whole hand is shown, kept cards included
+    if who.startswith("target"):
+        params["target_kind"] = resolve_target_kind(who)
+    else:
+        params["scope"] = "each_player" if who == "each player" else "each_opponent"
+    return [EffectSpec("discard", params)]
 
 
 def _wheel(m: re.Match[str]) -> list[EffectSpec]:
@@ -420,17 +449,27 @@ def _return_own_graveyard(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
 # Per-type keeper choices share one pool and sacrifice its complement.
 _CHOOSE_KEEP_TYPES_RE = compile_clause(
-    r"(?P<who>each player|each opponent) chooses (?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) "
-    r"from among the (?P<pool>.+?) they control, then sacrifices the rest"
+    r"(?P<who>each player|each opponent) chooses "
+    # The choices lead ("chooses an artifact, ... from among the nonland permanents they control") or trail the pool
+    # ("chooses from among the permanents they control an artifact, ..." -- Cataclysm); Global Ruin names a land of
+    # each basic land type instead (RULE 305.6).
+    r"(?:(?P<choices>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*) from among the (?P<pool>.+?) they control"
+    r"|from among the (?P<pool2>permanents) they control (?P<choices2>an? [a-z]+(?:(?:, |,? and )an? [a-z]+)*)"
+    r"|from the (?P<pool3>lands) they control (?P<basic>a land of each basic land type))"
+    r", then sacrifices the rest"
 )
 
 
 def _choose_keep_types(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 
-    kinds = [re.sub(r"^an? ", "", word) for word in re.split(r",? and |, ", m.group("choices"))]
-    if len(set(kinds)) != len(kinds) or any(kind not in PERMANENT_CARD_TYPES for kind in kinds):
-        return None
-    pool = parse_count_phrase(m.group("pool") + " you control")
+    if m.group("basic"):
+        kinds = list(_BASIC_LAND_TYPE_WORDS)
+    else:
+        kinds = [re.sub(r"^an? ", "", word)
+                 for word in re.split(r",? and |, ", m.group("choices") or m.group("choices2"))]
+        if len(set(kinds)) != len(kinds) or any(kind not in PERMANENT_CARD_TYPES for kind in kinds):
+            return None
+    pool = parse_count_phrase((m.group("pool") or m.group("pool2") or m.group("pool3")) + " you control")
     if pool is None or pool.get("zone") != "battlefield" or pool.get("of") != "you":
         return None
     return [EffectSpec("choose_player_objects", {
@@ -502,7 +541,7 @@ def _choose_land_of_each_type(m: re.Match[str]) -> list[EffectSpec]:
 # Library slices share one deterministic exile primitive: whose library,
 # which edge to remove from, and how many cards to remove or retain.
 _LIBRARY_EXILE_RE = compile_clause(
-    r"(?:(?P<who>that player) exiles|exile) (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
+    r"(?:(?P<who>that player|each player|each opponent|target player|target opponent) exiles|exile) (?:(?P<all>all cards)|all but the (?P<keep_edge>top|bottom) "
     r"(?:(?P<keep_n>\d+) cards?|(?P<keep_one>card))|the (?P<edge>top|bottom) "
     r"(?:(?P<n>\d+) cards?|(?P<one>card))) (?:of|from) "
     r"(?P<owner>your|their|that player'?s|target player'?s|target opponent'?s|each player'?s|each opponent'?s) library"
@@ -510,18 +549,34 @@ _LIBRARY_EXILE_RE = compile_clause(
 )
 
 
+#: The scope each "<player> exiles ... their library" subject reads as (`exile_top_of_library`'s ``player_selector``).
+_PLAYER_EXILES_OWN_LIBRARY: dict[str, str] = {
+    "each player": "each_player", "each opponent": "each_opponent", "target player": "target", "target opponent": "target",
+}
+
+
 def _library_exile(m: re.Match[str], reading) -> Optional[list[EffectSpec]]:
     owner = m.group("owner").replace("'", "")
     params: dict = {"face_down": bool(m.group("face_down"))}
-    if owner in ('their', 'that players'):
-        if (owner == 'their') != bool(m['who']):
+    who = m["who"]
+    if who in _PLAYER_EXILES_OWN_LIBRARY:
+        # PAR-291 M3, RULE 701.13: "<player> exiles the top card of their library" exiles from the library of that same
+        # player, so it is the "exile the top card of <player's> library" slice with the same selector and target.
+        if owner != "their":
+            return None
+        selector = _PLAYER_EXILES_OWN_LIBRARY[who]
+        params["player_selector"] = selector
+        if selector == "target":
+            params["target_kind"] = resolve_target_kind(who)
+    elif owner in ('their', 'that players'):
+        if (owner == 'their') != bool(who):
             return None
         previous = any(ref.kind == PLAYER for ref in reading.referents)
         params['player'] = {'of': 'previous_player' if previous else 'trigger_player', 'as': 'self'}
         if not previous:
             params['event_player_events'] = ['DAMAGE', 'ATTACKS', 'SPELL_CAST', 'STEP_BEGIN',
                                               'CREATURES_DEALT_COMBAT_DAMAGE_TO_PLAYER']
-    elif m['who']:
+    elif who:
         return None
     elif owner.startswith("target "):
         params.update(player_selector="target", target_kind=resolve_target_kind(owner[:-1]))
@@ -2010,6 +2065,7 @@ ROWS: list[EffectHandler] = [
     ),
     EffectHandler("wheel", _WHEEL_RE, _wheel),
     EffectHandler("mass_discard_hand", _MASS_DISCARD_HAND_RE, _mass_discard_hand),
+    EffectHandler("discard_all_class", _DISCARD_ALL_CLASS_RE, _discard_all_class),
     EffectHandler("may_wheel", _MAY_WHEEL_RE, _may_wheel),
     EffectHandler("may_shuffle_hand_graveyard_draw", _MAY_SHUFFLE_HAND_GRAVEYARD_RE, _may_shuffle_hand_graveyard),
     EffectHandler("draw_then_discard_that_many", _DRAW_THEN_DISCARD_THAT_MANY_RE, _draw_then_discard_that_many),

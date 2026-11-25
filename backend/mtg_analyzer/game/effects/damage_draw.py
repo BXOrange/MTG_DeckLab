@@ -1542,10 +1542,18 @@ class DiscardEffect(GameEffect):
         unless_discard: Optional[dict[str, Any]] = None,
         player_id: Optional[str] = None,
         hand_fraction: Optional[dict[str, Any]] = None,
+        hand_criteria: Optional[dict[str, Any]] = None,
+        reveal_hand: bool = False,
     ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        #: PAR-291 M3 "target player reveals their hand and discards all **<class>** cards" (Amnesia, Trapfinder's
+        #: Trick, Shatter Assumptions): a `card_query` criteria; every matching hand card is discarded without a
+        #: choice (RULE 701.8), ``count`` is ignored. Shown to all by the discard itself.
+        self.hand_criteria = dict(hand_criteria) if hand_criteria is not None else None
+        #: "...**reveals their hand** and discards all ..." (RULE 701.20a): the whole hand becomes public first.
+        self.reveal_hand = bool(reveal_hand)
         #: PAR-320 "target opponent discards **half the cards in their hand**, rounded down" (Lord Xander) --
         #: ``{"divisor": 2, "round_up": bool}``, counted over that player's own hand when they discard (RULE 107.1a
         #: rounds down unless the card says up); ``count`` is ignored then.
@@ -1649,6 +1657,14 @@ class DiscardEffect(GameEffect):
         return str(spec.get("card_type", "")).lower() in types.split()
 
     def _discard_from(self, context: GameContext, player: Any) -> None:
+        if self.hand_criteria is not None:
+            if self.reveal_hand:
+                # RULE 701.20a: "reveals their hand" shows every card in it, kept or discarded, to all players
+                # (`GameState.public_card_knowledge` keeps the kept ones known).
+                for obj in list(player.hand):
+                    context.state.reveal_card(obj, player.id)
+            context.discard_matching(player, criteria=self.hand_criteria, cause=self.source)
+            return
         if self.filter is not None:
             if self.filter.get("mana_value_from_trigger_event"):
                 mv = (context.trigger_event or {}).get("mana_value")
