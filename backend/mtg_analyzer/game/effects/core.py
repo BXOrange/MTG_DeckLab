@@ -417,8 +417,8 @@ class GameContext:
             track_exiled_with=track_exiled_with,
         )
 
-    def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
-        self.engine.put_hand_cards_on_top(player, count)
+    def put_hand_cards_on_top(self, player: "Player", count: int = 1, position: str = "top") -> None:
+        self.engine.put_hand_cards_on_top(player, count, position)
 
     def put_hand_card_on_bottom_then_draw(self, player: "Player") -> None:
         self.engine.put_hand_card_on_bottom_then_draw(player)

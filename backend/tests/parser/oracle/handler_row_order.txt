@@ -116,6 +116,9 @@ shuffle_graveyard_mill_that_many
 shuffle_hand_graveyard_into_library
 shuffle_hand_draw_that_many
 hand_bottom_draw
+hand_to_library
+shuffle_your_library
+reveal_any_number_hand
 discard_up_to_draw
 draw_additional
 target_player_loot

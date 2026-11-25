@@ -290,6 +290,43 @@ def _hand_bottom_draw(m: re.Match[str]) -> list[EffectSpec]:
     })]
 
 
+# RULE 701.24a: a bare "shuffle your library" -- the lead of "shuffle your library, then exile the top four cards ..."
+# (Hazoret's Undying Fury, Mind's Desire, Random Encounter, Unexpected Results). Always the ability controller's own.
+_SHUFFLE_YOUR_LIBRARY_RE = compile_clause(r"shuffle your library")
+
+
+def _shuffle_your_library(m: re.Match[str]) -> list[EffectSpec]:
+    return [EffectSpec("shuffle", {"of_controller": True})]
+
+
+# RULE 401.4: "put N cards from your hand on the top / bottom of your library [in any order]" -- the chosen
+# order is the owner's, so the engine asks for it (`put_hand_cards_on_library`). A bare "a card" is one pick.
+_HAND_TO_LIBRARY_RE = compile_clause(
+    r"(?:you )?put (?P<n>an?|\d+) cards? from your hand on (?:the )?(?P<pos>top|bottom) of your library"
+    r"(?: in any order)?"
+)
+
+
+def _hand_to_library(m: re.Match[str]) -> list[EffectSpec]:
+    count = 1 if m.group("n") in ("a", "an") else int(m.group("n"))
+    return [EffectSpec("put_hand_cards_on_library", {"count": count, "position": m.group("pos")})]
+
+
+# RULE 701.20a: "reveal any number of <quality> cards in your hand" -- the chosen subset is what the next sentence
+# counts ("for each card revealed this way", the Seer cycle). Only a card-quality filter the shared object grammar
+# reads; "other", "with {X} in their mana cost" and the like stay unclaimed.
+_REVEAL_ANY_NUMBER_HAND_RE = compile_clause(
+    r"(?:you may )?reveal any number of (?P<quality>[a-z0-9 ]+?) cards in your hand"
+)
+
+
+def _reveal_any_number_hand(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    parsed = parse_object_phrase(f"{m.group('quality')} cards")
+    if parsed is None or parsed[1] is not None:
+        return None
+    return [EffectSpec("reveal_any_number_hand_cards", {"card_filter": parsed[0]} if parsed[0] else {})]
+
+
 #: "Target player draws N cards, then discards M cards." (Prismari Command /
 #: Whispering Madness-adjacent) — the loot shape aimed at a chosen player.
 #: The trailing bare "discards" has no explicit subject, so the connector
@@ -2073,6 +2110,9 @@ ROWS: list[EffectHandler] = [
     EffectHandler("shuffle_hand_graveyard_into_library", _SHUFFLE_HAND_GRAVEYARD_RE, _shuffle_hand_graveyard),
     EffectHandler("shuffle_hand_draw_that_many", _SHUFFLE_HAND_DRAW_THAT_MANY_RE, _shuffle_hand_draw_that_many),
     EffectHandler("hand_bottom_draw", _HAND_BOTTOM_DRAW_RE, _hand_bottom_draw),
+    EffectHandler("hand_to_library", _HAND_TO_LIBRARY_RE, _hand_to_library),
+    EffectHandler("shuffle_your_library", _SHUFFLE_YOUR_LIBRARY_RE, _shuffle_your_library),
+    EffectHandler("reveal_any_number_hand", _REVEAL_ANY_NUMBER_HAND_RE, _reveal_any_number_hand),
     EffectHandler("discard_up_to_draw", _DISCARD_UP_TO_DRAW_RE,
                   lambda m: [EffectSpec("discard", {
                       "count_max": int(m.group("n")), "then_draw_discarded": True,

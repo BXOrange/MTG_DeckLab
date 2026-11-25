@@ -817,6 +817,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "group_put_from_hand": "move_object",
     "put_from_defending_hand": "move_object",
     "put_hand_cards_on_top": "move_object",
+    "put_hand_cards_on_library": "move_object",
     "put_hand_on_bottom": "move_object",
     "put_self_onto_battlefield_from_hand": "move_object",
     "radiation_life_gain": "gain_life",

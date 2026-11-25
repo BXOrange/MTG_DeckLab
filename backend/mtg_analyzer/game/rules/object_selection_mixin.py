@@ -369,7 +369,7 @@ class ObjectSelectionMixin:
                 self._apply_effect_specs(list(else_specs), source)
             return
         # RULE 401.4: even when all cards must move, their library order is a choice.
-        ordered_library_move = action == "hand_to_library_top" and len(pool) > 1
+        ordered_library_move = action in ("hand_to_library_top", "hand_to_library_bottom") and len(pool) > 1
         if len(pool) <= count and not optional and not force_choice and not ordered_library_move and (
             not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
         ):

@@ -1316,6 +1316,8 @@ _THIS_WAY_VERBS: dict[str, tuple[frozenset[str], bool]] = {
     "milled": (frozenset({"mill"}), False),
     "discarded": (frozenset({"discard"}), True),
     "sacrificed": (frozenset({"sacrifice"}), True),
+    # RULE 701.20a: the picks of "reveal any number of <quality> cards in your hand" (the Seer cycle).
+    "revealed": (frozenset({"reveal_any_number_hand_cards"}), False),
 }
 _THIS_WAY_VERB_RE = "|".join(_THIS_WAY_VERBS)
 _THIS_WAY_IF_RE = re.compile(

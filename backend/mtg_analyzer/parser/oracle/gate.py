@@ -19,6 +19,8 @@ Pure — **no `game/` imports** (front-end security boundary).
 
 from __future__ import annotations
 
+import json
+
 import copy
 import hashlib
 import re
@@ -87,7 +89,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1075"
+PARSER_VERSION = "1076"
 
 
 def parser_source_hash() -> str:
@@ -1261,6 +1263,17 @@ def _iteration_reference_ok(spec: AbilitySpec) -> bool:
         return False
 
     return not unbound([spec.effects, spec.modes], False)
+
+
+def _reveal_mana_ability_ok(spec: AbilitySpec) -> bool:
+    """RULE 605.1a / 605.3: an untargeted activated ability that adds mana is a mana ability and resolves at once, so
+    it can pay for a spell mid-cast. "Reveal any number of <quality> cards in your hand. Add {C}{C} for each card
+    revealed this way." (Metalworker, Sacellum Godspeaker) needs the reveal answered during payment, which the mana
+    path cannot ask; the stack-based reading would be wrong, so it stays unclaimed."""
+    if spec.ability_kind != "activated":
+        return True
+    types = json.dumps([e.to_dict() for e in spec.effects], default=str)
+    return not ('"reveal_any_number_hand_cards"' in types and '"add_mana"' in types)
 
 
 def _this_way_window_ok(spec: AbilitySpec) -> bool:
@@ -2757,7 +2770,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _cast_payment_bounds_ok(spec) or not _referent_bounds_announceable_ok(spec) or not _sacrificed_mv_filter_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _reveal_mana_ability_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _cast_payment_bounds_ok(spec) or not _referent_bounds_announceable_ok(spec) or not _sacrificed_mv_filter_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

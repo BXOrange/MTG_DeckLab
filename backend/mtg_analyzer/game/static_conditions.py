@@ -1291,11 +1291,13 @@ def condition_holds(
     if kind == "control_legendary_subtype":
         # "as long as you control a legendary Assassin" (Brotherhood Spy and
         # the like) — a live board read, like `control_count` above.
+        # RULE 205.2 / 205.3: the noun is either a subtype ("legendary Assassin") or a card type ("legendary
+        # creature" -- Errand-Rider of Gondor), and a legendary Equipment is no creature.
         subtype = str(condition.get("subtype", "")).lower()
         return bool(subtype and controller_id is not None and any(
-            o.is_creature and o.controller_id == controller_id
+            o.controller_id == controller_id
             and o.is_legendary
-            and o.has_subtype(subtype)
+            and (subtype in o.type_words or o.has_subtype(subtype))
             for o in state.battlefield
         ))
     if kind == "control_permanent_of_each_color":

@@ -518,6 +518,14 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Rootweaver Druid | split control of the found cards |  |
 | Scholarship Sponsor | count from a land-count difference |  |
 | Settle the Wreckage | "that many" from exiled attackers |  |
+| Hazoret's Undying Fury | "exile the top 4 cards" with no "of your library" after the shuffle, plus "lands you control don't untap during your next untap step" | PAR-292 M25; the shuffle lead and cast pool parse |
+| Random Encounter | "put each creature card milled this way onto the battlefield" with a haste and end-step return of those cards | PAR-292 M25; the shuffle-then-mill lead parses |
+| Unexpected Results | "reveal the top card. If it's a nonland card, you may cast it free. If it's a land card, you may put it onto the battlefield and return ~ to hand" | PAR-292 M25 |
+| Metalworker | "{T}: Reveal any number of artifact cards in your hand. Add {C}{C} for each card revealed this way." is a mana ability (RULE 605.1a) whose reveal must be answered during payment; the quality and count parse, fail-closed in `gate._reveal_mana_ability_ok` | PAR-292 M25; needs an interactive choice inside mana payment |
+| Sacellum Godspeaker | "reveal any number of creature cards with power 5 or greater from your hand" ("from", not "in") plus a mana ability | PAR-292 M25; the quality parses, only the preposition is open |
+| Arsenal Thresher | "as ~ enters, you may reveal any number of other artifact cards from your hand. ~ enters with a +1/+1 counter for each card revealed this way" (replacement) | PAR-292 M25 |
+| Kamahl's Summons | "each player may reveal any number of creature cards from their hand. Then each player creates a 2/2 Bear for each card they revealed" | PAR-292 M25; per-player reveal |
+| Into the Fire | "put any number of cards from your hand on the bottom of your library, then draw that many cards plus 1" (modal) | PAR-292 M25 |
 | Turtle Tracks | "any number of target players" |  |
 | Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
 | Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |

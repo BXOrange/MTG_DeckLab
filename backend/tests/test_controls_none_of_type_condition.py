@@ -71,7 +71,7 @@ def test_does_not_create_a_food_when_one_is_already_controlled():
     _bf(state, Card(id="Existing Food", name="Existing Food", type_line="Artifact — Food"))
 
     state.fire_event(_end_step(innkeeper))
-    assert eng.rules.put_triggers_on_stack() == 1
-    eng.rules.resolve_top_of_stack()
+    # RULE 603.4: "if you don't control a Food" is an intervening if, so with a Food out the ability never triggers.
+    assert eng.rules.put_triggers_on_stack() == 0
 
     assert sum(1 for o in state.battlefield if "food" in o.card.type_line.lower()) == 1

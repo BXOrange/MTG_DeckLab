@@ -164,6 +164,7 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 ## BUG — Bugs
 
 - **BUG-88 · "Target opponent sacrifices" targets any player.** Found in PAR-291 M2: the older sacrifice edict row emits `target_kind: player` for "target opponent sacrifices ..." (`parser_probe.py card "Tribute to Hunger"` → `sacrifice {target_kind: player}`), so the caster may target themselves. The M2 non-sacrifice row already uses `target_kind: opponent`. Fix the row, sweep other "target opponent <verb>" rows for the same loss, report the corrected cards.
+- **BUG-89 · `test_continuations.py` fails when run alone.** `backend/venv/bin/python -m pytest backend/tests/test_continuations.py -q` on 6f9410c1: `TestRegistryTotality::test_every_kind_the_source_opens_has_a_handler` reports `fabricate_choice` and `modular_choice` without a handler (1 failed / 713 passed); the full suite passes because another test module registers them first. Make the totality check import the handler modules itself, so the test does not depend on run order.
 
 ## REL — Release & deployment
 

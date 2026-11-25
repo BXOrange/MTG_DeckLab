@@ -1503,6 +1503,13 @@ def static_condition(text: str) -> Optional[dict]:
     # the controller alone, so "your team controls another Warrior" (Aurora Champion) reads as "you control …".
     stripped = re.sub(r"^your team controls\b", "you control", stripped)
     stripped = re.sub(r"^your team (gained|lost)\b", r"you \1", stripped)
+    # RULE 608.2c / 603.4: "you don't control <objects>" is exactly the negation of "you control <objects>", so
+    # every control predicate the positive grammar knows gets its negative spelling for free (Errand-Rider of
+    # Gondor's "if you don't control a legendary creature"); a positive phrase the grammar lacks stays unclaimed.
+    negative_control = re.fullmatch(r"you (?:don't|do not) control (?P<rest>.+)", stripped)
+    if negative_control is not None:
+        positive = static_condition(f"you control {negative_control['rest']}")
+        return None if positive is None else {"kind": "not", "condition": positive}
     host_keyword = re.fullmatch(rf"(?:{ATTACHED_SUBJECT_PATTERN}) has (?P<keyword>.+)", stripped)
     if host_keyword and host_keyword['keyword'] in KEYWORD_WORDS:
         return {'kind': 'has_keyword', 'keyword': KEYWORD_WORDS[host_keyword['keyword']], 'of': 'attached'}

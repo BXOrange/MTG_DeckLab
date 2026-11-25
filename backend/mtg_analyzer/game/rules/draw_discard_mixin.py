@@ -898,12 +898,24 @@ class DrawDiscardMixin:
             track_exiled_with=track_exiled_with,
         )
 
-    def put_hand_cards_on_top(self, player: Player, count: int) -> None:
-        """Choose hand cards and their library order (RULE 401.4)."""
+    def put_hand_cards_on_top(self, player: Player, count: int, position: str = "top") -> None:
+        """Choose hand cards and put them on the top or bottom of their owner's library.
+
+        RULE 401.4: cards put into a library at the same time are arranged in any order by their
+        owner, so the pick order is the order even when every hand card moves (the chooser step is
+        kept for a pool of two or more). ``position`` is ``"top"`` (the last pick ends on top) or
+        ``"bottom"`` (the last pick ends lowest).
+        """
+        action = "hand_to_library_bottom" if position == "bottom" else "hand_to_library_top"
         self._request_choose_objects(
-            player, list(player.hand), "hand_to_library_top", count=count,
-            prompt="Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)",
+            player, list(player.hand), action, count=count,
+            prompt=(
+                "Lege Handkarten unter die Bibliothek (die zuletzt gewählte Karte liegt ganz unten)"
+                if position == "bottom"
+                else "Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)"
+            ),
         )
+
     def put_hand_card_on_bottom_then_draw(self, player: Player) -> None:
         """"You may put a card from your hand on the bottom of your library.
         If you do, draw a card." (Volcanic Spite) — a pure card exchange

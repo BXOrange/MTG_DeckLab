@@ -67,6 +67,17 @@ from ._runtime import install, register
 
 install(globals())
 
+def _choose_objects_count(raw):
+    """A `choose_objects` ``count``: "all", a number, or a still-unbound `bind` sentinel ("$n", Rofellos's Gift's
+    "for each card revealed this way"). The sentinel is substituted before the effect runs; the copy built earlier
+    only reads its target requirements, which do not depend on the count, so it counts as one."""
+    if raw == "all":
+        return "all"
+    if isinstance(raw, str) and raw.startswith("$"):
+        return 1
+    return int(raw or 1)
+
+
 EffectRegistry.register("random_nonland_control", lambda p: RandomNonlandControlEffect())
 EffectRegistry.register("reveal_matching_spell_value", lambda p: RevealMatchingSpellValueEffect())
 EffectRegistry.register("unattached_projectile", lambda p: UnattachedProjectileEffect())
@@ -580,6 +591,11 @@ EffectRegistry.register(
     lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
 )
 EffectRegistry.register(
+    # "put N cards from your hand on the top / bottom of your library [in any order]" (Riverwise Augur, Sawtooth Loon)
+    "put_hand_cards_on_library",
+    lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player"), position=p.get("position", "top")),
+)
+EffectRegistry.register(
     "put_hand_card_on_bottom_then_draw",  # "you may put a card from your hand on the bottom of your library. If you do, draw a card." (Volcanic Spite)
     lambda p: PutHandCardOnBottomThenDrawEffect(player=p.get("player")),
 )
@@ -630,7 +646,7 @@ EffectRegistry.register(
     # "Reveal any number of `<color>` cards in your hand." (Ivy Seer, Scent
     # of Ivy, PAR-80) — see `RevealAnyNumberHandCardsEffect`.
     "reveal_any_number_hand_cards",
-    lambda p: RevealAnyNumberHandCardsEffect(colors=p.get("colors")),
+    lambda p: RevealAnyNumberHandCardsEffect(colors=p.get("colors"), card_filter=p.get("card_filter")),
 )
 EffectRegistry.register(
     # RULE 701.20 — reveal a library's top card, stash it as
@@ -2882,7 +2898,7 @@ EffectRegistry.register(
         pool_player_selector=p.get("pool_player_selector", "chooser"),
         action=str(p.get("action", "sacrifice")),
         what=str(p.get("what", "permanent")),
-        count="all" if p.get("count") == "all" else int(p.get("count", 1) or 1),
+        count=_choose_objects_count(p.get("count")),
         optional=bool(p.get("optional", False)),
         exclude_self=bool(p.get("exclude_self", False)),
         prompt=str(p.get("prompt", "")),
@@ -3935,7 +3951,9 @@ EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
     lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
-EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id")))
+EffectRegistry.register(
+    "shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id"), of_controller=bool(p.get("of_controller", False))),
+)
 EffectRegistry.register(
     # RULE 701.20 — "shuffle your hand and graveyard into your library". The
     # wheel family's first sentence; the "then draws N cards" tail is a

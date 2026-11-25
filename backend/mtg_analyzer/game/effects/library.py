@@ -873,15 +873,22 @@ class GraveyardImpulsiveCastEffect(GameEffect):
 class ShuffleLibraryEffect(GameEffect):
     """Shuffle the controller's (or a target player's) library (RULE 701.20)."""
 
-    def __init__(self, player: Any = None, source: Optional["GameObject"] = None, player_id: Optional[str] = None) -> None:
+    def __init__(
+        self, player: Any = None, source: Optional["GameObject"] = None, player_id: Optional[str] = None,
+        of_controller: bool = False,
+    ) -> None:
         super().__init__(source)
         self.player = player
         #: A fixed player named by id (BUG-83's "that player shuffles" after a pick that found nothing).
         self.player_id = player_id
+        #: "Shuffle your library": the controller of the resolving ability, which is not the active player on an
+        #: opponent's turn (RULE 701.24a).
+        self.of_controller = bool(of_controller)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         named = context.state.player_by_id(self.player_id) if self.player_id else None
-        player = named or self.player or (targets[0] if targets else None) or context.active_player
+        yours = _controller_of(self.source, context) if self.of_controller else None
+        player = named or self.player or yours or (targets[0] if targets else None) or context.active_player
         context.shuffle_library(player)
 
 

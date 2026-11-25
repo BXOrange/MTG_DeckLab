@@ -2326,9 +2326,15 @@ class RevealAnyNumberHandCardsEffect(GameEffect):
     count with nothing else consuming it between activations.
     """
 
-    def __init__(self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, colors: Optional[list[str]] = None, source: Optional["GameObject"] = None,
+        card_filter: Optional[dict[str, Any]] = None,
+    ) -> None:
         super().__init__(source)
         self.colors = [str(c).upper() for c in (colors or [])]
+        #: "reveal any number of artifact cards / creature cards with power 5 or greater in your hand" (the Seer cycle,
+        #: Metalworker): the structured quality every hand card must satisfy (`combat.matches_object_filter`).
+        self.card_filter = dict(card_filter) if card_filter else None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         source = self.source
@@ -2338,9 +2344,12 @@ class RevealAnyNumberHandCardsEffect(GameEffect):
         if player is None:
             return
         source.revealed_with_ids = []
+        from ..combat import matches_object_filter  # function-scoped: combat imports the effect layer
+
         candidates = [
             obj for obj in player.hand
-            if not self.colors or any(c in obj.colors for c in self.colors)
+            if (not self.colors or any(c in obj.colors for c in self.colors))
+            and (not self.card_filter or matches_object_filter(obj, self.card_filter))
         ]
         context.choose_objects(
             player, candidates, "reveal", count=len(candidates), optional=True,
@@ -2414,16 +2423,19 @@ class RevealRandomHandCardEffect(GameEffect):
 
 
 class PutHandCardsOnTopEffect(GameEffect):
-    """Choose N hand cards to put on the library in any order (RULE 401.4)."""
+    """Choose N hand cards to put on the top or bottom of the library in any order (RULE 401.4)."""
 
-    def __init__(self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None) -> None:
+    def __init__(
+        self, count: int = 1, player: Any = None, source: Optional["GameObject"] = None, position: str = "top",
+    ) -> None:
         super().__init__(source)
         self.count = count
         self.player = player
+        self.position = position
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = self.player or _controller_of(self.source, context)
-        context.put_hand_cards_on_top(player, self.count)
+        context.put_hand_cards_on_top(player, self.count, self.position)
 
 
 class ChooseHandCardToLibraryBottomEffect(GameEffect):
