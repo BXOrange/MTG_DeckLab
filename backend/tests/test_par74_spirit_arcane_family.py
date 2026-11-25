@@ -317,8 +317,9 @@ def test_tap_or_untap_target_creature():
 
 
 def test_exile_hand_card_parse():
+    # BUG-88 (RULE 102.3, 115.1): "target opponent" excludes the controller.
     assert parse_effect_body("target opponent exiles a card from their hand") == [
-        EffectSpec("exile_hand_card", {"count": 1, "target_kind": "player"})
+        EffectSpec("exile_hand_card", {"count": 1, "target_kind": "opponent"})
     ]
 
 

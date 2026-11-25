@@ -44,7 +44,7 @@ def test_clause_singular_a_card():
 def test_adversarial_plain_draw_unaffected():
     assert match_clause("you draw a card") == [EffectSpec("draw", {"count": 1})]
     assert match_clause("target opponent draws a card") == [
-        EffectSpec("draw", {"count": 1, "target_kind": "player"}),
+        EffectSpec("draw", {"count": 1, "target_kind": "opponent"}),  # BUG-88
     ]
 
 

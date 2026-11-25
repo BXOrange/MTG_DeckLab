@@ -378,7 +378,7 @@ def _draw(m: re.Match[str]) -> list[EffectSpec]:
     # player/opponent draws" is the untargeted mass form (RULE 601.2c).
     who = (m.groupdict().get("who") or "").strip()
     if who in ("target player", "target opponent"):
-        params["target_kind"] = "player"
+        params["target_kind"] = resolve_target_kind(who)  # BUG-88, RULE 102.3: "target opponent" is never the caster
     elif who in ("each player", "each opponent"):
         params["selector"] = who.replace(" ", "_")
     return [EffectSpec("draw", params)]
@@ -2379,7 +2379,7 @@ ROWS: list[EffectHandler] = [
             "count": count_of(m.group("n")),
             **({"zone": "graveyard"} if m.group("zone") == "graveyard" else {}),
             **(
-                {"target_kind": "player"}
+                {"target_kind": resolve_target_kind(m.group("who"))}  # BUG-88: "target opponent" excludes the caster
                 if m.group("who") in ("target player", "target opponent")
                 else {}
             ),

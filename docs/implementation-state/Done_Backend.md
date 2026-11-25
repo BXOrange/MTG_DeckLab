@@ -2200,7 +2200,7 @@ when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
 - **What:** `DealDamageEffect(divided=True)` splits a total {X} pool evenly across the chosen targets, with an optional doubling threshold (`double_at`) — Shatterskull Smas…
 - **Files:** `game/effects/core.py`
 
-### Target frames honour every parsed bound (BUG-87)
+### Target frames honour every parsed bound (BUG-87, BUG-88)
 
 A `TargetFrame` applies a spec's colour, mana-value or quality filter only when its `apply_*` flag is on,
 so a frame without the flag offered an unbounded target while the card stayed MODELED (Annex Sentry's "mana
@@ -2213,6 +2213,13 @@ The Mighty Thor Jane Foster, Quicksmith Rebel, Quicksmith Spy, Tawnos Solemn Sur
 Waterdeep, Hyperion Blacksmith); no verdict changed. `targeting.unhonoured_qualifiers` names a dropped bound
 and the full-cache test `test_bug87_frame_bounds.py` fails when any covered card binds one, so a new frame
 or parser bound cannot reintroduce the gap.
+- **BUG-88 (v1081, 43 cards corrected, 0 verdicts changed):** five rows read "target opponent" but emitted an
+  unrestricted `player` target, so the caster could target themselves (RULE 102.3, 115.1): the sacrifice edicts
+  (`edicts._target_player_edict`, `_sacrifice_greatest_power`; shared `_edict_target_kind`), "target opponent draws",
+  "target opponent exiles N cards from their hand" and "exchange life totals with target opponent" now go through
+  `resolve_target_kind`. The binder already honoured `opponent`. Cards include Tribute to Hunger, Cruel Edict, Blot
+  Out, Archon of Cruelty, Thought-Knot Seer, Mindmelter and Mirror Universe. A full-cache guard checks that no MODELED
+  "target opponent" clause emits a player target. Tests: `test_bug88_target_opponent_edicts.py`.
 
 ### "Target creature with power/toughness/keyword" targeting filter
 

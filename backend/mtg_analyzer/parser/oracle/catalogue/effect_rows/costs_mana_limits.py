@@ -227,7 +227,8 @@ def _exchange_control_spawnbroker(m: re.Match[str]) -> list[EffectSpec]:
 # "have" phrasing — the same causative verb `_THEN`'s neighborhood already
 # tolerates for "have it fight").
 def _exchange_life_totals_self(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("exchange_life_totals", {"target_kind": "player"})]
+    # BUG-88, RULE 102.3: "with target opponent" excludes the controller (Magus of the Mirror, Mirror Universe).
+    return [EffectSpec("exchange_life_totals", {"target_kind": resolve_target_kind(m.group("who"))})]
 
 
 def _exchange_life_totals_two_target(m: re.Match[str]) -> list[EffectSpec]:
@@ -2436,7 +2437,7 @@ ROWS: list[EffectHandler] = [
     # RULE 701.10's life-total half.
     EffectHandler(
         "exchange_life_totals_self",
-        compile_clause(r"exchange life totals with (?:target opponent|target player)"),
+        compile_clause(r"exchange life totals with (?P<who>target opponent|target player)"),
         _exchange_life_totals_self,
     ),
     EffectHandler(

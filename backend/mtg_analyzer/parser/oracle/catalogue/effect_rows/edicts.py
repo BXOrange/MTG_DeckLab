@@ -88,11 +88,18 @@ _TARGET_PLAYER_EDICT_RE = compile_clause(
 )
 
 
+def _edict_target_kind(who: str) -> str:
+    """BUG-88: the RULE 115 target kind of an edict's "target player / target opponent" subject (`who` may carry the
+    leading "target ")."""
+    return "opponent" if who.removeprefix("target ") == "opponent" else "player"
+
+
 def _target_player_edict(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     pool = _edict_pool_params(m.group("count"), m.group("pool"))
     if pool is None:
         return None
-    return [EffectSpec("sacrifice", {"target_kind": "player", **pool})]
+    # BUG-88, RULE 102.3 / 115.1: "target opponent" excludes the caster, so it announces an `opponent` target.
+    return [EffectSpec("sacrifice", {"target_kind": _edict_target_kind(m.group("who")), **pool})]
 
 
 #: PAR-320: the count shapes of an edict -- "each player sacrifices **x** lands of their choice" (Tectonic Break),
@@ -190,7 +197,7 @@ def _sacrifice_cant(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if controller:
         params["selector"] = "controller"
     else:
-        params["target_kind"] = "opponent" if m.group("who") == "target opponent" else "player"
+        params["target_kind"] = _edict_target_kind(m.group("who"))
     return [EffectSpec("sacrifice", params)]
 
 
@@ -270,7 +277,7 @@ def _sacrifice_greatest_power(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     if m.group("who") == "each opponent":
         params["selector"] = "each_opponent"
     else:
-        params["target_kind"] = "player"
+        params["target_kind"] = _edict_target_kind(m.group("who"))  # BUG-88: "target opponent" is never the caster
     return [EffectSpec("sacrifice", params)]
 
 
