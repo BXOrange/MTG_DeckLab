@@ -3941,6 +3941,7 @@ EffectRegistry.register(
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
         exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
         max_casts=p.get("max_casts"), rest_to_bottom=bool(p.get("rest_to_bottom", False)),
+        face_down_pool=bool(p.get("face_down_pool", False)),
     ),
 )
 EffectRegistry.register(

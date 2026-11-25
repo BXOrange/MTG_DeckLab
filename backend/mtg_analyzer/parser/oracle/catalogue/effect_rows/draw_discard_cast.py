@@ -727,15 +727,17 @@ def _play_window_previous(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: you may cast noncreature spells from among those cards without paying their mana costs."). The whole pair is one
 #: row so the pronoun can only name what the first sentence exiled; `casting_window.py` owns every axis of the window.
 _EXILE_CAST_WINDOW_RE = compile_clause(
-    r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills) [^.]+\.\s+[^.]+"
+    r"(?:exile|mill|reveal|target (?:player|opponent) mills|each opponent mills|look at the top card of [^.]+ library,? (?:and |then )?exile) [^.]+\.\s+[^.]+"
     r"(?:\.\s+if (?:a|that) spell(?: cast this way)? would be put into (?:a|your) graveyard, exile it instead)?"  # PAR-325
     # PAR-292 M23 (Collected Conjuring, Herald of Amity): the rest of the exiled batch goes to the bottom, in a random order.
     r"(?:\.\s+(?:then )?put [^.]+ on the bottom of your library in a random order)?"
 )
 
 
-def _exile_cast_window(m: re.Match[str]) -> Optional[list[EffectSpec]]:
-    return parse_exile_cast_window(m.group(0), match_clause)
+def _exile_cast_window(m: re.Match[str], reading) -> Optional[list[EffectSpec]]:
+    # PAR-292 M26: "that player's library" (the player a combat-damage / spell trigger names) reads through the clause's
+    # own referent environment, exactly as the stand-alone library exile does.
+    return parse_exile_cast_window(m.group(0), lambda clause: match_clause(clause, reading=reading))
 
 
 #: PAR-325 (Tersa Lightshatter, Radiant Scrollwielder, Storm of Memories): "Exile [a|an <type>] card [with mana value N or
@@ -2190,7 +2192,7 @@ ROWS: list[EffectHandler] = [
                   lambda m, reading: parse_exile_followup(m.group(0), reading), reading_aware=True),
     EffectHandler("linked_exile_play", compile_clause(r"(?:[^.]+, )?(?:you may )?(?:cast|play) [^.]+exiled with (?:~|it)[^.]*\.?"),
                   lambda m: parse_linked_play(m.group(0))),
-    EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window),
+    EffectHandler("exile_cast_window", _EXILE_CAST_WINDOW_RE, _exile_cast_window, reading_aware=True),
     EffectHandler("exile_random_graveyard_card", _EXILE_RANDOM_GRAVEYARD_RE, _exile_random_graveyard),
     # PAR-13: "exile the top N cards of your library. you may play them
     # [this turn/until the end of your next turn]." — RULE 601.3b impulsive

@@ -370,7 +370,8 @@ def _resolution_visible_library_ids(state, perspective: Optional[str]) -> set[in
     """RULE 701.20e: only the looker, or everyone for a reveal, sees this pool."""
     pending = state.pending_choice or {}
     frame = pending.get("inspection") or {}
-    if not frame:
+    if not frame or pending.get("mode") == "look_gate":
+        # RULE 701.20: nothing has been looked at while "you may look" is still a yes/no.
         return set()
     visible = (frame.get("previous_selector", {}).get("zone_visits", [])
                if frame.get("reveal") or perspective == _physical_choice_decider(state, pending)

@@ -618,6 +618,12 @@ class ExileTopOfLibraryEffect(GameEffect):
                     # would silently undo this card *entering* exile face
                     # down if set beforehand.
                     top.face_down_in_exile = True
+                    exiler = _controller_of(self.source, context)
+                    if exiler is not None and exiler.id != player.id:
+                        # RULE 406.3 / 701.20: another player's card exiled face down is known to the player who looked
+                        # at and exiled it (Rev, Extract Power), not to its owner or anyone else.
+                        top.face_down_exile_viewers = {exiler.id}
+                        top.face_down_exile_viewers_explicit = True
                 if self.track_exiled_with and self.source is not None:
                     context.state.track_exiled_with(self.source, top, context.resolving_source_incarnation)
                 context.created_objects.append(top)

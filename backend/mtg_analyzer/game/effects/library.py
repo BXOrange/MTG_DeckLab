@@ -640,8 +640,12 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
         duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
         from_previous: bool = False, max_casts: Optional[int] = None, rest_to_bottom: bool = False,
+        face_down_pool: bool = False,
     ) -> None:
         super().__init__(source)
+        #: PAR-292 M26 (Rev, Extract Power): the preceding clause exiled these cards face down (RULE 406.3), so they are
+        #: exactly the pool the window names; any other exile skips face-down cards.
+        self.face_down_pool = bool(face_down_pool)
         self.duration, self.condition = duration, condition
         #: "cast up to two sorcery spells from among them": the casts one resolution offers (RULE 608.2g); ``None`` is
         #: unlimited under ``any_number``.
@@ -690,7 +694,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
                   if self.pool_zone == "graveyard" else context.latest_exiled_visits)
         for obj, visit in visits:
             if (obj is not None and obj.zone.value == self.pool_zone and obj.zone_incarnation == visit
-                    and not obj.face_down_in_exile
+                    and (self.face_down_pool or not obj.face_down_in_exile)
                     and not any(obj is seen for seen in pool)):
                 pool.append(obj)
         return pool

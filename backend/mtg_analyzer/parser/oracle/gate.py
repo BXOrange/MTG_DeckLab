@@ -89,7 +89,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1076"
+PARSER_VERSION = "1077"
 
 
 def parser_source_hash() -> str:
@@ -894,6 +894,10 @@ def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target
         return False
     head, sep, body = text.lower().partition(", ")
     if not sep or not _THAT_PLAYER_HEAD_RE.search(head):
+        return False
+    if event == "SPELL_CAST" and re.search(r"\byou cast\b", head):
+        # RULE 603.2c: a spell trigger's "that player" is the one who cast it; under "whenever you cast ... during each
+        # opponent's turn" that is you, while the printed "that player" names the opponent whose turn it is (Blightwing Bandit).
         return False
     return not _THAT_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0])
 

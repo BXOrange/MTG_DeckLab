@@ -93,17 +93,30 @@ _CAST_PAIR_RE = re.compile(
 )
 
 
+#: PAR-292 M26, RULE 701.20 / 406.3: "Look at the top card of <that / each player's> library, then exile it [them] face down."
+#: The look is private to the exiler and the exile is face down, so the pair reads as the face-down top exile it ends in.
+_LOOK_THEN_EXILE_RE = re.compile(
+    r"^look at the top card of (?P<library>[^.,]+?'s library)(?:,| and) (?:then )?exile (?:it|those cards) face down(?=\.)",
+    re.IGNORECASE,
+)
+
+
 def parse_exile_cast_window(
     text: str, match_clause: Callable[..., Optional[list[EffectSpec]]],
 ) -> Optional[list[EffectSpec]]:
     """An exile, mill or single-card reveal plus its play window; unknown axes fail closed."""
+    text = _LOOK_THEN_EXILE_RE.sub(lambda lead: f"exile the top card of {lead.group('library')} face down", text.strip())
     m = _CAST_PAIR_RE.fullmatch(text.strip())
     if m is None:
         return None
     is_reveal = m.group("exile").lower() == "reveal the top card of your library"
     exile = ([EffectSpec("reveal_top", {"whose": "you"})] if is_reveal
              else match_clause(m.group("exile")))
-    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill", "reveal_top"} or exile[0].params.get("face_down"):
+    if not exile or len(exile) != 1 or exile[0].type not in _EXILING_TYPES | {"mill", "reveal_top"}:
+        return None
+    # A face-down exile is only the one-card top exile of a library (RULE 406.3): it is the exiler who may look at it.
+    if exile[0].params.get("face_down") and (exile[0].type != "exile_top_of_library" or exile[0].params.get("count", 1) != 1
+                                              or exile[0].params.get("position", "top") != "top"):
         return None
     is_mill = exile[0].type == "mill"
     # The PAR-163 window row already owns "[until the end of your next turn,] you may play/cast that card [...]" after
@@ -205,6 +218,8 @@ def parse_exile_cast_window(
                 or exile[0].params.get("position", "top") != "top" or not params.get("resolution_local")):
             return None
         params["rest_to_bottom"] = True
+    if exile[0].params.get("face_down"):
+        params["face_down_pool"] = True  # the window names the cards that very exile turned face down (RULE 406.3)
     if card_filter:
         params["card_filter"] = card_filter
     if free:
@@ -256,7 +271,9 @@ def _exiles_one_card(spec: EffectSpec) -> bool:
     """Whether the exile clause moves exactly one card ("that card" would name it)."""
     if spec.type == "exile_top_of_library":
         return (
-            spec.params.get("count") == 1 and spec.params.get("player_selector") in ("controller", "target")
+            spec.params.get("count") == 1
+            # "that player's library" (PAR-292 M26) is one resolved player (`player` operand), as a target is.
+            and (spec.params.get("player_selector") in ("controller", "target") or spec.params.get("player") is not None)
             and spec.params.get("position", "top") == "top"
         )
     params = spec.params

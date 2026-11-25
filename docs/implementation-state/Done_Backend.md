@@ -1176,7 +1176,7 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   instead" life sets went to PAR-294, the x/x "where x is" token shape (34 solo) to PAR-297, and the older "target
   opponent sacrifices" row's missing opponent restriction to BUG-88.
 
-### Library inspection and search (PAR-292 M1–M25, PARSER_VERSION 1027–1076, +219, in progress)
+### Library inspection and search (PAR-292 M1–M26, PARSER_VERSION 1027–1077, +226, in progress)
 
 - **What (search):** dynamic mana-value bounds through `bind` + `$n` and any-number searches (M1); a hand reveal or discard naming the search (`pick_then_search_specs`, M2); "basic land or <subtype>" and the reveal-split / mana-value-destination tails (M3–M4); "if <cond>, instead search" as one `if_else` (M5); riders on the found card as the search's `then_specs` (M6); searches by each player, a target player or "its controller" (M7); one search of independent slots (`criteria_each`, M8); found cards exiled, two qualities on one card, "different names / powers" (`distinct_keys`), "exactly two" (M9, M17); "shuffle then put on top in any order" (M10); Cranial-Extraction sweeps by a name taken from an earlier pick (`same_name_search` `from_previous`, M16); Intuition-style opponent splits on the regular search (`opponent_split`, M17); searches of a target opponent's library with "Then that player shuffles" and a measured count (M24).
 - **What (inspection):** the "look at / reveal the top N, take some, rest to the bottom" dig with numeric per-card bounds and the player-ordered `library_bottom_order` (M11); exile-and-cast picks (M12); "shuffle ... into library" by owner (M13); reveal-until digs by another player, hits under the ability controller (M14–M15); "that many cards" bound to the trigger payload (M18); free casts from among the looked-at cards and X-bounded criteria (`look_top_cast_free`, M19); exile-until with a free cast and the uncast rest to the bottom (M20); exile-top-N cast pools with a cap and a bottom tail (`cast_window_exiled_pool`, M23).
@@ -1198,6 +1198,15 @@ changes made by `control.gain_control` only (an Aura's layer-2 change is a docum
   Myr Mindservant and more). Shared fix: "you don't control <objects>" is the negation of the positive control
   condition (Dire Tactics, Ego Drain, Takenuma Bleeder, Errand-Rider of Gondor), and `control_legendary_subtype`
   now matches card-type nouns ("legendary creature"). Tests: `test_par292_m25_hand_to_library.py`.
+- **M26 (v1077, +7):** looking at another player's top card: the `inspect_cards` look lead takes target player's /
+  target opponent's / each player's library and "you may look" (a yes/no `look_gate` that shows nothing until
+  accepted), and "[you may] put that card into their graveyard / on the bottom of that player's library" moves it
+  to its owner's zone (RULE 400.3). A look stays private to the looker (RULE 701.20, never `public_card_knowledge`).
+  "Look at the top card of <that / each player's> library, then exile it face down" feeds a play window over
+  exactly those face-down cards (`face_down_pool`), visible to the exiler only (RULE 406.3). "That player" under a
+  "you cast" head is refused (Blightwing Bandit's would have exiled your own card). Cards: Eye Spy, Lurking
+  Informant, Draugr Thought-Thief, Precognition, Case the Joint, Extract Power, Rev. Tests:
+  `test_par292_m26_peek_other_library.py`.
 - **Process note:** milestones M19–M24 drifted toward whole-card leftovers (one to three cards each); the v1054 re-measure showed every split-off tail ("then shuffle", "put the rest on the bottom") open only because of its front sentence. The ticket was re-scoped to generic shapes; single cards moved to `singletons.md` ("Library residue (PAR-292 re-scope)").
 - **Validation:** per milestone a full IR dump of every MODELED card against HEAD (0 changed except the M11 38-card `library_bottom_order` correction), the fast suite and, every five milestones, `--full-cache` (green at 1038, 1043, 1049, 1054: 27,360 passed, 4 skipped). Coverage at v1054: 26,990 / 35,444; Commander-legal 26,418 / 32,595.
 - **Files:** `game/effects/{library,name_reference,exile_control,piles,registry}.py`, `game/rules/search_mixin.py`, `game/name_reference.py`, `game/player_counts.py`; `parser/oracle/catalogue/{dig,casting_window,name_reference,count_phrase,history_phrase}.py`, `catalogue/effect_rows/{search_control_attach,reveal_until_other,revealed_piles,separated_piles,party,draw_discard_cast,tokens_animate_misc}.py`, `segmenter/{effect_body,where_x,trigger_heads}.py`; tests `tests/test_par292_*.py`.

@@ -526,6 +526,10 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Arsenal Thresher | "as ~ enters, you may reveal any number of other artifact cards from your hand. ~ enters with a +1/+1 counter for each card revealed this way" (replacement) | PAR-292 M25 |
 | Kamahl's Summons | "each player may reveal any number of creature cards from their hand. Then each player creates a 2/2 Bear for each card they revealed" | PAR-292 M25; per-player reveal |
 | Into the Fire | "put any number of cards from your hand on the bottom of your library, then draw that many cards plus 1" (modal) | PAR-292 M25 |
+| Blightwing Bandit | "look at the top card of that player's library, then exile it face down" under "whenever you cast your first spell during each opponent's turn": "that player" is the active player (an opponent), not the caster; the rest parses (M26 face-down window) | PAR-292 M26; needs an `active_player` operand for "that player" under a spell-cast head |
+| Wand of Denial | "look at the top card of target player's library. If it's a nonland card, you may pay 2 life. If you do, put it into that player's graveyard" (pay-life rider on the look) | PAR-292 M26 |
+| S.N.E.A.K. Dispatcher | "if it has an agents of s.n.e.a.k. watermark, you may reveal it and put it into your hand. Otherwise, put it on your choice of the top or bottom of its owner's library" | PAR-292 M26 |
+| Klaw, Master of Sound | "mana of any type can be spent to cast a spell this way" as its own sentence after the play window, plus "whenever you play a card from exile" | PAR-292 M26 |
 | Turtle Tracks | "any number of target players" |  |
 | Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
 | Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |
