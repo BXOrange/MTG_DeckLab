@@ -146,6 +146,26 @@ const ILLEGAL_REASON_LABELS = {
   colorIdentity: 'cardTile.illegal.colorIdentity',
 };
 
+function renderCoveredOracleText(card) {
+  const lines = card.coverage?.unmodeled_lines;
+  const title = escapeAttr(t('cardTile.coverage.unmodeledAbility'));
+  const renderFace = (text, marked) => {
+    if (!marked?.length) return renderOracleText(text);
+    return text.split('\n').map((line, index) => {
+      const html = renderOracleText(line);
+      return marked.includes(index)
+        ? `<mark class="card-tile-unmodeled-ability" title="${title}">${html}</mark>`
+        : html;
+    }).join('\n');
+  };
+  const front = card.oracle_text
+    ? `<p class="card-tile-text">${renderFace(card.oracle_text, lines?.front)}</p>` : '';
+  const back = lines?.back?.length && card.back_oracle_text
+    ? `<p class="card-tile-back-name">${escapeHtml(card.back_name)}</p>
+       <p class="card-tile-text">${renderFace(card.back_oracle_text, lines.back)}</p>` : '';
+  return front + back;
+}
+
 /**
  * `card.coverage` (only present on `GET /api/cards` — the Karten-Cache
  * listing, see `api/cards.py`'s `_coverage_for`) tells whether the rules
@@ -248,7 +268,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
+        ${renderCoveredOracleText(card)}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
         ${renderTileFooter(renderCoverageBadge(card.unsupported ? card : card.coverage), scryfallUrl(card.name), t('cardTile.viewOnScryfall'))}

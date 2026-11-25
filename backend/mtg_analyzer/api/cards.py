@@ -7,6 +7,7 @@ Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation"
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +19,7 @@ from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, 
 from mtg_analyzer.api.schemas import CardResolveRequest
 from mtg_analyzer.game import card_registry
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
-from mtg_analyzer.parser.oracle.gate import parse_oracle
+from mtg_analyzer.parser.oracle.normalize import normalize
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -48,6 +49,35 @@ def coverage_for(card: Any) -> dict[str, object]:
         return {"modeled": True, "source": "catalogue", "unclaimed": []}
     result = card_registry.card_coverage(card)  # every half the engine binds, not the front alone (BUG-86)
     return {"modeled": result.modeled, "source": "oracle", "unclaimed": result.unclaimed}
+
+
+def _unmodeled_oracle_lines(card: Any, unclaimed: list[str]) -> dict[str, list[int]]:
+    """Locate diagnostics that match a unique printed line across both faces.
+
+    Parser diagnostics can contain rewrites or synthesized text. Keep those
+    available in the tooltip and only highlight what can be located directly.
+    """
+    candidates = []
+    for face, text, name, keywords in (
+        ("front", card.oracle_text, card.name, card.keywords),
+        ("back", card.back_oracle_text, card.back_name, card.back_keywords),
+    ):
+        for index, line in enumerate(text.split("\n")):
+            canonical = normalize(line, name, keywords)
+            if canonical:
+                candidates.append((face, index, canonical))
+
+    marked: dict[str, set[int]] = {}
+    for diagnostic in unclaimed:
+        fragment = diagnostic.strip().removeprefix("• ").strip()
+        if not fragment:
+            continue
+        pattern = re.compile(r"(?<!\w)" + re.escape(fragment) + r"(?!\w)")
+        matches = [(face, index) for face, index, line in candidates if pattern.search(line)]
+        if len(matches) == 1:
+            face, index = matches[0]
+            marked.setdefault(face, set()).add(index)
+    return {face: sorted(indices) for face, indices in marked.items()}
 
 
 def _cards_referenced_by_decks(database: CardDatabase, decks: DeckDatabase) -> list[Any]:
@@ -93,7 +123,11 @@ def list_cards(
     cards = []
     for card in source:
         card_dict = card.to_dict()
-        card_dict["coverage"] = coverage_for(card)
+        coverage = coverage_for(card)
+        unclaimed = coverage.get("unclaimed")
+        if unclaimed:
+            coverage["unmodeled_lines"] = _unmodeled_oracle_lines(card, unclaimed)
+        card_dict["coverage"] = coverage
         cards.append(card_dict)
     return cards
 

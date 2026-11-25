@@ -50,7 +50,7 @@ export default {
   'cache.scopeAll': 'All cards',
   'cache.refresh': 'Refresh',
   'cache.coverageLegend':
-    'Engine coverage per card (see the "Engine status" tab for details): 📖 catalogued · ✅ modeled by the oracle parser · ✖ not modeled (only keywords work, the rest of the text is not playable yet) · Unsupported (permanently excluded; reason shown on the card).',
+    'Engine coverage per card (see the "Engine status" tab for details): 📖 catalogued · ✅ modeled by the oracle parser · ✖ not fully modeled (underlined abilities show gaps) · Unsupported (permanently excluded; reason shown on the card).',
   'cache.filter.type': 'Card type',
   'cache.filter.coverage': 'Engine coverage',
   'cache.filter.color': 'Color',
@@ -221,6 +221,7 @@ export default {
   'cardTile.coverage.modeled': 'Modeled',
   'cardTile.coverage.unmodeledTitleWithText': 'Not modeled — unrecognized text:\n{text}',
   'cardTile.coverage.unmodeledTitle': 'Not modeled — the engine does not (yet) implement all abilities of this card.',
+  'cardTile.coverage.unmodeledAbility': 'Ability not fully modeled',
   'cardTile.coverage.unmodeled': '✖ Not modeled',
   'cardTile.showBack': 'Show card back',
   'cardTile.toggleFavorite': 'Mark / unmark favorite',

@@ -50,7 +50,7 @@ export default {
   'cache.scopeAll': 'Alle Karten',
   'cache.refresh': 'Aktualisieren',
   'cache.coverageLegend':
-    'Engine-Abdeckung je Karte (siehe „Engine-Status"-Tab für Details): 📖 katalogisiert · ✅ vom Oracle-Parser modelliert · ✖ nicht modelliert (nur Keywords wirken, restlicher Text ist noch nicht spielbar) · Unsupported (dauerhaft nicht unterstützt; Grund auf der Karte).',
+    'Engine-Abdeckung je Karte (siehe „Engine-Status"-Tab für Details): 📖 katalogisiert · ✅ vom Oracle-Parser modelliert · ✖ nicht vollständig modelliert (unterstrichene Fähigkeiten zeigen offene Stellen) · Unsupported (dauerhaft nicht unterstützt; Grund auf der Karte).',
   'cache.filter.type': 'Kartentyp',
   'cache.filter.coverage': 'Engine-Abdeckung',
   'cache.filter.color': 'Farbe',
@@ -221,6 +221,7 @@ export default {
   'cardTile.coverage.modeled': 'Modelliert',
   'cardTile.coverage.unmodeledTitleWithText': 'Nicht modelliert — nicht erkannter Text:\n{text}',
   'cardTile.coverage.unmodeledTitle': 'Nicht modelliert — die Engine setzt (noch) nicht alle Fähigkeiten dieser Karte um.',
+  'cardTile.coverage.unmodeledAbility': 'Fähigkeit nicht vollständig modelliert',
   'cardTile.coverage.unmodeled': '✖ Nicht modelliert',
   'cardTile.showBack': 'Kartenrückseite anzeigen',
   'cardTile.toggleFavorite': 'Favorit markieren/entfernen',

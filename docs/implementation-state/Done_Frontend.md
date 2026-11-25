@@ -273,6 +273,8 @@ or interaction redesign has been delivered.
 - **What:** Card art loads via the backend cache (`POST /api/cards/resolve` + `GET /api/cards/{id}/image`), never directly from Scryfall. "Karten-Cache" tab browses every cached card; a "Detailansicht" toggle switches deck-import lists to an image/mana-cost/oracle-text tile grid.
 - **Files:** `cardImages.js`, `cachedCardsView.js`, `cardTile.js`
 
+- **VIS-23:** Card-cache tiles underline printed Oracle ability lines that can be uniquely matched to a parser diagnostic. A marked second face appears under its own name. The coverage badge tooltip retains the parser diagnostics, including fragments without a unique match.
+
 ### Global card hover preview
 
 - **What:** One floating hover panel driven by a single delegated `document` listener; any view opts in via `data-hover-card="<name>"`.
