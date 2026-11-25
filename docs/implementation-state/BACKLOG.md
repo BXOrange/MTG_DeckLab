@@ -162,7 +162,6 @@ Operation families (no single-axis repair; sub-cluster by slot before building):
 
 ## BUG — Bugs
 
-- **BUG-89 · `test_continuations.py` fails when run alone.** `backend/venv/bin/python -m pytest backend/tests/test_continuations.py -q` on 6f9410c1: `TestRegistryTotality::test_every_kind_the_source_opens_has_a_handler` reports `fabricate_choice` and `modular_choice` without a handler (1 failed / 713 passed); the full suite passes because another test module registers them first. Make the totality check import the handler modules itself, so the test does not depend on run order.
 
 ## REL — Release & deployment
 

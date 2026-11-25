@@ -112,7 +112,26 @@ class TestRegistryTotality:
                     kinds.add(found.group(1))
         return kinds
 
+    @staticmethod
+    def _import_every_game_module() -> None:
+        """Import every module the source scan reads, so handler registration
+        (which happens at import time) does not depend on test run order.
+
+        Handlers live beside the effect that opens them and several effect
+        modules are only imported lazily by the binder; a live game cannot
+        open a kind without having imported its defining module, but this
+        static check scans all of `game/` and so must load all of it too.
+        """
+        import importlib
+        import pkgutil
+
+        import mtg_analyzer.game as game_pkg
+
+        for info in pkgutil.walk_packages(game_pkg.__path__, f"{game_pkg.__name__}."):
+            importlib.import_module(info.name)
+
     def test_every_kind_the_source_opens_has_a_handler(self) -> None:
+        self._import_every_game_module()
         opened = self._kinds_opened_in_source()
         assert opened, "no open_choice call sites found — has the shape changed?"
         unanswerable = sorted(opened - set(continuations.CHOICE_HANDLERS))

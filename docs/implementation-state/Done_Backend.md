@@ -5887,6 +5887,11 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 - **What:** `game/continuations.py` — a registry of choice handlers, plus
 - **Files:** `game/continuations.py`, `game/rules_engine.py`,
+- **BUG-89 (test isolation):** `TestRegistryTotality` scans all of `game/` for `open_choice` kinds but imported
+  none of it, so `fabricate_choice` / `modular_choice` (registered in the lazily imported `keyword_mechanics.py`)
+  looked unanswerable when `test_continuations.py` ran alone. The check now imports every `mtg_analyzer.game` module
+  first (`pkgutil.walk_packages`, the same set it scans). Test-only: a live game cannot open those kinds without
+  having imported the module that also registers their handlers.
 
 ### Structure-aware suspension: the iteration frame (ENG-35, `14_` S1)
 
