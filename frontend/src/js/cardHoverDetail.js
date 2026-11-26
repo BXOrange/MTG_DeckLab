@@ -22,6 +22,21 @@ import { t } from './i18n.js';
 
 let tooltipEl = null;
 let activeName = null;
+let activePrinting = null;
+const printingScopes = new WeakMap();
+
+export function setDeckPrintingScope(element, printings) {
+  printingScopes.set(element, printings);
+}
+
+function resolvePrinting(target, name) {
+  if (target.dataset.hoverPrinting) return target.dataset.hoverPrinting;
+  for (let element = target; element; element = element.parentElement) {
+    const printings = printingScopes.get(element);
+    if (printings) return printings.get(name.toLowerCase()) || null;
+  }
+  return null;
+}
 let lastRenderedCard = undefined; // undefined = "nothing rendered yet", distinct from null ("known not found")
 let lastEvent = null;
 //: Names with a `resolveCardImages` call in flight, so a still-hovering
@@ -65,7 +80,7 @@ function faceView(card, face) {
   };
 }
 
-function renderTooltipContent(card, fallbackName) {
+function renderTooltipContent(card, fallbackName, printingId) {
   if (!card) {
     return `
       <div class="card-hover-tooltip-inner">
@@ -85,7 +100,7 @@ function renderTooltipContent(card, fallbackName) {
 
   return `
     <div class="card-hover-tooltip-inner">
-      <img class="card-hover-tooltip-image" src="${cardImageUrl(view.id, 'small', face)}" alt="" loading="lazy" />
+      <img class="card-hover-tooltip-image" src="${cardImageUrl(printingId || view.id, 'small', face)}" alt="" loading="lazy" />
       <div class="card-hover-tooltip-text-col">
         <h4>${escapeHtml(view.name)}</h4>
         <p class="card-tile-type">${escapeHtml(view.type_line || '')}</p>
@@ -119,7 +134,7 @@ function updateTooltip(name, event) {
   // the pointer is still hovering the same element.
   const card = getResolvedCard(name);
   if (card !== lastRenderedCard) {
-    el.innerHTML = renderTooltipContent(card, name);
+    el.innerHTML = renderTooltipContent(card, name, activePrinting);
     lastRenderedCard = card;
   }
   el.classList.add('visible');
@@ -141,6 +156,7 @@ function resolveLazily(name) {
 
 function hideTooltip() {
   activeName = null;
+  activePrinting = null;
   lastRenderedCard = undefined;
   tooltipEl?.classList.remove('visible');
 }
@@ -159,8 +175,10 @@ export function initCardHoverDetail() {
     const target = event.target.closest('[data-hover-card]');
     if (!target) return;
     const name = target.dataset.hoverCard;
-    if (name !== activeName) {
+    const printing = resolvePrinting(target, name);
+    if (name !== activeName || printing !== activePrinting) {
       activeName = name;
+      activePrinting = printing;
       lastRenderedCard = undefined;
     }
     updateTooltip(name, event);

@@ -46,6 +46,7 @@ from mtg_analyzer.api.schemas import (
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_printings import apply_deck_printings
 from mtg_analyzer.services.deck_tokens import producible_tokens
 from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import (
@@ -100,14 +101,15 @@ def resolve_seat_deck(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
-    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
+    cards = apply_deck_printings(resolved.cards, deck.card_printings, decks.get_printing_images)
+    library, missing_lib = expand_entries(parsed.main_deck, cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, cards)
     if not parsed.validation.is_legal:
         return result([], [], list(parsed.validation.errors))
     if not library and not commanders:
         missing = sorted(set(missing_lib) | set(missing_cmd))
         return result([], [], [f"Keine auflösbaren Karten: {', '.join(missing) or '—'}"])
-    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, cards)
     if missing_sideboard:
         return result([], [], [f"Sideboard: {', '.join(missing_sideboard)}"])
     # RULE 903.5f: a Commander seat gets no sideboard (the saved decklist keeps it).
@@ -123,6 +125,7 @@ def start_goldfish(
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
 ) -> dict[str, object]:
     """Start a solo goldfish game from a saved deck or decklist text."""
+    deck = None
     commander_text = request.commander_text
     mainboard_text = request.mainboard_text
     sideboard_text = request.sideboard_text
@@ -140,10 +143,11 @@ def start_goldfish(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
+    cards = apply_deck_printings(resolved.cards, deck.card_printings, decks.get_printing_images) if deck else resolved.cards
 
-    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
-    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    library, missing_lib = expand_entries(parsed.main_deck, cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, cards)
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, cards)
     missing = sorted(set(missing_lib) | set(missing_cmd) | set(missing_sideboard) | set(resolved.not_found))
 
     # Only legal decks may start a goldfish game (docs/02 UC3, this file's
@@ -286,6 +290,7 @@ def start_replay(
     request: StartReplayRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    decks: DeckDatabase = Depends(get_deck_database),
 ) -> dict[str, object]:
     """Start a Replay/Puzzle session: load a saved board or a blank one.
 
@@ -294,7 +299,7 @@ def start_replay(
     puzzle, 2-4 = with opponents). The board is editable via ``edit_*`` actions.
     """
     descriptor = request.replay or blank_replay(request.num_players)
-    session = sessions.create_replay(descriptor, loader)
+    session = sessions.create_replay(descriptor, loader, lookup_printing=decks.get_printing_images)
     return session.view()
 
 

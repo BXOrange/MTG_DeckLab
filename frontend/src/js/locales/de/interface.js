@@ -298,12 +298,17 @@ export default {
 
   // --- Deck edit tab (deckImportView.js) -----------------------
   'deckImport.title': 'Deckliste einlesen',
+  'deckImport.artworkForCard': 'Artwork für {name} auswählen',
+  'deckImport.artworkDefault': 'Standardgrafik verwenden',
+  'deckImport.artworkLoading': 'Editionen werden geladen …',
+  'deckImport.artworkFailed': 'Editionen konnten nicht geladen werden.',
+  'deckImport.artworkImportMissing': 'Druckangabe konnte für folgende Karten nicht übernommen werden: {names}',
+  'deckImport.artworkEmpty': 'Für diese Karte sind keine Editionen verfügbar.',
   'deckImport.hint': 'Jede Karte als eigene Zeile, z.B. "1 Sol Ring" oder "4x Mountain". Die Zuordnung ergibt sich aus dem Abschnitt, in den du einträgst. Ein kompletter Moxfield-Export lässt sich auch als Ganzes ins Mainboard-Feld einfügen — Commander und Sideboard werden dann automatisch erkannt und in ihre Felder verschoben.',
   'deckImport.commander': 'Commander',
   'deckImport.mainboard': 'Mainboard',
   'deckImport.sideboard': 'Sideboard',
   'deckImport.parseButton': 'Deckliste parsen',
-  'deckImport.sampleButton': 'Beispieldeck laden',
   'deckImport.deckName': 'Deckname (zum Speichern)',
   'deckImport.deckNamePlaceholder': 'z.B. Krenko Goblins',
   'deckImport.authorPlaceholder': 'Autor (optional)',

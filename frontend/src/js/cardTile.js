@@ -223,7 +223,7 @@ function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
 
 /**
  * @param {object} card A resolved card dict (Card.to_dict() shape).
- * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null, favorite?: boolean}} [options]
+ * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null, favorite?: boolean, printingId?: string}} [options]
  *   `qty`: optional quantity badge (deck-import context only).
  *   `illegalReason`: set when the deck's commander-legality check
  *   (POST /api/decks) flagged this exact card — banned, or outside the
@@ -238,7 +238,7 @@ function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
  *   update its own tracked favorite set rather than this module owning any
  *   state itself.
  */
-export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
+export function renderCardTile(card, { qty, illegalReason, favorite, printingId = card.id } = {}) {
   const manaCost = renderManaCost(card);
   const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
   const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
@@ -250,8 +250,8 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
   // two faces (see the delegated handler at the bottom of this module).
   const flipButton = card.has_back_face
     ? `<button type="button" class="card-tile-flip"
-         data-front-src="${cardImageUrl(card.id, 'normal', 'front')}"
-         data-back-src="${cardImageUrl(card.id, 'normal', 'back')}"
+         data-front-src="${cardImageUrl(printingId, 'normal', 'front')}"
+         data-back-src="${cardImageUrl(printingId, 'normal', 'back')}"
          title="${escapeAttr(t('cardTile.showBack'))}" aria-label="${escapeAttr(t('cardTile.showBack'))}">🔄</button>`
     : '';
 
@@ -268,7 +268,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         ${qtyBadge}
         ${flipButton}
         ${favoriteButton}
-        <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
+        <img src="${cardImageUrl(printingId, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
         <h4>${illegalLabel ? '❗ ' : ''}${escapeHtml(card.name)}</h4>
@@ -327,7 +327,7 @@ export function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function escapeAttr(str) {
+export function escapeAttr(str) {
   return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
 

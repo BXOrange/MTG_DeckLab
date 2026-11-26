@@ -298,12 +298,17 @@ export default {
 
   // --- Deck edit tab (deckImportView.js) -----------------------
   'deckImport.title': 'Read decklist',
+  'deckImport.artworkForCard': 'Choose artwork for {name}',
+  'deckImport.artworkDefault': 'Use default artwork',
+  'deckImport.artworkLoading': 'Loading printings…',
+  'deckImport.artworkFailed': 'Could not load printings.',
+  'deckImport.artworkImportMissing': 'Could not apply the printing for: {names}',
+  'deckImport.artworkEmpty': 'No printings are available for this card.',
   'deckImport.hint': 'Each card on its own line, e.g. "1 Sol Ring" or "4x Mountain". The section you type it into decides its role. A full Moxfield export can also be pasted as a whole into the mainboard field — commander and sideboard are then detected automatically and moved to their fields.',
   'deckImport.commander': 'Commander',
   'deckImport.mainboard': 'Mainboard',
   'deckImport.sideboard': 'Sideboard',
   'deckImport.parseButton': 'Parse decklist',
-  'deckImport.sampleButton': 'Load sample deck',
   'deckImport.deckName': 'Deck name (for saving)',
   'deckImport.deckNamePlaceholder': 'e.g. Krenko Goblins',
   'deckImport.authorPlaceholder': 'Author (optional)',

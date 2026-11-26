@@ -5,7 +5,7 @@ import { cardImageUrl } from '../api.js';
 import { durationLabel, durationTitle, faceHint, giftHint, modeHint, loyaltyModifierClass } from './cardHints.js';
 import { xKey, manaOptionLabel, kickerFieldHtml, replicateFieldsHtml } from './castForm.js';
 import { t } from '../i18n.js';
-import { escapeHtml, escapeAttr } from './html.js';
+import { escapeHtml, escapeAttr, printingHoverAttr } from './html.js';
 
 // Per-card "info point" (RULE 613): a Σ-badge that opens a breakdown of
 // every effect reshaping this permanent — Auren, Ausrüstung, Marken,
@@ -172,7 +172,7 @@ export function lookTopChoiceHtml(pending) {
       }
       const action = JSON.stringify({ type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
       const img = opt.card_id ? cardImageUrl(opt.card_id, 'small', 'front') : null;
-      return `<button type="button" class="gf-lt-card" data-hover-card="${escapeHtml(opt.label || '')}" data-action='${escapeAttr(action)}'>
+      return `<button type="button" class="gf-lt-card" data-hover-card="${escapeHtml(opt.label || '')}"${printingHoverAttr(opt.card_id)} data-action='${escapeAttr(action)}'>
         ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(opt.label || '')}" loading="lazy">` : ''}
         <span class="gf-lt-card-label">${escapeHtml(opt.label || opt.id)}</span>
       </button>`;

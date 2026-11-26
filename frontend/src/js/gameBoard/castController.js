@@ -4,7 +4,7 @@
 // through the board's getter/setter context.
 
 import { TARGET_CHOICE_KINDS } from './labels.js';
-import { escapeAttr, escapeHtml } from './html.js';
+import { escapeAttr, escapeHtml, printingHoverAttr } from './html.js';
 import { expandMultiTargetRequirements, powerTapTotal, resolvedDamageDivisions, targetOptionPayload } from './castForm.js';
 import { sameActivationMode } from './cardHints.js';
 import { t } from '../i18n.js';
@@ -469,7 +469,7 @@ export function createCastController(ctx) {
       const payload = JSON.stringify({
         instance_id: iid, target: targetOptionPayload(o), controller_id: o.controller_id ?? null,
       });
-      const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"` : '';
+      const hover = o.instance_id != null ? ` data-hover-card="${escapeHtml(o.name || '')}"${printingHoverAttr(o.card_id)}` : '';
       // VIS-13: who controls this candidate, so two same-named permanents
       // on different boards can be told apart.
       const name = ctx.castTargeting.isPowerTapChoice ? `${o.name} (${o.power})` : ctx.castTargeting.isExileValueChoice ? `${o.name} (${o.mana_value})` : o.name;

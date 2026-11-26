@@ -4,15 +4,14 @@ import {
   buildMoxfieldSections,
   isCommanderCandidate,
   canPairAsCommanders,
-  SAMPLE_COMMANDER,
-  SAMPLE_MAINBOARD,
-  SAMPLE_SIDEBOARD,
 } from './parser.js';
 import { setState } from './state.js';
 import { resolveCardImages, getResolvedCard, isConfirmedNotFound } from './cardImages.js';
 import { submitDeck, saveDeck, listSleeves, listArchetypes } from './api.js';
 import { getPlayerName } from './settings.js';
-import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeHtml } from './cardTile.js';
+import { renderCardTile, renderCardTilePlaceholder, renderCardTileNotFound, escapeAttr, escapeHtml } from './cardTile.js';
+import { openDeckPrintingDialog } from './deckPrintingDialog.js';
+import { setDeckPrintingScope } from './cardHoverDetail.js';
 import { t } from './i18n.js';
 
 /**
@@ -47,7 +46,6 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 
         <div class="import-actions">
           <button id="parse-btn" type="button" class="primary">${t('deckImport.parseButton')}</button>
-          <button id="sample-btn" type="button">${t('deckImport.sampleButton')}</button>
         </div>
 
         <div class="deck-section save-deck-row">
@@ -134,7 +132,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   // Card names the user starred in the detail-view card grid
   // (Deck.favoriteCards) — kept here rather than in cardTile.js, which only
   // owns each tile's own DOM state (see its `card-tile-favorite-toggle`
-  // event). Seeded from a loaded deck, reset on "Beispieldeck laden".
+  // event). Seeded from a loaded deck.
   let favoriteCards = new Set();
   resultEl.addEventListener('card-tile-favorite-toggle', (event) => {
     const { name, favorite } = event.detail || {};
@@ -162,9 +160,26 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
   // (leaving the loaded one untouched) and then points savedDeckId at the
   // new copy. Split into two explicit buttons because a single "Speichern"
   // that silently overwrote the loaded deck after e.g. a commander change
-  // was surprising and destructive. Reset (update disabled) by loading the
-  // sample deck.
+  // was surprising and destructive.
   let savedDeckId = null;
+  let cardPrintings = new Map();
+  setDeckPrintingScope(resultEl, cardPrintings);
+  let printingsChanged = false;
+  let printingRevision = 0;
+
+  resultEl.addEventListener('click', (event) => {
+    const button = event.target.closest('.choose-card-printing');
+    if (!button) return;
+    const name = button.dataset.printingCard;
+    const key = name.toLowerCase();
+    openDeckPrintingDialog(name, cardPrintings.get(key), (id) => {
+      if (id) cardPrintings.set(key, id);
+      else cardPrintings.delete(key);
+      printingsChanged = true;
+      printingRevision += 1;
+      button.classList.toggle('is-selected', !!id);
+    });
+  });
   const updateDeckBtn = container.querySelector('#update-deck-btn');
 
   function updateSaveButtons() {
@@ -216,6 +231,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       detailMode,
       tileZoom,
       isFavorite: (name) => favoriteCards.has(name),
+      cardPrintings,
       onToggleDetailMode: (checked) => {
         detailMode = checked;
         // Re-render via showResult (not a direct renderResult call) so
@@ -290,25 +306,11 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     });
   });
 
-  container.querySelector('#sample-btn').addEventListener('click', () => {
-    commanderTextarea.value = SAMPLE_COMMANDER;
-    mainboardTextarea.value = SAMPLE_MAINBOARD;
-    sideboardTextarea.value = SAMPLE_SIDEBOARD;
-    savedDeckId = null;
-    updateSaveButtons();
-    nameInput.value = '';
-    authorInput.value = '';
-    cubeCheckbox.checked = false;
-    sleeveSelect.value = '';
-    applyArchetypeSelection(['', '']);
-    favoriteCards = new Set();
-    saveStatusEl.textContent = '';
-    saveStatusEl.className = 'server-status';
-  });
-
   let latestRequestId = 0;
+  let pendingPrintingImport = null;
+  let savingDeck = false;
 
-  function parseCurrentSections() {
+  function parseCurrentSections({ resolvePrintings = true } = {}) {
     const requestId = ++latestRequestId;
     sanitizeInputs(); // strip foil stars from the textareas before parsing
     const sections = currentSections();
@@ -331,27 +333,54 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       if (requestId === latestRequestId) refreshResult();
     });
 
-    submitDeck(sections, isCube).then((result) => {
+    const previousPrintings = new Map(cardPrintings);
+    const request = submitDeck(sections, isCube, { resolvePrintings }).then((result) => {
       if (requestId !== latestRequestId) return; // superseded by a later parse click
 
       if (!result.ok) {
         showResult(localDeck, { warning: result.error, isCube });
         return;
       }
+      const unchanged = Object.entries(currentSections()).every(([key, value]) => value === sections[key]);
+      if (unchanged) {
+        for (const [name, id] of Object.entries(result.deck.cardPrintings || {})) {
+          if (cardPrintings.get(name) !== previousPrintings.get(name) || cardPrintings.get(name) === id) continue;
+          cardPrintings.set(name, id);
+          printingsChanged = true;
+          printingRevision += 1;
+        }
+      }
       setState({ deck: result.deck });
-      showResult(result.deck, { serverConfirmed: true, isCube });
+      showResult(result.deck, {
+        serverConfirmed: true,
+        isCube,
+        unresolvedPrintings: unchanged ? result.deck.unresolvedPrintings : undefined,
+      });
+    }).finally(() => {
+      if (pendingPrintingImport === request) pendingPrintingImport = null;
     });
+    pendingPrintingImport = resolvePrintings ? request : null;
   }
 
-  container.querySelector('#parse-btn').addEventListener('click', parseCurrentSections);
+  container.querySelector('#parse-btn').addEventListener('click', () => parseCurrentSections());
 
   async function doSave({ update }) {
+    if (savingDeck) return;
+    savingDeck = true;
     // update=true overwrites the loaded/saved deck (sends its id);
     // update=false always creates a new deck (no id) and adopts its id.
     saveStatusEl.textContent = update ? t('deckImport.updating') : t('deckImport.saving');
     saveStatusEl.className = 'server-status pending';
 
+    const activeDeckId = savedDeckId;
+    while (pendingPrintingImport) await pendingPrintingImport;
+    if (savedDeckId !== activeDeckId || (update && savedDeckId == null)) {
+      savingDeck = false;
+      return;
+    }
+
     const id = update ? savedDeckId ?? undefined : undefined;
+    const revisionAtSave = printingRevision;
     const saved = await saveDeck({
       id,
       name: nameInput.value,
@@ -360,9 +389,11 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
       sleeveId: sleeveSelect.value || null,
       archetypes: [archetype1Select.value, archetype2Select.value].filter(Boolean),
       favoriteCards: [...favoriteCards],
+      ...(!update || printingsChanged ? { cardPrintings: Object.fromEntries(cardPrintings) } : {}),
       ...currentSections(),
     });
 
+    savingDeck = false;
     if (!saved) {
       saveStatusEl.textContent = t('deckImport.saveFailed');
       saveStatusEl.className = 'server-status warning';
@@ -370,6 +401,11 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     }
 
     savedDeckId = saved.id;
+    if (printingRevision === revisionAtSave) {
+      cardPrintings = new Map(Object.entries(saved.cardPrintings || {}));
+      setDeckPrintingScope(resultEl, cardPrintings);
+      printingsChanged = false;
+    }
     updateSaveButtons();
     saveStatusEl.textContent = update ? t('deckImport.updated') : t('deckImport.savedAsNew');
     saveStatusEl.className = 'server-status ok';
@@ -380,6 +416,10 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
 
   function loadDeck(savedDeck) {
     savedDeckId = savedDeck.id;
+    printingRevision += 1;
+    cardPrintings = new Map(Object.entries(savedDeck.cardPrintings || {}));
+    setDeckPrintingScope(resultEl, cardPrintings);
+    printingsChanged = false;
     updateSaveButtons();
     nameInput.value = savedDeck.name || '';
     authorInput.value = savedDeck.author || '';
@@ -392,7 +432,7 @@ export function renderDeckImportView(container, { onDeckLoaded } = {}) {
     sideboardTextarea.value = savedDeck.sideboardText || '';
     saveStatusEl.textContent = '';
     saveStatusEl.className = 'server-status';
-    parseCurrentSections();
+    parseCurrentSections({ resolvePrintings: false });
   }
 
   return { loadDeck };
@@ -421,7 +461,7 @@ function zoomControlHtml(tileZoom) {
   `;
 }
 
-function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, tileZoom = 'compact', onToggleDetailMode, onZoomChange, isFavorite }) {
+function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, tileZoom = 'compact', onToggleDetailMode, onZoomChange, isFavorite, cardPrintings }) {
   const { commanders, mainDeck, sideboard, totalCount, parseErrors, validation } = deck;
 
   const statusClass = meta.isCube ? 'status-ok' : validation.isLegal ? 'status-ok' : 'status-error';
@@ -434,6 +474,12 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
       : meta.serverConfirmed
         ? `<p class="server-status ok">${t('deckImport.serverChecked')}</p>`
         : '';
+
+  const printingWarning = meta.unresolvedPrintings?.length
+    ? `<p class="server-status warning">${escapeHtml(t('deckImport.artworkImportMissing', {
+      names: meta.unresolvedPrintings.join(', '),
+    }))}</p>`
+    : '';
 
   // Which specific cards the server flagged as banned / outside the
   // commander's color identity (mtg_analyzer.services.commander_legality
@@ -472,7 +518,13 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
           const favButton = `<button type="button" class="card-list-favorite${isFav ? ' is-favorite' : ''}"
              data-favorite-card="${escapeHtml(c.name)}" aria-pressed="${isFav}"
              title="${escapeHtml(t('deckImport.toggleFavorite'))}" aria-label="${escapeHtml(t('deckImport.toggleFavorite'))}">${isFav ? '★' : '☆'}</button>`;
-          return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}>${favButton}<span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</li>`;
+          const artworkLabel = escapeAttr(t('deckImport.artworkForCard', { name: c.name }));
+          const hasPrinting = cardPrintings.has(c.name.toLowerCase());
+          const artworkButton = !notFound ? `<button type="button"
+            class="choose-card-printing${hasPrinting ? ' is-selected' : ''}"
+            data-printing-card="${escapeAttr(c.name)}" title="${artworkLabel}" aria-label="${artworkLabel}"
+            aria-haspopup="dialog">Artwork</button>` : '';
+          return `<li data-hover-card="${escapeHtml(c.name)}"${cls}${title}><span>${favButton}<span class="qty">${c.qty}x</span> ${marker}${escapeHtml(c.name)}</span>${artworkButton}</li>`;
         })
         .join('');
       return `<ul class="card-list">${items}</ul>`;
@@ -484,6 +536,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
         if (card) {
           return renderCardTile(card, {
             qty: c.qty,
+            printingId: cardPrintings.get(c.name.toLowerCase()),
             illegalReason: illegalReason(c.name),
             favorite: isFavorite ? isFavorite(c.name) : false,
           });
@@ -537,6 +590,7 @@ function renderResult(resultEl, deck, { onDeckLoaded, meta = {}, detailMode, til
         </div>
       </div>
       ${serverStatusHtml}
+      ${printingWarning}
       <p>${escapeHtml(t('deckImport.totalCards', { count: totalCount }))}
         <span class="${statusClass}">${statusText}</span>
       </p>

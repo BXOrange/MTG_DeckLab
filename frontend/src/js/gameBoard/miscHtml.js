@@ -3,7 +3,7 @@
 import { getShowOpponentHand } from '../settings.js';
 import { restrictionLabel } from './cardHints.js';
 import { t } from '../i18n.js';
-import { escapeHtml, escapeAttr } from './html.js';
+import { escapeHtml, escapeAttr, printingHoverAttr } from './html.js';
 
 // Only rendered on a hand that isn't yours (see `ownHand`) — in
 // Replay/Puzzle mode both boards are yours to edit, so there is nothing
@@ -19,7 +19,7 @@ export function opponentHandToggleHtml() {
 export function zoneListHtml(objs, empty) {
   if (!objs.length) return `<p class="empty-state">${empty}</p>`;
   return `<ul class="gf-zone-list">${objs
-    .map((o) => `<li data-hover-card="${escapeHtml(o.name)}">${escapeHtml(o.name)}</li>`)
+    .map((o) => `<li data-hover-card="${escapeHtml(o.name)}"${printingHoverAttr(o.card_id)}>${escapeHtml(o.name)}</li>`)
     .join('')}</ul>`;
 }
 

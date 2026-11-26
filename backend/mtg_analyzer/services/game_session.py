@@ -2828,14 +2828,14 @@ class GameSessionManager:
         self._register(session)
         return session
 
-    def create_replay(self, descriptor: dict[str, Any], loader: Any) -> GameSession:
+    def create_replay(self, descriptor: dict[str, Any], loader: Any, *, lookup_printing=None) -> GameSession:
         """Build a Replay/puzzle session from a descriptor (blank or loaded).
 
         Unlike goldfish there is no mulligan/setup gate and no auto-started
         turn — the board is given. ``loader`` is stashed on the session so
         `edit_add_object` can resolve card names on demand.
         """
-        engine = replay.build_replay_engine(descriptor, loader)
+        engine = replay.build_replay_engine(descriptor, loader, lookup_printing)
         session = GameSession(engine, mode=REPLAY, require_setup=False)
         session._loader = loader
         self._register(session)

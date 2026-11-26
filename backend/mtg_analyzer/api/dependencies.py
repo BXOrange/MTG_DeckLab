@@ -40,8 +40,13 @@ def _database() -> CardDatabase:
 
 
 @lru_cache(maxsize=1)
+def get_scryfall() -> ScryfallIntegration:
+    return ScryfallIntegration()
+
+
+@lru_cache(maxsize=1)
 def _lazy_card_loader() -> LazyCardLoader:
-    return LazyCardLoader(_database(), ScryfallIntegration(), scryfall_primary=SCRYFALL_PRIMARY)
+    return LazyCardLoader(_database(), get_scryfall(), scryfall_primary=SCRYFALL_PRIMARY)
 
 
 @lru_cache(maxsize=1)

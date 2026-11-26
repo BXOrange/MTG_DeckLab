@@ -31,8 +31,8 @@ const BASIC_LAND_NAMES = new Set([
 ]);
 
 const CARD_LINE_RE = /^(\d+)\s*[xX]?\s+(.+)$/;
-const SET_SUFFIX_RE = /\s*[[(][A-Za-z0-9]{2,6}[)\]]\s*[\dA-Za-z-]*\s*$/;
-const TAG_RE = /\s*\*([A-Za-z]+)\*/g;
+const SET_SUFFIX_RE = /\s*[[(][A-Za-z0-9]{2,6}[)\]]\s*[\p{L}\p{N}_-]*\s*$/u;
+const TAG_RE = /\s*\\?\*([A-Za-z]+)\\?\*/g;
 // Foil/star markers some exports append to a name ("Sol Ring ★"). Not
 // part of the card name and they break resolution, so strip them.
 const STAR_RE = /[★☆]/g;
@@ -42,10 +42,10 @@ const STAR_RE = /[★☆]/g;
 const SIDEBOARD_HEADER_RE = /^sideboard:?$/i;
 
 function stripCardNameNoise(rawName) {
-  let name = rawName.trim();
-  name = name.replace(TAG_RE, '').trim();
+  let name = rawName.trim().replace(/\\$/, '');
+  name = name.replace(TAG_RE, '').replace(STAR_RE, '').trim();
   name = name.replace(SET_SUFFIX_RE, '').trim();
-  name = name.replace(STAR_RE, '').replace(/\s{2,}/g, ' ').trim();
+  name = name.replace(/\s{2,}/g, ' ').trim();
   return name;
 }
 
@@ -258,50 +258,3 @@ function validateCommanderDeck(allCards, commanders, totalCount, isCube) {
 
   return { isLegal: errors.length === 0, errors, warnings };
 }
-
-export const SAMPLE_COMMANDER = `1 Krenko, Mob Boss
-`;
-
-export const SAMPLE_MAINBOARD = `1 Sol Ring
-1 Arcane Signet
-1 Mind Stone
-1 Fellwar Stone
-1 Goblin Bombardment
-1 Purphoros, God of the Forge
-1 Skullclamp
-1 Thornbite Staff
-1 Goblin Chieftain
-1 Goblin King
-1 Warren Instigator
-1 Siege-Gang Commander
-1 Wort, Boggart Auntie
-1 Tin Street Kingpin
-1 Goblin Matron
-1 Goblin Recruiter
-1 Muxus, Goblin Grandee
-1 Conspicuous Snoop
-1 Reckless Bushwhacker
-1 Hordeling Outburst
-1 Dragon Fodder
-1 Foundry Street Denizen
-1 Goblin Rabblemaster
-1 Impact Tremors
-1 Fiery Emancipation
-1 Shared Animosity
-1 Coat of Arms
-1 Goblin Warchief
-1 Krenko's Command
-1 Mogg War Marshal
-1 Legion Loyalist
-1 Goblin Piledriver
-1 Squee, Goblin Nabob
-1 Kiki-Jiki, Mirror Breaker
-1 Chaos Warp
-1 Lightning Bolt
-1 Swiftfoot Boots
-62 Mountain
-`;
-
-export const SAMPLE_SIDEBOARD = `1 Negate
-1 Pyroblast
-`;

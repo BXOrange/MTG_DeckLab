@@ -15,16 +15,18 @@ Jede Zeile ist eine Karte, in einem der beiden Formate:
 - `1 Sol Ring`
 - `4x Mountain`
 
-Angehängte Set-/Sammelnummer-Infos, wie sie manche Export-Tools
-hinzufügen (z. B. `(LTR) 123`), werden automatisch entfernt, ebenso
-Foil-/Stern-Markierungen (`★`/`☆`), die manche Seiten an einen Namen
-anhängen (z. B. "Sol Ring ★"). Zeilen, die mit `#` oder `//` beginnen,
-gelten als Kommentar und werden ignoriert.
+Setcode und Sammlernummer wie in `1 Ancient Tomb (V12) 1 *F*` wählen beim
+Parsen automatisch das Artwork dieser Edition. Angaben wie `*F*`, `*E*`,
+`★` und `☆` werden beim Abgleich des Kartennamens ignoriert. Zeilen, die mit
+`#` oder `//` beginnen, gelten als Kommentar.
 
-Klicke auf **Deckliste parsen**, um die drei Felder einzulesen. Es
-gibt außerdem einen Button **Beispieldeck laden**, der ein fertiges
-Beispiel einfügt (ein Krenko-Goblin-Deck), falls du erstmal
-ausprobieren möchtest.
+Klicke auf **Deckliste parsen**, um die drei Felder einzulesen.
+
+Nach dem Parsen findest du in der Kartenliste rechts pro Karte den Button
+**Artwork**. Wähle eine Edition oder stelle die Standardgrafik wieder her.
+**Aktualisieren** oder **Als neues speichern** speichert die Auswahl für dieses
+Deck. Sie gilt für alle Exemplare des Kartennamens in diesem Deck und wird auch
+in der Analyse und im Spiel angezeigt.
 
 ## Was die Ergebnisanzeige zeigt
 

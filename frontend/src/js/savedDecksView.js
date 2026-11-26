@@ -236,7 +236,9 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const trimmed = newName.trim();
         if (!trimmed || trimmed === currentName) return;
         btn.disabled = true;
-        const saved = await saveDeck({ ...deck, name: trimmed });
+        const renamedDeck = { ...deck, name: trimmed };
+        delete renamedDeck.cardPrintings;
+        const saved = await saveDeck(renamedDeck);
         if (!saved) {
           btn.disabled = false;
           window.alert(t('savedDecks.renameFailed'));

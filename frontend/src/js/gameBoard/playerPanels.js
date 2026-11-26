@@ -2,7 +2,7 @@
 
 import { collectCostReductions } from './miscHtml.js';
 import { t } from '../i18n.js';
-import { escapeHtml, escapeAttr } from './html.js';
+import { escapeHtml, escapeAttr, printingHoverAttr } from './html.js';
 
 // The counter bag is open-ended (any `add_player_counter` name), so this
 // is a nicety for the ones real cards produce, not a whitelist.
@@ -186,7 +186,7 @@ export function commanderDamageHtml(commanderDamage, view) {
       const name = e.name || source?.name || `#${sourceId}`;
       const identity = owner ? `${name} · ${owner.name}` : `${name} · #${sourceId}`;
       const lethal = e.amount >= 21 ? ' gf-cmd-dmg--lethal' : '';
-      return `<span class="gf-cmd-dmg${lethal}" data-commander-source="${escapeAttr(sourceId)}" data-hover-card="${escapeAttr(name)}" title="${escapeAttr(t('bd.cmdDmg.title', { name: identity }))}">👑 <span class="gf-cmd-source">${escapeHtml(identity)}</span> ${e.amount}/21</span>`;
+      return `<span class="gf-cmd-dmg${lethal}" data-commander-source="${escapeAttr(sourceId)}" data-hover-card="${escapeAttr(name)}"${printingHoverAttr(source?.card_id)} title="${escapeAttr(t('bd.cmdDmg.title', { name: identity }))}">👑 <span class="gf-cmd-source">${escapeHtml(identity)}</span> ${e.amount}/21</span>`;
     })
     .join('');
 }

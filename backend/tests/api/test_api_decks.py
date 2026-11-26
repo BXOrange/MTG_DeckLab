@@ -386,3 +386,69 @@ class TestSubmitDeck:
         assert response.status_code == 200
         body = response.json()
         assert any("Not A Real Commander" in warning for warning in body["validation"]["warnings"])
+
+
+def test_parse_applies_exact_printings_without_changing_card_names(monkeypatch):
+    import json
+
+    from mtg_analyzer.api.dependencies import get_deck_database, get_scryfall
+    from mtg_analyzer.services.deck_database import DeckDatabase
+
+    expected_codes = [("snc", "464"), ("v12", "1"), ("neo", "412")]
+    print_rows = [
+        ("snc", "464", "An Offer You Can't Refuse", "offer"),
+        ("v12", "1", "Ancient Tomb", "tomb"),
+        ("neo", "412", "Boseiju, Who Endures", "boseiju"),
+    ]
+
+    def handler(request):
+        assert request.url.path == "/cards/collection"
+        assert json.loads(request.content)["identifiers"] == [
+            {"set": set_code, "collector_number": number} for set_code, number in expected_codes
+        ]
+        return httpx.Response(200, json={"data": [
+            {
+                "id": card_id, "name": name, "set": set_code, "collector_number": number,
+                "type_line": "Land" if card_id != "offer" else "Instant",
+                "image_uris": {"normal": f"https://cards.scryfall.io/normal/{card_id}.jpg"},
+            }
+            for set_code, number, name, card_id in print_rows
+        ]})
+
+    with DeckDatabase() as database, ScryfallIntegration(
+        httpx.Client(transport=httpx.MockTransport(handler), base_url="https://api.scryfall.com"),
+    ) as scryfall:
+        monkeypatch.setitem(app.dependency_overrides, get_deck_database, lambda: database)
+        monkeypatch.setitem(app.dependency_overrides, get_scryfall, lambda: scryfall)
+        _override_loader(_not_found_handler)
+        try:
+            submission = {
+                "isCube": True,
+                "mainboardText": "\n".join([
+                    "1 An Offer You Can't Refuse (SNC) 464" + chr(92),
+                    r"1 Ancient Tomb (V12) 1 \*F\*" + chr(92),
+                    "1 Arcane Signet",
+                    "1 Forest (NEO) 412 *E*",
+                    "1 Ancient Tomb (V12) 2",
+                ]),
+            }
+            parsed = client.post("/api/decks", json=submission).json()
+            assert not parsed["parseErrors"]
+            assert parsed["mainDeck"] == [
+                {"name": "An Offer You Can't Refuse", "qty": 1},
+                {"name": "Ancient Tomb", "qty": 2},
+                {"name": "Arcane Signet", "qty": 1},
+                {"name": "Forest", "qty": 1},
+            ]
+            assert parsed["unresolvedPrintings"] == ["Forest"]
+            assert parsed["cardPrintings"] == {
+                "an offer you can't refuse": "deck-printing-offer",
+                "ancient tomb": "deck-printing-tomb",
+            }
+            saved = client.post("/api/decks/save", json={
+                **submission, "cardPrintings": parsed["cardPrintings"],
+            })
+            assert saved.status_code == 200
+            assert saved.json()["cardPrintings"] == parsed["cardPrintings"]
+        finally:
+            app.dependency_overrides.pop(get_lazy_card_loader, None)

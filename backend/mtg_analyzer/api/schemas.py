@@ -57,6 +57,7 @@ class SaveDeckRequest(BaseModel):
     # re-save (e.g. renaming a deck would also erase its archetypes).
     archetypes: Optional[list[str]] = Field(default=None, alias="archetypes")
     favorite_cards: Optional[list[str]] = Field(default=None, alias="favoriteCards")
+    card_printings: dict[str, str] | None = Field(default=None, alias="cardPrintings")
 
 
 class DeckSubmission(BaseModel):
@@ -73,6 +74,7 @@ class DeckSubmission(BaseModel):
     mainboard_text: str = Field(default="", alias="mainboardText")
     sideboard_text: str = Field(default="", alias="sideboardText")
     is_cube: bool = Field(default=False, alias="isCube")
+    resolve_printings: bool = Field(default=True, alias="resolvePrintings")
 
 
 class StartGoldfishRequest(BaseModel):

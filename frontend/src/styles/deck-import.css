@@ -252,6 +252,12 @@ textarea {
   font-size: 0.85rem;
 }
 
+.import-result .card-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .card-list li {
   padding: 0.15rem 0;
   border-bottom: 1px solid var(--border);
@@ -333,4 +339,60 @@ textarea {
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation-duration: 1.8s; }
+}
+
+
+.choose-card-printing {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+.choose-card-printing.is-selected {
+  color: var(--accent);
+}
+
+.deck-printing-dialog {
+  width: min(45rem, calc(100% - 2rem));
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.deck-printing-dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
+.deck-printing-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
+  gap: 0.75rem;
+  max-height: 55vh;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.deck-printing-options button {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+}
+
+.deck-printing-options button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+}
+
+.deck-printing-options img {
+  width: min(100%, 8rem);
+  aspect-ratio: 5 / 7;
+  object-fit: contain;
+}
+
+.deck-printing-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }

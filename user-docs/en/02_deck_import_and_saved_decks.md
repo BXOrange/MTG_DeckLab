@@ -15,15 +15,17 @@ Each line is one card, in either of these formats:
 - `1 Sol Ring`
 - `4x Mountain`
 
-Trailing set/collector info that some export tools add (like
-`(LTR) 123`) is stripped out automatically, as are foil/star markers
-(`★`/`☆`) some sites append to a name (e.g. "Sol Ring ★"). Lines
-starting with `#` or `//` are treated as comments and ignored.
+A set code and collector number, as in `1 Ancient Tomb (V12) 1 *F*`, select
+the artwork for that printing when you parse the list. Finish markers such as
+`*F*`, `*E*`, `★` and `☆` are ignored when matching names. Lines starting
+with `#` or `//` are comments.
 
 Click **Deckliste parsen** (parse decklist) to read the three boxes.
-There's also a **Beispieldeck laden** (load sample deck) button that
-fills in a ready-made example (a Krenko goblin deck) if you just want
-to try things out.
+
+After parsing, click **Artwork** next to a card in the list on the right.
+Choose a printing or restore the default artwork. **Update** or **Save as new**
+saves your choices for that deck. Each choice applies to every copy of that
+card in the deck and is used in analysis and in games.
 
 ## What the result panel shows
 

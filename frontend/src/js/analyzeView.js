@@ -16,6 +16,7 @@
 // combo matching is fetched lazily from the backend when this analysis opens.
 
 import { parseDeckSections } from './parser.js';
+import { setDeckPrintingScope } from './cardHoverDetail.js';
 import { resolveCardImages } from './cardImages.js';
 import { analyzeDeck } from './deckAnalysis.js';
 import { analyzeManaAdvice } from './manaAdvice.js';
@@ -170,6 +171,8 @@ export function renderAnalyzeView(container) {
   function loadDeck(savedDeck) {
     const myRequestId = ++requestId;
     currentDeckId = savedDeck.id || '';
+    const printings = new Map(Object.entries(savedDeck.cardPrintings || {}));
+    setDeckPrintingScope(container, printings);
     container.innerHTML = loadingShellHtml(savedDeck.name);
     wireDeckPicker();
 
@@ -181,6 +184,11 @@ export function renderAnalyzeView(container) {
 
     resolveCardImages(names).then((resolved) => {
       if (myRequestId !== requestId) return; // superseded by a later loadDeck() call
+      for (const [name, entry] of resolved) {
+        const printing = printings.get(name);
+        const canonicalName = entry.card?.name?.toLowerCase();
+        if (printing && canonicalName && !printings.has(canonicalName)) printings.set(canonicalName, printing);
+      }
       const stats = analyzeDeck(parsed.commanders, parsed.mainDeck, resolved);
       stats.manaAdvice = analyzeManaAdvice(parsed, resolved);
       const comboState = stats.unresolvedNames.length ? 'incomplete' : 'loading';
