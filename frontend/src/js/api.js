@@ -157,6 +157,15 @@ export async function listCachedCards(scope = 'all') {
   }
 }
 
+export async function browseCachedCards(params, signal) {
+  try {
+    const response = await fetch(`${getServerUrl()}/api/cards/browse?${params}`, { signal });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parser/engine coverage aggregated by set (GET /api/cards/coverage-by-set),
  * for the Engine-Status tab's "Abdeckung nach Set" table.

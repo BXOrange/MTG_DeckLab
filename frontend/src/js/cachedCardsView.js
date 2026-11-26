@@ -1,22 +1,13 @@
-// "Karten-Cache" tab: browse the cards the backend has resolved so far
-// (mtg_analyzer CardDatabase, see docs/Reference/08_CARD_CACHE_EXPORT_IMPORT.md).
-// A scope toggle picks between "Deck-Karten" (only cards referenced by a
-// saved deck, GET /api/cards?scope=decks — the default, since it's the
-// relevant subset for most users) and "Alle Karten" (the full cache,
-// including the ~34k-card bulk Oracle import, scope=all).
-//
-// Lazy by design, matching the backend's own philosophy: nothing is
-// fetched until this tab is actually opened, and re-opening it (or
-// switching scope) refreshes the list.
-//
-// Filtering is entirely client-side over the already-fetched list — cheap
-// for "Deck-Karten", but "Alle Karten" can be tens of thousands of cards;
-// no server round trip per filter change either way.
-
-import { listCachedCards } from './api.js';
+// Paginated card-cache browser. Coverage counts become available while the
+// server prepares missing verdicts in the background.
+import { browseCachedCards } from './api.js';
 import { renderCardTile } from './cardTile.js';
 import { TYPE_BUCKETS } from './deckAnalysis.js';
 import { t } from './i18n.js';
+
+const PAGE_SIZE = 60;
+const COVERAGE_POLL_MS = 2500;
+const CMC_DEBOUNCE_MS = 250;
 
 // Labels are resolved at import (i18n initializes first, and a language
 // change reloads the page — see i18n.js), so a plain module-level array is
@@ -29,7 +20,7 @@ const COLORS = ['W', 'U', 'B', 'R', 'G', 'C'].map((key) => ({
 
 // Mirrors the badges `cardTile.js`'s `renderCoverageBadge` shows (📖/✅/✖) —
 // "catalogue" and "oracle" are both `coverage.modeled`, just a different
-// `coverage.source` (see `api/cards.py`'s `_coverage_for`).
+// `coverage.source` (see `api/cards.py`'s `coverage_for`).
 const COVERAGE_OPTIONS = [
   { key: 'catalogue', label: t('cache.coverage.catalogue') },
   { key: 'oracle', label: t('cache.coverage.oracle') },
@@ -37,42 +28,21 @@ const COVERAGE_OPTIONS = [
   { key: 'unsupported', label: t('cache.coverage.unsupported') },
 ];
 
-function coverageKey(coverage) {
-  if (!coverage) return 'unmodeled';
-  if (coverage.unsupported) return 'unsupported';
-  if (coverage.source === 'catalogue') return 'catalogue';
-  return coverage.modeled ? 'oracle' : 'unmodeled';
-}
-
-function checkedValues(root, filterName) {
-  return Array.from(root.querySelectorAll(`input[data-filter="${filterName}"]:checked`)).map((el) => el.value);
-}
-
-function readFilterState(filtersEl) {
-  const cmcMinRaw = filtersEl.querySelector('#cache-cmc-min').value;
-  const cmcMaxRaw = filtersEl.querySelector('#cache-cmc-max').value;
-  return {
-    types: checkedValues(filtersEl, 'type'),
-    coverage: checkedValues(filtersEl, 'coverage'),
-    colors: checkedValues(filtersEl, 'color'),
-    cmcMin: cmcMinRaw === '' ? null : Number(cmcMinRaw),
-    cmcMax: cmcMaxRaw === '' ? null : Number(cmcMaxRaw),
-  };
-}
-
-function cardMatchesFilters(card, filters) {
-  if (!TYPE_BUCKETS.some((bucket) => filters.types.includes(bucket.key) && bucket.test(card))) return false;
-  if (!filters.coverage.includes(coverageKey(card.coverage))) return false;
-
-  const identity = card.color_identity || [];
-  const colorMatch = identity.length === 0 ? filters.colors.includes('C') : identity.some((c) => filters.colors.includes(c));
-  if (!colorMatch) return false;
-
-  const cmc = card.converted_mana_cost ?? 0;
-  if (filters.cmcMin != null && cmc < filters.cmcMin) return false;
-  if (filters.cmcMax != null && cmc > filters.cmcMax) return false;
-
-  return true;
+function filterParams(filtersEl) {
+  const params = new URLSearchParams();
+  for (const [name, filter] of [['types', 'type'], ['coverage', 'coverage'], ['colors', 'color']]) {
+    const inputs = [...filtersEl.querySelectorAll(`input[data-filter="${filter}"]`)];
+    const selected = inputs.filter((el) => el.checked);
+    // The explicit type list preserves the view's treatment of other card types.
+    if (name === 'types' || selected.length !== inputs.length) {
+      params.set(name, selected.map((el) => el.value).join(','));
+    }
+  }
+  for (const [name, id] of [['cmc_min', '#cache-cmc-min'], ['cmc_max', '#cache-cmc-max']]) {
+    const { value } = filtersEl.querySelector(id);
+    if (value !== '') params.set(name, value);
+  }
+  return params;
 }
 
 function filterGroupHtml(legend, filterName, options) {
@@ -112,6 +82,12 @@ export function renderCachedCardsView(container) {
         </fieldset>
         <button type="button" id="cache-filter-reset">${t('cache.filter.reset')}</button>
       </div>
+      <p class="hint" id="cache-coverage-status" role="status" hidden></p>
+      <div class="cache-toolbar" id="cache-pagination" hidden>
+        <button type="button" id="cache-prev">${t('cache.previous')}</button>
+        <span id="cache-page"></span>
+        <button type="button" id="cache-next">${t('cache.next')}</button>
+      </div>
       <div id="cache-result"><p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('cache.loading')}</p></div>
     </div>
   `;
@@ -123,72 +99,98 @@ export function renderCachedCardsView(container) {
   const resetBtn = container.querySelector('#cache-filter-reset');
   const scopeInputs = container.querySelectorAll('input[name="cache-scope"]');
 
-  let allCards = [];
+  const coverageStatus = container.querySelector('#cache-coverage-status');
+  const pagination = container.querySelector('#cache-pagination');
+  const pageLabel = container.querySelector('#cache-page');
+  const previous = container.querySelector('#cache-prev');
+  const next = container.querySelector('#cache-next');
+  let offset = 0;
+  let pollTimer;
+  let filterTimer;
+  let request;
 
-  function currentScope() {
-    return container.querySelector('input[name="cache-scope"]:checked').value;
-  }
+  async function load({ poll = false } = {}) {
+    clearTimeout(pollTimer);
+    request?.abort();
+    const current = new AbortController();
+    request = current;
+    const scope = container.querySelector('input[name="cache-scope"]:checked').value;
+    const params = filterParams(filtersEl);
+    params.set('scope', scope);
+    params.set('offset', offset);
+    params.set('limit', PAGE_SIZE);
 
-  function renderFiltered() {
-    if (!allCards.length) return;
-    const filters = readFilterState(filtersEl);
-    const filtered = allCards.filter((c) => cardMatchesFilters(c, filters));
-    const modeledCount = filtered.filter((c) => c.coverage?.modeled).length;
+    if (!poll) {
+      resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('cache.loading')}</p>`;
+      countEl.textContent = '';
+      coverageStatus.hidden = true;
+      pagination.hidden = true;
+    }
 
-    countEl.textContent =
-      t('cache.count', { shown: filtered.length, total: allCards.length }) +
-      (filtered.length
-        ? t('cache.modeledPart', {
-            count: modeledCount,
-            pct: Math.round((modeledCount / filtered.length) * 100),
-          })
-        : '');
-
-    resultEl.innerHTML = filtered.length
-      ? `<div class="card-tile-grid">${filtered.map((c) => renderCardTile(c)).join('')}</div>`
-      : `<p class="empty-state">${t('cache.noMatch')}</p>`;
-  }
-
-  let latestRequestId = 0;
-
-  async function load() {
-    const requestId = ++latestRequestId;
-    const scope = currentScope();
-    resultEl.innerHTML = `<p class="empty-state"><span class="spinner" aria-hidden="true"></span>${t('cache.loading')}</p>`;
-    countEl.textContent = '';
-
-    const cards = await listCachedCards(scope);
-    if (requestId !== latestRequestId) return; // superseded by a later refresh/scope change
-
-    if (cards === null) {
+    const result = await browseCachedCards(params, current.signal);
+    if (current.signal.aborted) return;
+    if (!result) {
+      if (poll) {
+        pollTimer = setTimeout(() => load({ poll: true }), COVERAGE_POLL_MS);
+        return;
+      }
       resultEl.innerHTML = `<p class="server-status warning">${t('common.serverUnreachable')}</p>`;
       return;
     }
 
-    allCards = cards;
-
-    if (!allCards.length) {
-      countEl.textContent = '';
-      resultEl.innerHTML = `<p class="empty-state">${
-        scope === 'decks' ? t('cache.emptyDecks') : t('cache.emptyAll')
-      }</p>`;
+    const { cards, total, matched, modeled, pending } = result;
+    if (matched && offset >= matched) {
+      offset = Math.floor((matched - 1) / PAGE_SIZE) * PAGE_SIZE;
+      await load();
       return;
     }
+    countEl.textContent = matched == null ? '' : t('cache.count', { shown: matched, total });
+    if (modeled != null && matched) {
+      countEl.textContent += t('cache.modeledPart', { count: modeled, pct: Math.round(modeled / matched * 100) });
+    }
+    coverageStatus.textContent = pending ? t('cache.preparingCoverage') : '';
+    coverageStatus.hidden = !pending;
 
-    renderFiltered();
+    // A poll can update counts without replacing the visible images and tiles.
+    if (!poll || !cards.length || !resultEl.querySelector('.card-tile-grid')) {
+      const emptyMessage = !total ? (scope === 'decks' ? 'cache.emptyDecks' : 'cache.emptyAll') : 'cache.noMatch';
+      resultEl.innerHTML = cards.length
+        ? `<div class="card-tile-grid">${cards.map((card) => renderCardTile(card)).join('')}</div>`
+        : matched == null ? '' : `<p class="empty-state">${t(emptyMessage)}</p>`;
+    }
+
+    pagination.hidden = !(matched > PAGE_SIZE);
+    previous.disabled = offset === 0;
+    next.disabled = offset + PAGE_SIZE >= matched;
+    pageLabel.textContent = t('cache.page', { page: offset / PAGE_SIZE + 1, pages: Math.ceil(matched / PAGE_SIZE) });
+    if (pending) pollTimer = setTimeout(() => load({ poll: true }), COVERAGE_POLL_MS);
   }
 
-  refreshBtn.addEventListener('click', load);
-  scopeInputs.forEach((el) => el.addEventListener('change', load));
-  filtersEl.addEventListener('change', renderFiltered);
-  filtersEl.addEventListener('input', (e) => {
-    if (e.target.matches('#cache-cmc-min, #cache-cmc-max')) renderFiltered();
+  function firstPage() {
+    clearTimeout(filterTimer);
+    offset = 0;
+    load();
+  }
+
+  previous.addEventListener('click', () => { offset -= PAGE_SIZE; load(); });
+  next.addEventListener('click', () => { offset += PAGE_SIZE; load(); });
+  refreshBtn.addEventListener('click', firstPage);
+  scopeInputs.forEach((el) => el.addEventListener('change', firstPage));
+  filtersEl.addEventListener('change', (event) => {
+    if (event.target.type === 'checkbox') firstPage();
+  });
+  filtersEl.addEventListener('input', (event) => {
+    if (event.target.type !== 'number') return;
+    clearTimeout(filterTimer);
+    clearTimeout(pollTimer);
+    request?.abort();
+    filterTimer = setTimeout(firstPage, CMC_DEBOUNCE_MS);
   });
   resetBtn.addEventListener('click', () => {
     filtersEl.querySelectorAll('input[type="checkbox"]').forEach((el) => { el.checked = true; });
     filtersEl.querySelector('#cache-cmc-min').value = '';
     filtersEl.querySelector('#cache-cmc-max').value = '';
-    renderFiltered();
+    firstPage();
   });
 
   // Only load the first time this view is shown, not eagerly at startup —

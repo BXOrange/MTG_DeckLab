@@ -323,3 +323,7 @@
   color: var(--text-dim);
   cursor: help;
 }
+
+#cache-pagination[hidden] {
+  display: none;
+}

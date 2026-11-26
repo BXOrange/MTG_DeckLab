@@ -10,7 +10,10 @@ import logging
 import re
 import subprocess
 import sys
+from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +25,7 @@ from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.parser.oracle.gate import ParseResult, unclaimed_spans
 from mtg_analyzer.parser.oracle.normalize import normalize
 from mtg_analyzer.parser.oracle.residue import split_parts
+from mtg_analyzer.services.card_browse_cache import CardBrowseCache, browse_cache, coverage_key
 from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
@@ -143,17 +147,150 @@ def list_cards(
     for card in source:
         card_dict = card.to_dict()
         coverage = coverage_for(card)
-        unclaimed = coverage.get("unclaimed")
-        if unclaimed:
-            marks = _unmodeled_oracle_marks(card, unclaimed)
-            coverage["unmodeled_lines"] = {face: sorted(lines) for face, lines in marks.items()}
-            coverage["unmodeled_ranges"] = {
-                face: {index: bounds for index, bounds in lines.items() if bounds is not None}
-                for face, lines in marks.items()
-            }
-        card_dict["coverage"] = coverage
+        card_dict["coverage"] = _with_oracle_marks(card, coverage)
         cards.append(card_dict)
     return cards
+
+
+def _with_oracle_marks(card: Any, coverage: dict, signature: str | None = None) -> dict:
+    unclaimed = coverage.get("unclaimed")
+    if not unclaimed:
+        return coverage
+    return {
+        **coverage,
+        **_oracle_marks_cached(card, signature or coverage_key(card), tuple(unclaimed)),
+    }
+
+
+_MARK_CACHE_LIMIT = 8192
+_mark_cache: OrderedDict[tuple[str, tuple[str, ...]], dict] = OrderedDict()
+_mark_lock = Lock()
+
+
+def _oracle_marks_cached(card: Any, signature: str, unclaimed: tuple[str, ...]) -> dict:
+    key = signature, unclaimed
+    with _mark_lock:
+        cached = _mark_cache.get(key)
+        if cached is not None:
+            _mark_cache.move_to_end(key)
+            return cached
+    marks = _unmodeled_oracle_marks(card, list(unclaimed))
+    result = {
+        "unmodeled_lines": {face: sorted(lines) for face, lines in marks.items()},
+        "unmodeled_ranges": {
+            face: {index: bounds for index, bounds in lines.items() if bounds is not None}
+            for face, lines in marks.items()
+        },
+    }
+    with _mark_lock:
+        _mark_cache[key] = result
+        _mark_cache.move_to_end(key)
+        if len(_mark_cache) > _MARK_CACHE_LIMIT:
+            _mark_cache.popitem(last=False)
+    return result
+
+
+_TYPE_FLAGS = ("creature", "land", "instant", "sorcery")
+_TYPE_WORDS = re.compile(r"\b(planeswalker|battle|artifact|enchantment)\b", re.IGNORECASE | re.ASCII)
+_COVERAGE_FILTERS = frozenset(("catalogue", "oracle", "unmodeled", "unsupported"))
+
+
+def _browse_types(card: Any) -> set[str]:
+    return {kind for kind in _TYPE_FLAGS if getattr(card, f"is_{kind}")} | {
+        match.lower() for match in _TYPE_WORDS.findall(card.type_line)
+    }
+
+
+def _coverage_bucket(coverage: dict) -> str:
+    if coverage.get("unsupported"):
+        return "unsupported"
+    return coverage["source"] if coverage["modeled"] else "unmodeled"
+
+
+@lru_cache(maxsize=2)
+def _browse_all(database: CardDatabase, revision: tuple[int, int]) -> list:
+    return [(card, coverage_key(card), _browse_types(card)) for card in database.list_cards()]
+
+
+_browse_store_lock = Lock()
+
+
+@lru_cache(maxsize=4)
+def _memory_browse_cache(database: CardDatabase) -> CardBrowseCache:
+    return CardBrowseCache(None)
+
+
+@router.get("/browse")
+def browse_cards(
+    scope: str = Query("all", pattern="^(all|decks)$"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(60, ge=1, le=100),
+    types: str | None = None,
+    colors: str | None = None,
+    coverage: str | None = None,
+    cmc_min: float | None = Query(None, allow_inf_nan=False),
+    cmc_max: float | None = Query(None, allow_inf_nan=False),
+    database: CardDatabase = Depends(get_card_database),
+    decks: DeckDatabase = Depends(get_deck_database),
+) -> dict:
+    """One page of the cache browser, with counts across the selected scope."""
+    if scope == "decks":
+        entries = [
+            (card, coverage_key(card), _browse_types(card))
+            for card in _cards_referenced_by_decks(database, decks)
+        ]
+    else:
+        entries = _browse_all(database, database.revision())
+    # The store owns a work queue. Concurrent first requests must share it.
+    with _browse_store_lock:
+        path = database.browse_cache_path
+        store = browse_cache(path) if path else _memory_browse_cache(database)
+    coverage_filter = _COVERAGE_FILTERS if coverage is None else _COVERAGE_FILTERS.intersection(coverage.split(","))
+    all_coverage = coverage_filter == _COVERAGE_FILTERS
+    type_filter = None if types is None else set(types.split(","))
+    color_filter = None if colors is None else set(colors.split(","))
+    candidates = [
+        (card, signature) for card, signature, card_types in entries
+        if (type_filter is None or card_types & type_filter)
+        and (color_filter is None or (card.color_identity or {"C"}) & color_filter)
+        and (cmc_min is None or card.converted_mana_cost >= cmc_min)
+        and (cmc_max is None or card.converted_mana_cost <= cmc_max)
+    ]
+    verdicts = store.lookup(candidates)
+    missing = [entry for entry, verdict in zip(candidates, verdicts) if verdict is None]
+    matched = [
+        (card, signature, verdict)
+        for (card, signature), verdict in zip(candidates, verdicts)
+        if all_coverage or (verdict is not None and _coverage_bucket(verdict) in coverage_filter)
+    ]
+    # Coverage-filtered pages stay pending until their ordering and counts are exact.
+    pending = bool(missing and coverage_filter)
+    page = matched[offset:offset + limit] if all_coverage or not pending else []
+    cards = []
+    computed = []
+    for card, signature, verdict in page:
+        if verdict is None:
+            verdict = coverage_for(card)
+            computed.append((card.name, signature, verdict))
+        cards.append({**card.to_dict(), "coverage": _with_oracle_marks(card, verdict, signature)})
+    if computed:
+        store.save(computed)
+    pending = pending and len(missing) > len(computed)
+    if pending:
+        store.schedule(missing, coverage_for, prioritize=scope == "decks" or not all_coverage)
+    modeled = None
+    if not pending:
+        modeled = (
+            sum(bool(verdict and verdict["modeled"]) for _, _, verdict in matched)
+            + sum(bool(verdict["modeled"]) for _, _, verdict in computed)
+        )
+    return {
+        "cards": cards,
+        "total": len(entries),
+        "matched": len(matched) if all_coverage or not pending else None,
+        "modeled": modeled,
+        "pending": pending,
+    }
 
 
 @router.get("/coverage-by-set")

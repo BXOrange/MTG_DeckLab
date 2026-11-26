@@ -18,7 +18,8 @@ disposable local cache, never committed:
 ```
 backend/cache/
 ├── db/
-│   └── cards.db          # SQLite: one row per card (id, name, JSON blob)
+│   ├── cards.db          # SQLite: one row per card (id, name, JSON blob)
+│   └── cards.browse.db   # Rebuildable coverage verdicts for the cache browser
 └── images/
     └── <scryfall_id>/
         ├── small.jpg
@@ -33,6 +34,17 @@ re-exported as `CACHE_ROOT`/`DEFAULT_IMAGE_CACHE_DIR` for backward
 compatibility); set the `MTG_CACHE_DIR` env var to point a one-off
 script or test run at a different cache directory than a dev server
 you might already have running against the repo-relative default.
+
+### Browsing the cache
+
+The cache tab requests one page at a time through `GET /api/cards/browse`.
+The backend applies filters and counts all matching cards in the chosen scope.
+It computes exact Oracle highlights for cards on the requested page and reuses
+those highlights in the server process. The first visit after a parser update
+may show a coverage progress message while missing verdicts are computed in
+the background. The initial unfiltered page is available during preparation.
+The derived SQLite store reuses verdicts across restarts and discards stale
+results by checking the card content, parser version and support status.
 
 ### How the DB and images link up
 
