@@ -207,8 +207,7 @@ def test_any_scope_draws_for_its_controller_not_whoever_is_active():
 
 @pytestmark_db
 @pytest.mark.parametrize("name", [
-    "Carrier Pigeons", "Blessed Wine", "Astrolabe", "Barbed Sextant",
-    "Burnout", "Mystic Melting",
+    "Carrier Pigeons", "Blessed Wine", "Burnout", "Mystic Melting",
 ])
 def test_real_card_now_modeled(name):
     card = CardDatabase(DEFAULT_DB_PATH).get_card(name)
@@ -216,3 +215,16 @@ def test_real_card_now_modeled(name):
         pytest.skip(f"{name} not cached")
     result = parse_oracle(card)
     assert result.coverage == MODELED, f"{name}: {result.unclaimed}"
+
+
+@pytestmark_db
+@pytest.mark.parametrize("name", ["Astrolabe", "Barbed Sextant"])
+def test_a_delayed_draw_after_an_add_clause_is_claimed_because_the_mana_ability_runs_it(name):
+    # BUG-73 left "{1}, {T}, Sacrifice ~: Add ... Draw a card at the beginning of the next turn's upkeep." unclaimed
+    # while `ManaAbility` had no delayed draw; MEC-175 builds `delayed_draw_cards` (a delayed trigger on the stack,
+    # RULE 603.7), so the line is claimed again.
+    card = CardDatabase(DEFAULT_DB_PATH).get_card(name)
+    if card is None:
+        pytest.skip(f"{name} not cached")
+    result = parse_oracle(card)
+    assert result.coverage == MODELED, result.unclaimed

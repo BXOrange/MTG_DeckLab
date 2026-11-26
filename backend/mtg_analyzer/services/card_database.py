@@ -36,6 +36,9 @@ _SUPPORT_METADATA_PREDECESSOR = "2a66ef14c56ef3c15b806c9ea52f19194124b8b44886bea
 
 # Same stored card format before the alias backfill became a one-time migration.
 _ALIAS_BACKFILL_PREDECESSOR = "d1976720b6c6830d3c0df5fb56d06260b6a6f2bf01fc386096a716c5fc2a00c8"
+# The browse endpoint adds read helpers without changing the stored format.
+_BROWSE_CACHE_PREDECESSOR = "2182c04c2cf37d07c28d62a388e9fb6675007fc6560fd9f17359fe62d336d05a"
+
 # PRAGMA user_version tracks structural/data migrations independently of source hashes.
 _ALIAS_BACKFILL_VERSION = 1
 
@@ -106,6 +109,7 @@ class CardDatabase:
     """Local persistence for `Card` objects, lazily populated from Scryfall."""
 
     def __init__(self, db_path: Union[str, Path] = ":memory:") -> None:
+        self.browse_cache_path = None if db_path == ":memory:" else Path(db_path).with_suffix(".browse.db")
         if db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         # FastAPI runs sync route handlers in a thread pool, so a single
@@ -174,7 +178,7 @@ class CardDatabase:
     def _clear_on_schema_change(
         self, conn: sqlite3.Connection, old: Optional[str], new: str
     ) -> None:
-        if old == _ALIAS_BACKFILL_PREDECESSOR:
+        if old in {_ALIAS_BACKFILL_PREDECESSOR, _BROWSE_CACHE_PREDECESSOR}:
             self.schema_migrated = True
             return
         if old in {_SUPPORT_METADATA_PREDECESSOR,
@@ -328,6 +332,11 @@ class CardDatabase:
                 "SELECT data FROM cards WHERE id = ?", (scryfall_id,)
             ).fetchone()
         return Card.from_dict(json.loads(row[0])) if row else None
+
+    def revision(self) -> tuple[int, int]:
+        """Detect writes on this connection and from other processes."""
+        with self._lock:
+            return self._connection.total_changes, self._connection.execute("PRAGMA data_version").fetchone()[0]
 
     def list_cards(self) -> list[Card]:
         """Return every cached card, ordered by name — for a "browse the cache" view."""

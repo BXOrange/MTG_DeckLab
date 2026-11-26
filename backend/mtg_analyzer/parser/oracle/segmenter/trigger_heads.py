@@ -725,7 +725,8 @@ ENTERS_IF_CAST_RE = re.compile(
 #: intervening-if reads the flag `RulesEngine.cast_spell` stamped (`GameObject.madness_cost_paid`). RULE 702.117's
 #: "if its surge cost was paid" (Reckless Bushwhacker, Tyrant of Valakut) is the same shape on `surge_cost_paid`.
 ENTERS_IF_MADNESS_PAID_RE = re.compile(
-    r"^when ~ enters, if its (?P<cost>madness|surge) cost was paid,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
+    r"^when ~ enters, if (?:its (?P<cost>madness|surge|prowl)|(?:its|his|her) (?P<sneak>sneak)) "
+    r"cost was paid,\s*(?P<body>.+)$", re.IGNORECASE | re.S,
 )
 
 CAST_SPELL_NOT_THEIR_TURN_TRIGGER_RE = re.compile(

@@ -32,7 +32,7 @@ from ...models.mana.mana_cost import ManaCost
 from ...models.game.player import Player
 from ...parser.oracle.catalogue.keywords import parse_keywords
 from ...parser.oracle.catalogue.saga import all_chapter_numbers
-from .. import card_registry, combat, continuous, copy_mechanics, dungeons, face_down, variants
+from .. import card_registry, combat, continuous, copy_mechanics, cost_referents, dungeons, face_down, variants
 from ..combat import is_protected_from
 from ..costs import DISCARD_HAND, ActivationCost, parse_activation_cost
 from ..mana_abilities import restriction_predicate_for_cast
@@ -380,6 +380,7 @@ class TriggerCollectionMixin:
                     self.pending_triggers.append((ability, captured))
         self._collect_inherent_triggers(event)
         self._collect_self_cast_triggers(event)
+        self._collect_cipher_triggers(event)
         self._collect_self_hand_arrival_triggers(event)
         # RULE 113.6k: the card’s “becomes plotted” ability functions in exile.
         if event.type == EventType.BECOMES_PLOTTED:
@@ -1074,6 +1075,25 @@ class TriggerCollectionMixin:
                     and ability.check_trigger(event, self.context)):
                 self._queue_firing(ability, event, obj, capture=False)
 
+    def _collect_cipher_triggers(self, event: GameEvent) -> None:
+        if event.type != EventType.DAMAGE or not event.get("is_player") or not event.get("combat"):
+            return
+        source = self.state.find_object(event.get("source_id"))
+        if source is None or source.zone != Zone.BATTLEFIELD or source.loses_all_abilities:
+            return
+        source_visit = (source.instance_id, source.zone_incarnation)
+        from ..effects.cipher import CopyEncodedCardEffect
+
+        for player in self.state.players:
+            for card in player.exile:
+                if card.cipher_encoded_on == source_visit:
+                    ability = TriggeredAbility(
+                        EventType.DAMAGE, [CopyEncodedCardEffect(card, source)],
+                        source=source, controller_id=event.get("source_controller_id"),
+                        description=f"{card.name}: Cipher",
+                    )
+                    self._queue_firing(ability, event, source)
+
     def _collect_replicate_triggers(self, event: GameEvent) -> None:
         # RULE 702.56a/b: each paid instance triggers separately; copies aren't casts.
         if event.type != EventType.SPELL_CAST:
@@ -1115,6 +1135,20 @@ class TriggerCollectionMixin:
                 source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Storm",
             )
             self._queue_firing(ability, event, obj, capture=False)
+        # RULE 702.69a Gravestorm: "copy it for each permanent that was put into a graveyard from the battlefield this
+        # turn" (a DIES event is that move for any permanent, tokens included); RULE 702.69b: each instance triggers
+        # separately.
+        graveyard_instances = combat.keyword_instances(obj, "gravestorm")
+        if graveyard_instances:
+            fallen = sum(e.type == EventType.DIES for e in self.state.events_this_turn())
+            for _ in range(graveyard_instances):
+                ability = TriggeredAbility(
+                    EventType.SPELL_CAST,
+                    [CopySpellEffect(count=fallen, source=obj,
+                                     spell_from_trigger_event="instance_id", choose_new_targets=True)],
+                    source=obj, controller_id=obj.controller_id, description=f"{obj.name}: Gravestorm",
+                )
+                self._queue_firing(ability, event, obj, capture=False)
 
     def _collect_demonstrate_triggers(self, event: GameEvent) -> None:
         """RULE 702.144a: "When you cast this spell, you may copy it. If you do, choose an opponent to
@@ -1465,6 +1499,19 @@ class TriggerCollectionMixin:
         queue: list[tuple["TriggeredAbility", GameEvent]],
         event: Optional[GameEvent] = None,
     ) -> bool:
+        """Place or pause ``ability`` (`_place_or_pause_trigger_bound`), with the referents its antecedent recorded
+        readable while its targets are announced -- MEC-172 / RULE 603.3d + 608.2h: a reflexive trigger's target bound
+        ("mana value less than or equal to the discarded card's mana value") is measured as it goes on the stack."""
+        with cost_referents.bound_to_resolution(ability.source, getattr(ability, "cost_stamps", None)):
+            return self._place_or_pause_trigger_bound(ability, effects, queue, event)
+
+    def _place_or_pause_trigger_bound(
+        self,
+        ability: "TriggeredAbility",
+        effects: list[Any],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+        event: Optional[GameEvent] = None,
+    ) -> bool:
         """Place ``ability`` using ``effects`` as its resolve-time effects if
         it can go on the stack immediately; otherwise open the matching
         `pending_choice` and return ``False`` (the caller must stop — the
@@ -1605,6 +1652,20 @@ class TriggerCollectionMixin:
             if getattr(obj, "instance_id", None) is not None or getattr(obj, "id", None) is not None
         }
     def _continue_trigger_multi_target(
+        self,
+        ability: "TriggeredAbility",
+        override: Optional[list[Any]],
+        queue: list[tuple["TriggeredAbility", GameEvent]],
+        specs: list[TargetSpec],
+        groups: list[list[Any]],
+        event: Optional[GameEvent] = None,
+        spans: Optional[list[int]] = None,
+    ) -> bool:
+        """`_continue_trigger_multi_target_bound` with the antecedent's recorded referents readable (MEC-172)."""
+        with cost_referents.bound_to_resolution(ability.source, getattr(ability, "cost_stamps", None)):
+            return self._continue_trigger_multi_target_bound(ability, override, queue, specs, groups, event, spans)
+
+    def _continue_trigger_multi_target_bound(
         self,
         ability: "TriggeredAbility",
         override: Optional[list[Any]],
@@ -2158,6 +2219,7 @@ class TriggerCollectionMixin:
                 and (event or {}).get("instance_id") == getattr(ability.source, "instance_id", None)
             ) else 0,
         )
+        item.cost_stamps = getattr(ability, "cost_stamps", None)  # RULE 608.2h: a reflexive trigger's carried referents
         from ..targeting import ability_target_specs
 
         if target_groups is not None and (len(target_groups) > 1 or any(

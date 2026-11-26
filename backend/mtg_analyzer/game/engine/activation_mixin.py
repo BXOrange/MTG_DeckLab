@@ -872,10 +872,7 @@ class ActivationMixin:
         if cost.exile_others:
             # Mechtitan Core: "Exile ~ and four other artifact creatures and/or Vehicles you control" — the picks reuse
             # `tap_choices` (as `sacrifice_count` does); the source itself is never one of them.
-            count, word = cost.exile_others
-            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
-                      if cost.exile_others_total_mana_value_x
-                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            chosen = self._resolve_other_exile_cost(player, source, cost, x, tap_choices)
             if chosen is None:
                 return False
         if cost.sacrifice_all_lands and any(obj.cant_be_sacrificed_this_turn
@@ -911,6 +908,14 @@ class ActivationMixin:
         siblings) — `continuous.has_subtype` alone would never match that
         (a main type isn't a subtype), so `has_card_type` is tried too.
         """
+        if subtype == "conspire":
+            from ...models.cards.card_colors import effective_colors
+
+            colors = effective_colors(source)
+            return [
+                obj for obj in self.state.permanents_controlled_by(player.id)
+                if obj.is_creature and not obj.tapped and colors.intersection(effective_colors(obj))
+            ]
         return [
             o for o in self.state.permanents_controlled_by(player.id)
             # ENG-51: the shared permanent-phrase matcher — a subtype, a main
@@ -1473,6 +1478,10 @@ class ActivationMixin:
     def _matches_sacrifice_type(
         obj: GameObject, what: str, state: Optional[GameState] = None, source: Optional[GameObject] = None,
     ) -> bool:
+        if what == "casualty":
+            threshold = ((source.parametric_keywords or {}).get("casualty") or {}).get("n") if source else None
+            return (threshold is not None and obj.is_creature and not obj.cant_be_sacrificed_this_turn
+                    and obj.power is not None and obj.power >= threshold)
         if what in ("permanent", "another"):
             return True
         if what == "modified_creature":
@@ -1533,6 +1542,16 @@ class ActivationMixin:
             sums.update(added)
             nonempty.update(added)
         return sorted(nonempty)
+
+    def _resolve_other_exile_cost(self, player, source, cost, x, chosen_ids):
+        if cost.craft_materials is not None:
+            from ..craft import resolve_materials
+
+            return resolve_materials(self.state, player, source, cost.craft_materials, chosen_ids)
+        if cost.exile_others_total_mana_value_x:
+            return self._resolve_exile_value_cost(player, source, cost, x, chosen_ids)
+        count, word = cost.exile_others
+        return self._resolve_sacrifice_count(player, count, word, chosen_ids, source)
 
     def _resolve_exile_value_cost(self, player, source, cost, x, chosen_ids):
         """RULE 602.2b: a nonempty subset of other permanents totals exactly X."""
@@ -1913,6 +1932,11 @@ class ActivationMixin:
         """Controlled permanents eligible for a singular return cost (``state``: "attacking" / "unblocked_attacking" /
         PAR-232 "tapped" -- Urban Retreat's "a tapped creature you control"). ``subtype`` is a subtype or, through the
         shared permanent-phrase matcher, a main type ("creature")."""
+        if subtype == "sneak_attacker":
+            # RULE 702.190a: unlike Ninjutsu, Sneak is limited to the caster's declare blockers step.
+            if self.state.current_step != "declare_blockers" or player is not self.state.active_player:
+                return []
+            return [obj for obj in self.ninjutsu_unblocked_attackers(player) if obj.is_creature]
         attacking = state in ("attacking", "unblocked_attacking")
         return [obj for obj in self.state.permanents_controlled_by(player.id)
                 if continuous.matches_permanent_word(obj, subtype)
@@ -2103,12 +2127,9 @@ class ActivationMixin:
             amount = x if cost.pay_energy == PAY_ENERGY_X else cost.pay_energy
             self.rules.add_player_counters(player, -amount, "energy")
         if cost.exile_others:
-            count, word = cost.exile_others
             source.last_cost_exiled_ids = []
             source.last_cost_exiled_incarnations = {}
-            chosen = (self._resolve_exile_value_cost(player, source, cost, x, tap_choices)
-                      if cost.exile_others_total_mana_value_x
-                      else self._resolve_sacrifice_count(player, count, word, tap_choices, source))
+            chosen = self._resolve_other_exile_cost(player, source, cost, x, tap_choices)
             with self.state.simultaneous():
                 for obj in chosen or []:
                     self.rules.exile(obj)
@@ -2597,6 +2618,13 @@ class ActivationMixin:
                     raise ValueError("illegal targets for the ability")
         finally:
             source.x_paid = previous_x
+        if ability.cost.craft_materials is not None and tap_choices is None:
+            from ..craft import offer_materials
+
+            if not self.can_activate(player, source, ability, assume_mana_available=True):
+                raise ValueError("Craft cannot be activated")
+            offer_materials(self.rules, player, source, ability_index, ability.cost.craft_materials)
+            return
         targets_own_creature = any(isinstance(target, GameObject) and target.is_creature
                                    and target.controller_id == player.id for target in targets or [])
         self._auto_tap_for_activation_if_needed(
@@ -2671,7 +2699,7 @@ class ActivationMixin:
                 hand_card_choices=hand_card_choices, return_choices=return_choices, counter_choice=counter_choice,
                 targets=targets or [],
             )
-        if ability.cost.exile_self_from_hand:
+        if ability.cost.exile_self_from_hand or ability.cost.craft_materials is not None:
             # RULE 400.7j: the resolving ability can find the new object its own cost exiled.
             hideaway_event = hideaway_event or GameEvent(EventType.ACTIVATED_ABILITY, controller_id=player.id)
             hideaway_event["cost_exiled_source_incarnation"] = source.zone_incarnation

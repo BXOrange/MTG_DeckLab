@@ -5,6 +5,7 @@
 // save/load the whole thing as a JSON file. Editing goes through the server's
 // `edit_*` session actions (snapshotted, so Rückgängig works on edits too).
 
+import { printingHoverAttr } from './gameBoard/html.js';
 import {
   startReplay,
   exportReplay,
@@ -637,7 +638,7 @@ export function createReplayView() {
         const isBottom = i === topFirst.length - 1;
         const pos = isTop ? 'oben' : isBottom ? 'unten' : String(i + 1);
         return `
-          <li class="replay-lib-item" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}">
+          <li class="replay-lib-item" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}"${printingHoverAttr(o.card_id)} title="${escapeHtml(o.name)}">
             <span class="replay-lib-pos">${pos}</span>
             <span class="replay-lib-name">${escapeHtml(o.name)}</span>
             <span class="replay-lib-tools">
@@ -774,7 +775,7 @@ export function createReplayView() {
     // "→ Zone…" dropdown this replaced also let a 2-player board reassign
     // owner/controller by dropping onto the other player's zone.
     return `
-      <div class="${classes.join(' ')}" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt ? ` (${pt})` : ''}" draggable="true">
+      <div class="${classes.join(' ')}" data-iid="${o.instance_id}" data-hover-card="${escapeHtml(o.name)}"${printingHoverAttr(o.card_id)} title="${escapeHtml(o.name)}${pt ? ` (${pt})` : ''}" draggable="true">
         ${inner}
         ${badges ? `<div class="replay-card-badges">${badges}</div>` : ''}
         <div class="replay-card-tools">

@@ -13,6 +13,7 @@ from mtg_analyzer.models.game.game_object import GameObject, Zone
 from mtg_analyzer.parser.oracle.catalogue.handlers import match_clause
 from mtg_analyzer.parser.oracle.gate import MODELED, parse_oracle
 from mtg_analyzer.services.card_database import CardDatabase
+from tests.support.cards import strip_inert_keywords
 from tests.support.game import creature, land, make_engine
 
 _DB = CardDatabase(DB_PATH)
@@ -21,7 +22,7 @@ _DB = CardDatabase(DB_PATH)
 def _named(name: str) -> Card:
     card = _DB.get_card(name)
     assert card is not None, name
-    return card
+    return strip_inert_keywords(card)  # BUG-75: a keyword the engine ignores would leave the card UNMODELED
 
 
 def _engine():

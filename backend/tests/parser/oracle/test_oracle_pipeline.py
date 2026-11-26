@@ -702,7 +702,7 @@ def test_draw_recognizes_targeted_and_mass_forms():
     targeted = parse_effect_body("target player draws a card")[0]
     assert targeted.params == {"count": 1, "target_kind": "player"}
     opponent = parse_effect_body("target opponent draws 2 cards")[0]
-    assert opponent.params == {"count": 2, "target_kind": "player"}
+    assert opponent.params == {"count": 2, "target_kind": "opponent"}  # BUG-88: excludes the caster
     each = parse_effect_body("each opponent draws a card")[0]
     assert each.params == {"count": 1, "selector": "each_opponent"}
 

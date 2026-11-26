@@ -538,6 +538,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "coin_of_fate_split": "move_object",
     "cast_exiled_with_source": "cast",
     "mark_event_log": "set_status",
+    "accept_offer": "set_status",  # RULE 608.2c: records that a player said yes to an optional offer
     "discarded_this_way_riders": "discard",
     "exile_random_graveyard_cards_cast_free": "exile",
     "exile_instant_sorcery_from_each_graveyard": "exile",
@@ -816,6 +817,7 @@ _ALIAS_TYPES: dict[str, str] = {
     "group_put_from_hand": "move_object",
     "put_from_defending_hand": "move_object",
     "put_hand_cards_on_top": "move_object",
+    "put_hand_cards_on_library": "move_object",
     "put_hand_on_bottom": "move_object",
     "put_self_onto_battlefield_from_hand": "move_object",
     "radiation_life_gain": "gain_life",
@@ -979,6 +981,7 @@ _CONTINUATION_TYPES: dict[str, str] = {
 
 
     "alternative_payment": "118.3",  # choose and finish a payable cost before its payoff
+    "amplify_entry": "702.38a",  # reveal choices before entry counters
     "devour_entry": "702.82a",  # sacrifice choices before entry counters
     "divided_damage_then_retaliate": "603.3d",  # announce targets and damage shares
 

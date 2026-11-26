@@ -378,6 +378,7 @@ class DamageDeathMixin:
             # damage is dealt.
             source_is_attacking=bool(getattr(source, "attacking", False)),
             source_is_legendary=bool(getattr(source, "is_legendary", False)),
+            source_is_commander=bool(getattr(source, "is_commander", False)),
             combat=combat,
             damage_batch_id=(self.state.combat_damage_batch or {}).get("id") or self.state.next_timestamp(),
             # "Whenever an instant or sorcery spell you control … deals
@@ -781,38 +782,29 @@ class DamageDeathMixin:
         `_move_to_graveyard` directly, since RULE 701.16c says regeneration
         never applies to them.
 
-        ``can_be_regenerated=False`` (Wrath of God's "They can't be
-        regenerated.") skips the replacement pass entirely — a card-specific
-        override of RULE 701.16, not RULE 701.16c (which is about sacrifice/
-        0-toughness, unrelated to this) — so an existing shield simply
-        doesn't get a chance to intercept this particular destroy. A creature
-        carrying ``temp_cant_be_regenerated`` ("can't be regenerated this
-        turn", `CantBeRegeneratedEffect`) is treated the same way.
-
-        ``by_effect`` is RULE 122.1c's own qualifier: a shield counter replaces destruction
-        "as the result of an effect" only, so the RULE 704.5g lethal-damage pass
-        (`_sba_check_lethal_damage`, ``by_effect=False``) is not protected by one. It sits
-        ahead of the regeneration opt-out because "can't be regenerated" says nothing about a
-        shield counter, which isn't regeneration.
+        Regeneration prohibitions filter regeneration replacements; other
+        replacements still apply. Shield counters apply to destruction by
+        effects (RULE 122.1c), including when other replacements also apply.
         """
         if combat.has_indestructible(obj):
-            # RULE 702.12b: an indestructible permanent can't be destroyed — no shield or
-            # regeneration is spent either, since nothing is replaced.
             return
-        if by_effect and obj.counters.get("shield", 0) > 0:
-            self.add_counters(obj, -1, "shield")
+        regeneration_allowed = (
+            can_be_regenerated and not obj.temp_cant_be_regenerated
+            and not self._damaged_by_regen_denier(obj)
+        )
+        event = GameEvent(
+            EventType.DESTROY, target_id=obj.instance_id, object=obj.name,
+            by_effect=by_effect, can_be_regenerated=regeneration_allowed,
+        )
+        self.apply_replacements(event, on_resolved={"kind": "destroy", "visit": obj.zone_incarnation})
+
+    def _finish_destroy(self, callback, event):
+        if event is None:
             return
-        if (not can_be_regenerated or getattr(obj, "temp_cant_be_regenerated", False)
-                or self._damaged_by_regen_denier(obj)):
+        obj = self.state.find_object(event.get("target_id"))
+        if obj is not None and obj.zone == Zone.BATTLEFIELD and obj.zone_incarnation == callback["visit"]:
             self._move_to_graveyard(obj)
-            return
-        event = GameEvent(EventType.DESTROY, target_id=obj.instance_id, object=obj.name)
 
-        def _finish(resolved: Optional[GameEvent]) -> None:
-            if resolved is not None:
-                self._move_to_graveyard(obj)
-
-        self.apply_replacements(event, on_resolved=_finish)
     def _damaged_by_regen_denier(self, obj: GameObject) -> bool:
         """RULE 701.16 (Bone Shaman): ``obj`` was dealt damage this turn by a source whose controller activated "creatures
         dealt damage by ~ this turn can't be regenerated this turn" (`temp_deny_regen_to_damaged`). The damage may come
@@ -959,6 +951,7 @@ class DamageDeathMixin:
         self, player: Player, what: str = "permanent", count: "int | str" = 1,
         exclude: Optional[GameObject] = None, chooser: Optional[Player] = None,
         source: Optional[GameObject] = None, object_filter: Optional[dict] = None,
+        record_referent: bool = False,
     ) -> None:
         """``player`` sacrifices up to ``count`` permanents matching ``what``
         (RULE 701.17) — an effect-driven sacrifice (annihilator, RULE
@@ -996,7 +989,7 @@ class DamageDeathMixin:
             prompt="Wähle eine bleibende Karte zum Opfern",
             # PAR-208: a sacrifice paid for an ability's own cost ("you may sacrifice a creature. If you do, ... that
             # creature's power") is remembered on that ability's source (`note_sacrificed`, RULE 608.2h).
-            source=source,
+            source=source, record_referent=record_referent,
         )
     def _phase_in_after_source_leaves(self, event: GameEvent) -> None:
         # RULE 610.4 / 702.26g: phase in all affected visits and their
@@ -1306,6 +1299,20 @@ class DamageDeathMixin:
         """
         self._move_for_library_shuffle(obj, Zone.LIBRARY)
         self.shuffle_library(self.state.player_by_id(obj.owner_id))
+
+    def shuffle_objects_into_libraries(self, objs: list[GameObject]) -> None:
+        """"Shuffle <objects> into their owners' libraries" (RULE 400.3: each object goes to its own owner's library;
+        RULE 701.24a: every affected library is then shuffled, once, however many of the objects it received).
+        An empty list, or an object already gone from play, shuffles nothing (RULE 400.7: a stale object is not the
+        same object any more)."""
+        owners: list[Player] = []
+        for obj in objs:
+            owner = self.state.player_by_id(obj.owner_id)
+            self._move_for_library_shuffle(obj, Zone.LIBRARY)
+            if owner not in owners:
+                owners.append(owner)
+        for owner in owners:
+            self.shuffle_library(owner)
 
     def _move_for_library_shuffle(self, obj: GameObject, destination: Zone) -> None:
         """Move one member of a shuffle, honoring any chosen command-zone replacement."""

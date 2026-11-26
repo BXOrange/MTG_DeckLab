@@ -53,7 +53,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import card_coverage, is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,
@@ -236,7 +236,7 @@ def build_report(cards, min_cluster: int = 5) -> dict:
     template_freq: Counter[str] = Counter()
     for card in cards:
         name = getattr(card, "name", "") or ""
-        result = parse_oracle(card)
+        result = card_coverage(card)  # BUG-86: every half the engine binds
         # RULE 123.2: Sticker inserts are not playable cards, even when their
         # empty/ordinary text would otherwise parse or a name is registered.
         sticker = (getattr(card, "type_line", "") or "").strip().casefold() == "stickers"

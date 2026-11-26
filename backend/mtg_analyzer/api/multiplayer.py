@@ -379,6 +379,7 @@ async def start_game(
     ctx: AuthContext = Depends(current_account),
     sessions: GameSessionManager = Depends(get_game_session_manager),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    decks: DeckDatabase = Depends(get_deck_database),
 ) -> dict[str, Any]:
     """Every seat has accepted: resolve the decks and start the real game.
 
@@ -403,7 +404,7 @@ async def start_game(
         snapshot = seat.deck_snapshot
         library, commanders, errors, sideboard = resolve_deck(
             Deck.from_dict(snapshot) if snapshot else None, loader,
-            include_sideboard=True, has_id=bool(seat.deck_id),
+            lookup_printing=decks.get_printing_images, include_sideboard=True, has_id=bool(seat.deck_id),
         )
         if errors:
             raise api_error(

@@ -42,7 +42,7 @@ def test_target_player_edict_parses():
     assert match_clause(
         "target opponent sacrifices 2 nontoken creatures of their choice"
     ) == [EffectSpec("sacrifice", {
-        "target_kind": "player", "what": "nontoken_creature", "count": 2,
+        "target_kind": "opponent", "what": "nontoken_creature", "count": 2,
     })]
 
 

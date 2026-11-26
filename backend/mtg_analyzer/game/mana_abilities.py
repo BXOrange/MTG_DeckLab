@@ -76,15 +76,48 @@ parameter).
 from __future__ import annotations
 
 import re
+from itertools import combinations
 from dataclasses import dataclass, field, replace as dataclass_replace
 from typing import Any, Callable, Iterable, Optional
 
 from ..parser.oracle.catalogue.count_phrase import parse_amount_phrase
 from ..parser.oracle.catalogue.levels import LEVEL_TIER_RE
+from ..parser.oracle.mana_riders import (
+    COUNT_WORDS,
+    SELF_COUNTER_X_COST_RE,
+    TWO_DISTINCT_MANA_RE,
+    X_COUNTER_MANA_RE,
+    NONARTIFACT_CAST_BAN_KIND,
+    PLAYER_COUNTER_RIDER_RE,
+    SOURCE_COUNTER_RIDER_RE,
+    _MANA_ACTIVATION_LIMIT_RE,
+    _SELF_DAMAGE_RE,
+    _SELF_DAMAGE_UNLESS_SUBTYPE_RE,
+    _SELF_RAD_COUNTERS_RE,
+    SKIP_NEXT_UNTAP_RIDER_RE,
+    delayed_draw_rider,
+    draw_rider,
+    exhaustion_sacrifice_rider,
+    instead_production_clause,
+    instead_rider,
+    life_rider,
+    mana_condition_dict,
+    split_sentences,
+    counter_mana_riders as _counter_mana_riders,
+    count_token_value as _rad_count_of,
+    parse_restriction as _parse_restriction,
+    ABILITY_ONLY_KIND,
+    ANY_SPELL_KIND,
+    COLORLESS_WORD,
+    SPELL_FROM_ZONE_KIND,
+    TYPE_LIST_SPELL_KIND,
+    X_SPELL_KIND,
+    normalized_condition,
+)
 from ..parser.oracle.normalize import strip_reminder_text
 from . import continuous, static_conditions
 from ..models.cards.card_colors import effective_colors
-from .costs import ActivationCost, parse_activation_cost
+from .costs import REMOVE_COUNTERS_X, ActivationCost, parse_activation_cost
 
 #: Colours the five basic lands produce, by their basic land *type*.
 BASIC_LAND_MANA = {
@@ -96,7 +129,9 @@ BASIC_LAND_MANA = {
 }
 
 #: The text inside an "Add …." clause (up to the sentence's period).
-_ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)\.")
+#: A clause printed without its closing period ("{T}: Add {C}" on Artist Alley, a line whose next line is a sentence of
+#: its own) ends at the end of the line instead.
+_ADD_CLAUSE_RE = re.compile(r"Add ([^.]*)(?:\.|$)")
 #: "For each color among permanents you control, add one mana of that
 #: color." (ENG-27, Bloom Tender) — a deterministic *aggregate* production,
 #: not a player choice at all: tapping always makes one mana of *every*
@@ -146,6 +181,15 @@ _LAND_COULD_PRODUCE_RE = re.compile(
     r"any colou?r that a land (?P<scope>you control|an opponent controls) could produce",
     re.IGNORECASE,
 )
+#: BUG-85 (RULE 106.7): "Add one mana of any type that a land you control could produce." (Reflecting Pool, Naga
+#: Vitalist, Cactus Preserve) and "... that a Gate you control could produce" (Plaza of Harmony). Unlike the colour
+#: wording above, a *type* includes colourless, so the menu is every mana type (WUBRGC) the qualifying lands could
+#: produce (`mana_types_a_land_could_produce`). The qualifier is a land subtype; "the sacrificed land" (Squandered
+#: Resources) is a cost-linked referent the builder does not read and stays out of this shape.
+_LAND_TYPE_COULD_PRODUCE_RE = re.compile(
+    r"(?:one )?mana of any type that an? (?P<qualifier>land|gate) you control could produce",
+    re.IGNORECASE,
+)
 #: "Add one mana of any color in your commander's color identity." (Arcane
 #: Signet, Command Tower, Commander's Sphere, Path of Ancestry, Opal Palace,
 #: Hidden Hideout, …) — same bug/fix shape as `_LAND_COULD_PRODUCE_RE`
@@ -179,24 +223,12 @@ _ANY_COLOR_PHRASES = ("any color", "any colour", "any one color", "any one colou
 #: Harbinger's bare "one mana of any color", and the "X mana of any one
 #: color" variable-amount shape `_WHERE_X_RE` peels off *before* this ever
 #: runs — its own base clause never has a real number to find here either).
-_ANY_COLOR_COUNT_WORDS: dict[str, int] = {
-    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-}
+_ANY_COLOR_COUNT_WORDS = COUNT_WORDS
 _ANY_COLOR_COUNT_RE = re.compile(
     r"^(?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+mana\s+of\s+any",
     re.IGNORECASE,
 )
 
-#: A mana ability's own extra "You get N rad counters" side effect (RULE
-#: 729/605.1a — Harold and Bob's granted "{T}: Add three mana of any one
-#: color. You get two rad counters."), the rad-counter sibling of
-#: `_SELF_DAMAGE_RE`. A spelled-out count needs the same local word map
-#: `_ANY_COLOR_COUNT_WORDS` provides above (raw, non-normalized oracle text).
-_SELF_RAD_COUNTERS_RE = re.compile(
-    r"you get (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) rad counters?",
-    re.IGNORECASE,
-)
 
 #: RULE 605.1a: an ability that requires a target is never a mana ability,
 #: however "mana-shaped" its effect looks (Deathrite Shaman's "Exile target
@@ -204,12 +236,6 @@ _SELF_RAD_COUNTERS_RE = re.compile(
 #: stack-using, responds-to-able activated ability, not a mana ability).
 _TARGET_RE = re.compile(r"\btarget\b", re.IGNORECASE)
 
-#: A mana ability's own extra "this creature/land deals N damage to you"
-#: side effect (RULE 605.1a permits a mana ability other effects besides
-#: producing mana) — the painland/Elves-of-Deep-Shadow template.
-_SELF_DAMAGE_UNLESS_SUBTYPE_RE = re.compile(
-    r"damage to you if you (?:don't|do not) control an? (?P<subtype>[a-z]+)", re.IGNORECASE,
-)
 
 
 def self_damage_amount(ability, state, controller_id):
@@ -222,10 +248,6 @@ def self_damage_amount(ability, state, controller_id):
     return ability.self_damage
 
 
-_SELF_DAMAGE_RE = re.compile(
-    r"(?:this creature|this land|this permanent|~) deals (\d+) damage to you",
-    re.IGNORECASE,
-)
 
 #: "<base> for each <subject>" (Elvish Archdruid, Circle of Dreams Druid,
 #: Priest of Titania, Gyre Sage).
@@ -279,72 +301,6 @@ _PLUS_ADDITIONAL_FOR_EACH_RE = re.compile(
     r"^(?P<base>.+?),\s*plus an additional\s+(?P<extra>.+?)\s+for each\s+(?P<subject>.+)$", re.IGNORECASE
 )
 
-# --- RULE 605.3a mana spend restrictions ("Spend this mana only ...") ----
-
-#: The whole restriction sentence's own clause, captured separately from the
-#: "Add ..." clause since they're two sentences on the same cost line.
-_RESTRICTION_CLAUSE_RE = re.compile(r"spend this mana only (?:to|on)\s+(?P<clause>.+?)\.", re.IGNORECASE)
-#: RULE 601.2c's "and that spell can't be countered" rider, printed on some
-#: of these (Cavern of Souls, Delighted Halfling) — stripped before
-#: classifying the clause below; the "can't be countered" half isn't a
-#: spend restriction at all and isn't modeled here (a resolve-time
-#: property of the cast spell, not the mana that paid for it).
-_CANT_BE_COUNTERED_TAIL_RE = re.compile(r",\s*and that spell can'?t be countered$", re.IGNORECASE)
-#: "... or activate an ability of a(n) <source>" / "... or activate
-#: abilities of <source>(s)" — peeled off the end of a clause (Castle
-#: Garenbrig, Primal Beyond); the exact trailing source word isn't
-#: re-verified against the clause's own type (fail-soft: every real card
-#: found pairs them, so this is a simplification, not a guess).
-_RESTRICTION_ABILITY_TAIL_RE = re.compile(
-    r"^(?P<head>.+?)\s+or activate (?:an ability of an?|abilities of)\s+.+$", re.IGNORECASE
-)
-_RESTRICTION_CONTAINS_X_RE = re.compile(r"^costs that contain \{x\}$", re.IGNORECASE)
-_RESTRICTION_CREATURE_SPELL_RE = re.compile(r"^cast (?:an? )?creature spells?$", re.IGNORECASE)
-_RESTRICTION_COMMANDER_RE = re.compile(r"^cast your commander$", re.IGNORECASE)
-_RESTRICTION_LEGENDARY_RE = re.compile(r"^cast (?:an? )?legendary spell$", re.IGNORECASE)
-_RESTRICTION_INSTANT_SORCERY_RE = re.compile(
-    r"^cast (?:an? )?instant (?:and|or) sorcery spells?$", re.IGNORECASE
-)
-#: "cast a <Type1> or <Type2> spell" (Turtle Lair) — checked before the
-#: single-type form below since it also matches "cast (?:an? )?[a-z]+".
-_RESTRICTION_MULTI_TYPE_RE = re.compile(
-    r"^cast (?:an? )?(?P<t1>[a-z]+) or (?P<t2>[a-z]+) spells?$", re.IGNORECASE
-)
-#: "cast a(n) <Type> spell" / "cast a(n) <Type> creature spell" (Flamebraider's
-#: "Elemental", Gnarlroot Trapper's "Elf creature") — a single named
-#: creature type, the optional literal "creature" just along for the ride.
-#: RULE 709.5e (MEC-111): "cast Room spells and unlock doors" (Smoky Lounge) and "cast an enchantment spell, unlock
-#: a door, or turn a permanent face up" (Creeping Peeper) — a spell-type restriction that also covers paying an unlock
-#: cost (``allow_unlock``) and, for the Peeper, the special action of turning a permanent face up (``allow_face_up``).
-_RESTRICTION_TYPE_OR_UNLOCK_RE = re.compile(
-    r"^cast (?:an? )?(?P<type>[a-z]+) spells?(?:,)? (?:and )?unlock (?:a )?doors?"
-    r"(?:,? (?:and|or) turn a permanent face up)?$",
-    re.IGNORECASE,
-)
-_RESTRICTION_TYPE_RE = re.compile(
-    r"^cast (?:an? )?(?P<type>[a-z]+)(?: creature)? spells?$", re.IGNORECASE
-)
-#: "cast a creature spell of the chosen type" (Cavern of Souls, Unclaimed
-#: Territory) — unlike `_RESTRICTION_TYPE_RE` above, the type isn't printed
-#: at all; it's whatever the land's own RULE 601.2b "as ~ enters, choose a
-#: creature type" ETB choice picked (`GameObject.chosen_type`, already
-#: modeled for the `enter_replacement` family — see `game/binding/core.py`).
-#: The restriction dict parsed here carries no ``types`` of its own; it's
-#: resolved into an ordinary ``type_spell`` restriction dynamically, at tap
-#: time, off the tapped land's *own* `chosen_type` (`GameEngine.
-#: tap_for_mana`) — the same restriction dict shape `_RESTRICTION_TYPE_RE`
-#: already produces, just filled in per-instance instead of parsed from
-#: fixed text.
-_RESTRICTION_CHOSEN_TYPE_RE = re.compile(
-    r"^cast (?:an? )?creature spells? of the chosen type$", re.IGNORECASE
-)
-#: "cast monocolored spells of that color" (Throne of Eldraine) — like the
-#: chosen-type restriction above, the colour isn't printed here; it's
-#: resolved per-instance off the source's `chosen_color` at tap time
-#: (`GameEngine.tap_for_mana` → a concrete ``monocolored_spell`` restriction).
-_RESTRICTION_CHOSEN_COLOR_MONO_RE = re.compile(
-    r"^cast monocolou?red spells? of that colou?r$", re.IGNORECASE
-)
 #: "Add N mana of the chosen color" (Throne of Eldraine) — the colour is the
 #: object's own ETB choice, produced by a per-instance recolour (see
 #: `ManaAbility.color_selector`). ``N`` is a spelled-out word or digit.
@@ -385,17 +341,6 @@ _COUNTED_CHOSEN_COLOR_ADD_RE = re.compile(
 #: Sentinel colour key an unresolved chosen-colour amount is parked under
 #: until `mana_abilities_for` recolours it to the real `chosen_color`.
 _CHOSEN_COLOR_KEY = "_CHOSEN_COLOR_"
-#: "cast [creature ]spells with mana value N or greater or [creature ]spells
-#: with {X} in their mana costs" (Helga, Skittish Seer / Troyan, Gutsy
-#: Explorer) — a mana-value threshold *or* an unresolved {X}, optionally
-#: creature-restricted; both halves always agree on the creature
-#: qualifier on every real card, so a mismatch is left unrecognized
-#: (fail-soft) rather than guessed.
-_RESTRICTION_MANA_VALUE_OR_X_RE = re.compile(
-    r"^cast (?P<c1>creature )?spells with mana value (?P<mv>\d+) or greater "
-    r"or (?P<c2>creature )?spells with \{x\} in their mana costs$",
-    re.IGNORECASE,
-)
 
 # --- "any combination of colours" (a *split*, not a single-colour choice) --
 
@@ -432,8 +377,8 @@ _GREATEST_POWER_CONTROL_RE = re.compile(
 
 
 def _parse_combination_selector(
-    raw_clause: str, card_name: Optional[str] = None
-) -> Optional[tuple[dict[str, Any], Optional[tuple[str, ...]]]]:
+    raw_clause: str, card_name: Optional[str] = None, *, announced_x: bool = False,
+) -> Optional[tuple[Optional[dict[str, Any]], Optional[tuple[str, ...]]]]:
     """"<amount> mana in any combination of <colours>[, where X is
     <subject>]" (Flamebraider/Gwenna/Smokebraider's fixed "two"; Selvala's
     variable "X"; Vivi Ornitier's own-power "X" over a *restricted*
@@ -461,7 +406,7 @@ def _parse_combination_selector(
     if amount_word == "x":
         subject = m.group("subject")
         if subject is None:
-            return None
+            return (None, combination_colors) if announced_x else None
         subject = subject.strip()
         if _GREATEST_POWER_CONTROL_RE.match(subject):
             return {"kind": "greatest_power_control"}, combination_colors
@@ -570,6 +515,9 @@ class ManaAbility:
     #: X life." rider.
     x_scaled: bool = False
     gain_life_x: bool = False
+    #: RULE 702.19b / 611.2a: "~ doesn't untap during your next untap step." printed after the Add clause (the
+    #: karoo-style bouncing-free lands) -- `GameEngine.tap_for_mana` sets the source's one-shot `skip_next_untap`.
+    skips_next_untap: bool = False
     #: PAR-232 (Soldevi Adnate): the amount is the sacrificed creature's mana value (`COST_SACRIFICED_MV_KIND`) -- a flag,
     #: because `mana_abilities_for` clears `amount_selector` once it has resolved the offer-time amount.
     amount_from_sacrificed_creature: bool = False
@@ -600,6 +548,22 @@ class ManaAbility:
     color_selector: Optional[str] = None
     #: RULE 602.2b/106.7: a production option identifies the land untapped as its cost.
     cost_land_options: list[dict[str, Any]] = field(default_factory=list)
+    #: MEC-175 (RULE 608.2c): "If <condition>, add <mana> instead." -- while ``instead_when`` holds as the ability
+    #: resolves, ``instead`` (a ManaAbility carrying only the replacement production) supplies the mana in place of
+    #: this ability's own options (`resolve_options`).
+    instead: Optional["ManaAbility"] = None
+    instead_when: Optional[dict[str, Any]] = None
+    #: MEC-175 (RULE 605.1a): "You gain N life." (optionally "If <condition>,") as the ability resolves (Pristine
+    #: Talisman, Black Tom Cassidy); no stack.
+    gain_life: int = 0
+    gain_life_when: Optional[dict[str, Any]] = None
+    #: MEC-175: "Draw a card." as part of the ability (Chromatic Sphere, the Eggs) and "Draw a card at the beginning of
+    #: the next turn's upkeep." (Astrolabe, Barbed Sextant), a delayed triggered ability (RULE 603.7) on the stack.
+    draw_cards: int = 0
+    delayed_draw_cards: int = 0
+    #: MEC-175: "If there are no <kind> counters on this land, sacrifice it." (Peat Bog) -- the counter kind checked as
+    #: the ability resolves, after its cost removed one.
+    sacrifice_when_no_counters: Optional[str] = None
 
 
 def _fold_self_name(text: str, card_name: Optional[str]) -> str:
@@ -728,22 +692,6 @@ def _peel_amount_selector(clause: str, card_name: Optional[str]) -> tuple[str, O
     return clause, None
 
 
-#: RULE 602.5d's own timing/frequency riders, printed as a trailing sentence
-#: right after a mana ability's "Add …" clause rather than as part of its
-#: ``<cost>:`` — Vivi Ornitier's "Activate only during your turn and only
-#: once each turn.", or either half alone (a bare "Activate only during
-#: your turn." or "Activate only once each turn." with no partner clause).
-#: The general activated-ability grammar for this shape already exists
-#: (`parser/oracle/catalogue/handlers.py`), but mana abilities never reach
-#: that pipeline (RULE 605.1a routes them through this module's own
-#: line-based parse instead, entirely outside `parse_oracle`), so it's
-#: recognized here too rather than left unparsed.
-_MANA_ACTIVATION_LIMIT_RE = re.compile(
-    r"activate only during your turn, before attackers are declared\.|"
-    r"activate only during your turn(?: and only once each turn)?\.|"
-    r"activate only once each turn\.",
-    re.IGNORECASE,
-)
 
 
 def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None:
@@ -757,10 +705,8 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
         r"activate (?:this ability )?only if ([^.]+)\.", effect_text, re.IGNORECASE,
     )
     if condition_match:
-        from ..parser.oracle.catalogue.effect_rows.costs_mana_limits import activation_condition_dict
-
-        condition_text = condition_match.group(1).lower()
-        cost.activation_condition = activation_condition_dict(condition_text)
+        condition_text = normalized_condition(condition_match.group(1).lower())
+        cost.activation_condition = mana_condition_dict(condition_text)
         if cost.activation_condition is None:
             # Never silently offer an unconditional version of a gated ability.
             cost.unrecognized = condition_match.group(0)
@@ -776,85 +722,51 @@ def _apply_mana_activation_limit(cost: ActivationCost, effect_text: str) -> None
         cost.once_per_turn = True
 
 
-#: RULE 605.3a's negative form, printed by the Powerstone token: "This mana can't be spent to cast a nonartifact
-#: spell." Everything except casting a nonartifact spell stays legal (abilities, artifact spells, special actions).
-_CANT_CAST_NONARTIFACT_RE = re.compile(
-    r"this mana can'?t be spent to cast (?:a |any )?nonartifact spells?\.?", re.IGNORECASE
-)
-#: Restriction kind for the above (see `_restriction_allows_cast`).
-NONARTIFACT_CAST_BAN_KIND = "no_nonartifact_spell"
 
 
-def _parse_restriction(effect_text: str) -> Optional[dict[str, Any]]:
-    """A "Spend this mana only ..." clause (RULE 605.3a) in ``effect_text``
-    as a restriction dict, or ``None`` when there's no such clause at all
-    *or* it's outside the recognised vocabulary (fail-soft — the "Add ..."
-    production still parses either way, just unrestricted; see the module
-    docstring for exactly which shapes this covers)."""
-    if _CANT_CAST_NONARTIFACT_RE.search(effect_text):
-        # Powerstone: a ban rather than an allow-list — abilities, unlocking and turning face up are not casts.
-        return {
-            "kind": NONARTIFACT_CAST_BAN_KIND, "allow_ability": True, "allow_unlock": True, "allow_face_up": True,
-        }
-    m = _RESTRICTION_CLAUSE_RE.search(effect_text)
-    if m is None:
-        return None
-    clause = _CANT_BE_COUNTERED_TAIL_RE.sub("", m.group("clause").strip())
-    allow_ability = False
-    tail = _RESTRICTION_ABILITY_TAIL_RE.match(clause)
-    if tail is not None:
-        clause, allow_ability = tail.group("head"), True
+def _matches_type_word(obj: Any, word: str) -> bool:
+    """RULE 205.2/205.3 (MEC-174): whether ``obj`` is ``word`` — a card type, a subtype, or "colorless" (RULE 105.2c)."""
+    if word == COLORLESS_WORD:
+        return not effective_colors(getattr(obj, "card", obj))
+    return continuous._has_card_type(obj, word) or continuous.has_subtype(obj, word)
 
-    if _RESTRICTION_CONTAINS_X_RE.match(clause):
-        return {"kind": "contains_x"}
-    if _RESTRICTION_CHOSEN_TYPE_RE.match(clause):
-        return {"kind": "chosen_type_spell"}
-    if _RESTRICTION_CHOSEN_COLOR_MONO_RE.match(clause):
-        return {"kind": "chosen_color_monocolored_spell"}
-    m = _RESTRICTION_MANA_VALUE_OR_X_RE.match(clause)
-    if m is not None:
-        creature_only = bool(m.group("c1")) and bool(m.group("c2"))
-        if bool(m.group("c1")) != bool(m.group("c2")):
-            return None  # the two halves disagree — outside the recognised shape
-        return {
-            "kind": "mana_value_or_x_spell",
-            "min_mana_value": int(m.group("mv")),
-            "creature_only": creature_only,
-        }
-    if _RESTRICTION_CREATURE_SPELL_RE.match(clause):
-        return {"kind": "creature_spell", "allow_ability": allow_ability}
-    if _RESTRICTION_COMMANDER_RE.match(clause):
-        return {"kind": "commander_spell"}
-    if _RESTRICTION_LEGENDARY_RE.match(clause):
-        return {"kind": "legendary_spell"}
-    if _RESTRICTION_INSTANT_SORCERY_RE.match(clause):
-        return {"kind": "instant_or_sorcery_spell"}
-    m = _RESTRICTION_TYPE_OR_UNLOCK_RE.match(clause)
-    if m is not None:
-        return {
-            "kind": "type_spell", "types": [m.group("type").lower()], "allow_ability": allow_ability,
-            "allow_unlock": True, **({"allow_face_up": True} if "face up" in clause.lower() else {}),
-        }
-    m = _RESTRICTION_MULTI_TYPE_RE.match(clause)
-    if m is not None:
-        return {
-            "kind": "type_spell",
-            "types": [m.group("t1").lower(), m.group("t2").lower()],
-            "allow_ability": allow_ability,
-        }
-    m = _RESTRICTION_TYPE_RE.match(clause)
-    if m is not None:
-        word = m.group('type').lower()
-        # RULE 205.2: artifact is a card type, not a creature subtype.
-        return {'kind': 'card_type_spell' if word == 'artifact' else 'type_spell',
-                'types': [word], 'allow_ability': allow_ability}
-    return None
+
+def _matches_any_type_word(obj: Any, words: Any) -> bool:
+    return any(_matches_type_word(obj, word) for word in words)
+
+
+def _spell_zone_allowed(restriction: dict[str, Any], obj: Any) -> bool:
+    """RULE 601.2a: "cast a spell from <zone>" reads the zone the card is in while it is being cast (it moves to the
+    stack only after the mana is paid). ``owned_by_you`` ("from your graveyard") compares the card's owner to the
+    player the mana was produced for (stamped at tap time, `resolve_restriction_owner`)."""
+    zone = getattr(getattr(obj, "zone", None), "value", None)
+    if "not_zone" in restriction:
+        return zone is not None and zone != restriction["not_zone"]
+    if zone != restriction.get("zone"):
+        return False
+    owner = restriction.get("owner_id")
+    return owner is None or getattr(obj, "owner_id", None) == owner
+
+
+def resolve_restriction_owner(restriction: Optional[dict[str, Any]], player_id: str) -> Optional[dict[str, Any]]:
+    """A restriction naming "your commander" / "your graveyard" bound to the player the mana was produced for."""
+    if restriction is not None and (restriction.get("your_commander") or restriction.get("owned_by_you")):
+        return {**restriction, "owner_id": player_id}
+    return restriction
 
 
 def _restriction_allows_cast(restriction: dict[str, Any], obj: Any, has_x: bool) -> bool:
     kind = restriction.get("kind")
-    if kind == "spell":
+    if kind == ANY_SPELL_KIND:
         return True
+    if kind == X_SPELL_KIND:
+        return has_x  # RULE 107.3: a spell whose cost has {X}; unlike contains_x, no ability qualifies
+    if kind == TYPE_LIST_SPELL_KIND:
+        return _matches_any_type_word(obj, restriction.get("types", ()))
+    if kind == SPELL_FROM_ZONE_KIND:
+        return _spell_zone_allowed(restriction, obj)
+    if kind == ABILITY_ONLY_KIND:
+        return False  # "activate abilities" names no spell at all
     if kind == "contains_x":
         return has_x
     card = getattr(obj, "card", obj)
@@ -913,6 +825,10 @@ def _restriction_allows_activation(restriction: dict[str, Any], source: Any, has
     # here, so they simply never authorize paying an ability's cost.
     if not restriction.get("allow_ability"):
         return False
+    if kind in (TYPE_LIST_SPELL_KIND, ABILITY_ONLY_KIND, ANY_SPELL_KIND, X_SPELL_KIND, SPELL_FROM_ZONE_KIND):
+        # MEC-174: "...or activate an ability [of <source>]" -- any ability, or only one of a source of the named types.
+        types = restriction.get("ability_types")
+        return True if types is None else _matches_any_type_word(source, types)
     if kind == NONARTIFACT_CAST_BAN_KIND:
         return True  # not a cast: any ability may be paid with Powerstone mana
     if kind == "creature_spell":
@@ -1012,47 +928,48 @@ def mana_options(card: Any) -> list[dict[str, int]]:
 _ONCE_PER_GAME_LABEL_RE = re.compile(r"(?:exhaust|power-up)\s*[—-]\s*", re.IGNORECASE)
 
 
-def _counter_mana_riders(text: str) -> tuple[Optional[dict], Optional[dict]]:
-    """RULE 106.6: attach conditional payoffs to this mana, not its source's tap."""
-    text = text.lower()
-    trigger = re.search(
-        r"when you spend this mana to cast a dragon creature spell, it enters with an additional \+1/\+1 counter on it and gains hexproof until your next turn(?:\.|$)", text,
-    )
-    if trigger:
-        return {"kind": "entry_counters", "count": 1, "creature": True, "subtype": "Dragon",
-                "keyword": "hexproof", "duration": "until_next_turn", "triggered": True}, None
-    if re.search(
-        r"if you spend this mana to cast your commander, it enters with a number of additional \+1/\+1 counters on it equal to the number of times it'?s been cast from the command zone this game(?:\.|$)", text,
-    ):
-        return {"kind": "entry_counters", "count": "commander_casts", "commander": True}, None
-    spent = re.search(r"(?:if|when) (?:this|that) mana is spent (?:to cast|on) (?:a |an )?(?P<kind>[^,.]+?) spell, (?P<body>[^.]+)", text)
-    if spent:
-        kind, body = spent.group("kind"), spent.group("body")
-        if kind not in {"creature", "non-human creature", "multicolored creature", "legendary", "goblin"}:
-            return None, None
-        filt = {}
-        if "creature" in kind: filt["creature"] = True
-        if "non-human" in kind: filt["exclude_subtype"] = "Human"
-        if "multicolored" in kind: filt["multicolored"] = True
-        if "legendary" in kind: filt["legendary"] = True
-        if "goblin" in kind: filt["subtype"] = "Goblin"
-        if body == "that creature enters with an additional +1/+1 counter on it":
-            return {"kind": "entry_counters", "count": 1, **filt}, None
-        if body == "put a +1/+1 counter on this land":
-            return {"kind": "source_counters", "count": 1, "counter": "+1/+1", "triggered": True, **filt}, None
-        if body == "you get an experience counter":
-            return {"kind": "player_counters", "count": 1, "counter": "experience", **filt}, None
-    nxt = re.search(r"when you next cast an? (?P<kind>bird creature|creature|artifact) spell this turn, (?P<body>[^.]+)", text)
-    if nxt:
-        kind, body = nxt.group("kind"), nxt.group("body")
-        filt = {"creature": True} if "creature" in kind else {"artifact": True}
-        if "bird" in kind: filt["subtype"] = "Bird"
-        if body == "that spell gains sunburst":
-            return None, {"kind": "sunburst", **filt}
-        count = re.fullmatch(r"(?:it|that creature) enters with (?P<n>an|two) additional \+1/\+1 counters? on it", body)
-        if count:
-            return None, {"kind": "entry_counters", "count": _rad_count_of(count), **filt}
-    return None, None
+
+
+def _literal_amount(effect_text: str) -> Optional[dict[str, Any]]:
+    """The leading count of the first Add clause ("two mana of any color ...") as a literal amount, ``None`` for one."""
+    clause = _ADD_CLAUSE_RE.search(effect_text)
+    count = _ANY_COLOR_COUNT_RE.match(clause.group(1).strip()) if clause is not None else None
+    amount = _rad_count_of(count) if count is not None else 1
+    return {"kind": "literal", "n": amount} if amount > 1 else None
+
+
+def _line_riders(folded_effect: str, name: Optional[str]) -> dict[str, Any]:
+    """MEC-175: the `ManaAbility` fields the sentences after a line's Add clause set (`parser/oracle/mana_riders` is the
+    reader the segmenter claims them through, so the two cannot disagree). ``folded_effect`` has the card's own name as
+    "~"; the replacement production of "if ..., add ... instead" is built by the line grammar below."""
+    fields: dict[str, Any] = {}
+    for sentence in split_sentences(folded_effect)[1:]:
+        replacement = instead_rider(sentence, name)
+        if replacement is not None:
+            built = _parse_mana_ability_lines(f"{{T}}: Add {instead_production_clause(replacement.clause)}.", name)
+            if built:
+                fields["instead"], fields["instead_when"] = built[0], replacement.condition
+        life = life_rider(sentence, name)
+        if life is not None:
+            fields["gain_life"], fields["gain_life_when"] = life.amount, life.condition
+        cards = draw_rider(sentence, name)
+        if cards is not None:
+            fields["draw_cards"] = cards
+        if delayed_draw_rider(sentence, name):
+            fields["delayed_draw_cards"] = 1
+        counter_kind = exhaustion_sacrifice_rider(sentence, name)
+        if counter_kind is not None:
+            fields["sacrifice_when_no_counters"] = counter_kind
+    return fields
+
+
+def _tag_line_abilities(produced: list["ManaAbility"], skips_untap: bool, extras: dict[str, Any]) -> None:
+    """Apply the line-wide riders (`skips_next_untap`, `_line_riders`) to every ability the line produced."""
+    for ability in produced:
+        if skips_untap:
+            ability.skips_next_untap = True
+        for key, value in extras.items():
+            setattr(ability, key, value)
 
 
 def _parse_mana_ability_lines(
@@ -1075,8 +992,13 @@ def _parse_mana_ability_lines(
     hand-exile lines.
     """
     abilities: list[ManaAbility] = []
+    # The abilities the previous line produced and whether it carried the untap-skip rider (every `continue` below
+    # leaves the line's abilities in `abilities`, so the tag is applied when the next line starts and after the loop).
+    line_start, line_skips_untap, line_extras = 0, False, {}
     # RULE 207.2: reminder text cannot introduce a target or a quoted grant.
     for line in strip_reminder_text(text).split("\n"):
+        _tag_line_abilities(abilities[line_start:], line_skips_untap, line_extras)
+        line_start, line_skips_untap, line_extras = len(abilities), False, {}
         # RULE 207.2c: an ability word ("Federation — {5}, {T}: Add …", Starfleet Academy) has no rules meaning.
         line = _FEDERATION_LABEL_RE.sub("", line.strip(), count=1)
         station = _STATION_TIER_RE.match(line)
@@ -1112,23 +1034,18 @@ def _parse_mana_ability_lines(
         effect_text = effect_text.strip()
         spend_rider, next_cast_rider = _counter_mana_riders(effect_text)
         folded_effect = _fold_self_name(effect_text, name)
+        line_skips_untap = SKIP_NEXT_UNTAP_RIDER_RE.search(folded_effect) is not None
+        line_extras = _line_riders(folded_effect, name)
         # RULE 605.3b / 608.2c: only complete, unconditional rider sentences.
         # A spend-trigger's "When ... , put ..." is not an immediate placement.
-        counter_match = re.search(
-            r"(?:^|(?<=\.))\s*put (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) "
-            r"(?P<kind>[a-z][a-z -]*|[+\-]\d+/[+\-]\d+) counters? on "
-            r"(?:this (?:land|artifact|creature|permanent)|~)\.", folded_effect, re.IGNORECASE,
-        )
-        player_match = re.search(
-            r"(?:^|(?<=\.))\s*you get (?P<n>\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten) "
-            r"(?P<kind>poison|experience) counters?\.", effect_text, re.IGNORECASE,
-        )
+        counter_match = SOURCE_COUNTER_RIDER_RE.search(folded_effect)
+        player_match = PLAYER_COUNTER_RIDER_RE.search(effect_text)
         counter_before = bool(counter_match and counter_match.start() < folded_effect.lower().find("add "))
         if _TARGET_RE.search(effect_text) or _TARGET_RE.search(cost_text):
             continue  # RULE 605.1a — a targeted ability is never a mana ability
         if _EXILED_CREATURE_MV_ADD_RE.search(effect_text):
             cost = parse_activation_cost(cost_text)
-            _apply_mana_activation_limit(cost, effect_text)
+            _apply_mana_activation_limit(cost, folded_effect)
             abilities.append(ManaAbility(
                 spend_rider=spend_rider, next_cast_rider=next_cast_rider,
                 source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
@@ -1147,7 +1064,7 @@ def _parse_mana_ability_lines(
             # capital-A anyway — so this is checked (and dispatched)
             # standalone, ahead of the generic ``add_match`` gate below.
             cost = parse_activation_cost(cost_text)
-            _apply_mana_activation_limit(cost, effect_text)
+            _apply_mana_activation_limit(cost, folded_effect)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -1162,6 +1079,24 @@ def _parse_mana_ability_lines(
                 restriction=_parse_restriction(effect_text),
             ))
             continue
+        type_produce_match = _LAND_TYPE_COULD_PRODUCE_RE.search(effect_text)
+        if type_produce_match is not None:
+            cost = parse_activation_cost(cost_text)
+            _apply_mana_activation_limit(cost, folded_effect)
+            if cost.exile_self_from_hand != want_hand_exile:
+                continue
+            rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
+            abilities.append(ManaAbility(
+                spend_rider=spend_rider, next_cast_rider=next_cast_rider,
+                source_counters={counter_match.group("kind").lower(): _rad_count_of(counter_match)} if counter_match else {},
+                source_counters_before_mana=counter_before,
+                player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
+                cost=cost,
+                color_selector=f"types_{type_produce_match.group('qualifier').lower()}s_you_control_could_produce",
+                self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
+                restriction=_parse_restriction(effect_text),
+            ))
+            continue
         legendary_match = _LEGENDARY_AMONG_RE.search(effect_text)
         if legendary_match is not None:
             # Same reason as `_COLORS_AMONG_PERMANENTS_RE` above: dispatched
@@ -1169,7 +1104,7 @@ def _parse_mana_ability_lines(
             # path, so its qualifying clause isn't swallowed by the bare
             # "any color" substring check in `_parse_clause`.
             cost = parse_activation_cost(cost_text)
-            _apply_mana_activation_limit(cost, effect_text)
+            _apply_mana_activation_limit(cost, folded_effect)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -1192,7 +1127,7 @@ def _parse_mana_ability_lines(
         land_produce_match = _LAND_COULD_PRODUCE_RE.search(effect_text)
         if land_produce_match is not None:
             cost = parse_activation_cost(cost_text)
-            _apply_mana_activation_limit(cost, effect_text)
+            _apply_mana_activation_limit(cost, folded_effect)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -1219,7 +1154,7 @@ def _parse_mana_ability_lines(
             # here); `resolve_options` builds the colour menu off
             # `continuous.commander_color_identity`.
             cost = parse_activation_cost(cost_text)
-            _apply_mana_activation_limit(cost, effect_text)
+            _apply_mana_activation_limit(cost, folded_effect)
             if cost.exile_self_from_hand != want_hand_exile:
                 continue
             rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
@@ -1230,6 +1165,8 @@ def _parse_mana_ability_lines(
                 player_counters={player_match.group("kind").lower(): _rad_count_of(player_match)} if player_match else {},
                 cost=cost,
                 color_selector="colors_in_commanders_color_identity",
+                # MEC-175: "two mana of any color in your commander's color identity" (Command Mine's replacement).
+                amount_selector=_literal_amount(effect_text),
                 self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
                 restriction=_parse_restriction(effect_text),
             ))
@@ -1257,11 +1194,17 @@ def _parse_mana_ability_lines(
         if add_match is None:
             continue
         cost = parse_activation_cost(cost_text)
-        _apply_mana_activation_limit(cost, effect_text)
+        _apply_mana_activation_limit(cost, folded_effect)
         if cost.exile_self_from_hand != want_hand_exile:
             continue
         rad_match = _SELF_RAD_COUNTERS_RE.search(effect_text)
-        combination_match = _parse_combination_selector(add_match.group(1), name)
+        add_clause = add_match.group(1).strip()
+        # RULE 602.2b: the same announced X pays the storage counters and sets production.
+        counter_x = bool(
+            cost.remove_counters and cost.remove_counters[1] == REMOVE_COUNTERS_X
+            and SELF_COUNTER_X_COST_RE.search(cost_text) and X_COUNTER_MANA_RE.fullmatch(add_clause)
+        )
+        combination_match = _parse_combination_selector(add_clause, name, announced_x=counter_x)
         if combination_match is not None:
             combination_selector, combination_colors = combination_match
             damage_match = _SELF_DAMAGE_RE.search(folded_effect)
@@ -1274,6 +1217,7 @@ def _parse_mana_ability_lines(
                 cost=cost,
                 options=[{color: 1} for color in (combination_colors or _ALL_COLORS)],
                 amount_selector=combination_selector,
+                x_scaled=counter_x,
                 any_combination=True,
                 self_damage=int(damage_match.group(1)) if damage_match else 0,
                 self_damage_unless_subtype=damage_unless_match.group("subtype") if damage_unless_match else None,
@@ -1356,6 +1300,7 @@ def _parse_mana_ability_lines(
             self_rad_counters=_rad_count_of(rad_match) if rad_match else 0,
             restriction=_parse_restriction(effect_text),
         ))
+    _tag_line_abilities(abilities[line_start:], line_skips_untap, line_extras)
     for ability in abilities:
         if ability.source_counters_before_mana:
             ability.unscaled_options = [dict(opt) for opt in ability.options]
@@ -1418,11 +1363,14 @@ def parse_mana_abilities(card: Any) -> list[ManaAbility]:
     unconditional, same as a non-Leveler card.
     """
     basic = _basic_options(card)
-    if basic:
-        return [ManaAbility(cost=ActivationCost(taps_self=True), options=basic)]
-
     name = getattr(card, "name", None)
     raw_text = getattr(card, "oracle_text", "") or ""
+    if basic:
+        # RULE 305.6: the basic land type's own mana ability comes from the type line. BUG-85: a land of that type may
+        # print mana lines of its own (Murmuring Bosk, a Forest with "{T}: Add {W} or {B}"); its reminder-text line is
+        # stripped, so a plain basic or a typed dual parses to nothing extra.
+        return [ManaAbility(cost=ActivationCost(taps_self=True), options=basic),
+                *_parse_mana_ability_lines(raw_text, name)]
 
     if getattr(card, "is_leveler", False):
         preamble_lines, blocks = _split_leveler_blocks_raw(raw_text)
@@ -1517,7 +1465,12 @@ def mana_abilities_for(obj: Any, state: Optional[Any] = None, *, resolve_amounts
             color_selector=ability.color_selector,
             x_scaled=ability.x_scaled,
             gain_life_x=ability.gain_life_x,
+            skips_next_untap=ability.skips_next_untap,
             amount_from_sacrificed_creature=ability.amount_from_sacrificed_creature,
+            instead=ability.instead, instead_when=ability.instead_when,
+            gain_life=ability.gain_life, gain_life_when=ability.gain_life_when,
+            draw_cards=ability.draw_cards, delayed_draw_cards=ability.delayed_draw_cards,
+            sacrifice_when_no_counters=ability.sacrifice_when_no_counters,
         )
         for ability in parse_mana_abilities(obj.card)
         if not getattr(obj, "loses_all_abilities", False) and _leveler_tier_active(obj, ability)
@@ -1712,6 +1665,18 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None,
         )
     ):
         return []
+    if ability.instead is not None and state is not None and static_conditions.condition_holds(
+        ability.instead_when, state, source=obj, controller_id=getattr(obj, "controller_id", None),
+    ):
+        # MEC-175 / RULE 608.2c: "If <condition>, add <mana> instead." -- the replacement production alone resolves.
+        replacement = ability.instead
+        produced = resolve_options(
+            dataclass_replace(replacement, amount_selector=None), obj, state, _seen_lands=_seen_lands,
+        )
+        if replacement.amount_selector is not None and replacement.color_selector is not None:
+            n = _resolve_amount(replacement.amount_selector, obj, state)
+            produced = [{color: count * n for color, count in option.items()} for option in produced]
+        return produced
     if ability.color_selector == 'untapped_cost_land_types':
         if state is None:
             return []
@@ -1832,6 +1797,22 @@ def resolve_options(ability: ManaAbility, obj: Any, state: Optional[Any] = None,
         if not colors_present:
             return []
         return [{color: 1} for color in colors_present]
+    if ability.color_selector in ("types_lands_you_control_could_produce", "types_gates_you_control_could_produce"):
+        # BUG-85 (RULE 106.7): Reflecting Pool/Naga Vitalist/Plaza of Harmony. The menu is every mana type, colourless
+        # included, that a qualifying land of the controller could produce. The source itself is among the lands but
+        # contributes only through the cycle guard, so a lone Reflecting Pool produces nothing.
+        if state is None:
+            return []
+        controller_id = getattr(obj, "controller_id", None)
+        gates_only = ability.color_selector == "types_gates_you_control_could_produce"
+        types_present: set[str] = set()
+        for permanent in state.permanents():
+            if not permanent.is_land or permanent.controller_id != controller_id:
+                continue
+            if gates_only and "gate" not in continuous.derived_subtype_words(permanent):
+                continue
+            types_present |= mana_types_a_land_could_produce(permanent, state, _seen_lands)
+        return [{mana_type: 1} for mana_type in sorted(types_present)]
     if ability.color_selector == "colors_in_commanders_color_identity":
         # Arcane Signet/Command Tower/Commander's Sphere/Path of Ancestry/…:
         # a menu of exactly the WUBRG colours in this controller's
@@ -1919,13 +1900,10 @@ def _basic_options(card: Any) -> list[dict[str, int]]:
     return produced
 
 
-def _rad_count_of(match: "re.Match[str]") -> int:
-    """A captured `_SELF_RAD_COUNTERS_RE` token → its int value."""
-    token = match.group("n").lower()
-    return int(token) if token.isdigit() else _ANY_COLOR_COUNT_WORDS.get(token, 1)
-
-
 def _parse_clause(clause: str) -> list[dict[str, int]]:
+    if TWO_DISTINCT_MANA_RE.fullmatch(clause.strip()):
+        # RULE 106.1a / 605.3b: choose two distinct colors as the ability resolves.
+        return [{first: 1, second: 1} for first, second in combinations(_ALL_COLORS, 2)]
     lowered = clause.lower()
     if any(phrase in lowered for phrase in _ANY_COLOR_PHRASES):
         # "one mana of any colour" / "three mana of any one colour" / "X

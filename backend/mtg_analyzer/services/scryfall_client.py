@@ -76,6 +76,37 @@ class ScryfallIntegration:
         response.raise_for_status()
         return response.json()
 
+    def fetch_printings(self, name: str) -> list[dict[str, Any]]:
+        card = self.fetch_card(name)
+        oracle_id = card.get("oracle_id")
+        query = f"oracleid:{oracle_id}" if oracle_id else f'!"{card["name"]}"'
+        params = {"q": f"{query} game:paper", "unique": "prints", "order": "released", "include_variations": "true"}
+        printings = []
+        page = 1
+        while True:
+            response = self._request("GET", "/cards/search", params={**params, "page": page})
+            if response.status_code == 404 and page == 1:
+                return []
+            response.raise_for_status()
+            body = response.json()
+            printings.extend(body["data"])
+            if not body.get("has_more"):
+                return printings
+            page += 1
+
+    def fetch_printings_by_code(self, codes: list[tuple[str, str]]) -> list[dict[str, Any]]:
+        """Resolve exact set/collector numbers with the collection API."""
+        found = []
+        for start in range(0, len(codes), _COLLECTION_BATCH_SIZE):
+            identifiers = [
+                {"set": set_code, "collector_number": collector_number}
+                for set_code, collector_number in codes[start:start + _COLLECTION_BATCH_SIZE]
+            ]
+            response = self._request("POST", "/cards/collection", json={"identifiers": identifiers})
+            response.raise_for_status()
+            found.extend(response.json().get("data", []))
+        return found
+
     def fetch_multiple(self, names: list[str]) -> tuple[list[dict[str, Any]], list[str]]:
         """Fetch several cards by name in as few requests as possible.
 

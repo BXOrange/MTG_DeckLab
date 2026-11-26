@@ -248,6 +248,17 @@ _WARD_TEXT_COST_RE = re.compile(
     r"\bward\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I
 )
 
+#: Echo's non-mana cost line ("Echo—Discard a card."), read like Ward's: free text for `game/costs.parse_activation_cost`.
+_ECHO_TEXT_COST_RE = re.compile(r"\becho\b[\s—-]*(?P<cost>[a-zA-Z][^.\n(]*?)\s*(?=[.\n(]|$)", re.I)
+#: RULE 702.30a: the echo dash costs the sacrifice-unless-pay choice pays: a mana run, a discard, a land sacrifice count.
+_ECHO_PAYABLE_RE = re.compile(r"(?:\{[^}]+\})+|discard a card|sacrifice (?:a|two) lands?", re.I)
+ECHO_DASH_RE = re.compile(r"echo\s*[\u2014\u2013-]\s*(?P<cost>[^.\n(]+)", re.I)
+
+
+def echo_dash_payable(cost_text: str) -> bool:
+    """Whether an "Echo—<cost>" dash cost is one the engine pays (RULE 702.30a); any other leaves the line unclaimed."""
+    return _ECHO_PAYABLE_RE.fullmatch(cost_text.strip().rstrip(".")) is not None
+
 #: Escape's cost line is a comma-joined "{mana}, Exile N other cards from
 #: your graveyard" (RULE 702.138b) — the mana-only ``_auto_regex`` COST
 #: pattern above only ever sees the ``{...}`` pips, silently dropping the
@@ -571,6 +582,32 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 )
 
 
+#: BUG-75: RULE 702 keywords the catalogue recognises (so `parse_keywords` still attaches the flag/parameter) but for which the
+#: engine has **no behaviour at all** when printed: nothing in the binder's keyword builders, the casting/combat/turn paths or
+#: the layer system reads the slug. A bare keyword line naming one is therefore not claimed (the card stays UNMODELED) and the
+#: keyword is not grantable: claiming it would count a card as playable while its keyword silently does nothing. Each entry
+#: was checked by grep across `game/`, `services/` and `models/` and, where a bind-time effect was conceivable, by diffing the
+#: bound object with and without the keyword spec (`tests/test_bug75_keyword_behaviour.py` keeps the evidence executable).
+#: To wire a keyword, add its consumer and delete the slug here in the same change; the guard test fails if a slug here
+#: gains a binder builder, so the set cannot go stale. Permanent non-goals (`models/cards/support_policy.py`) are not listed:
+#: they already return Unsupported before the gate. Pre-game-only keywords whose reader exists elsewhere stay claimed:
+#: Partner / Choose a Background / Doctor's companion (deck legality, `services/commander_legality.py`; RULE 702.124).
+KEYWORDS_WITHOUT_BEHAVIOUR: frozenset[str] = frozenset({
+    # Triggered / static / replacement text that nothing builds from the keyword.
+    "for_mirrodin",
+    # Alternative / additional costs and cast permissions the casting pipeline never offers.
+    "cleave",
+    # Designations / pre-game actions with no engine state.
+    "companion", "compleated", "space_sculptor", "infinity",
+})
+
+#: The flag-shaped subset of `KEYWORDS_WITHOUT_BEHAVIOUR`: granting one ("creatures you control gain extort", a token "with
+#: decayed") would add the slug and nothing else, exactly the `UNGRANTABLE_FLAG_KEYWORDS` case.
+_INERT_FLAG_KEYWORDS: frozenset[str] = frozenset(
+    slug for slug in KEYWORDS_WITHOUT_BEHAVIOUR if slug in KEYWORDS and KEYWORDS[slug].shape is KeywordShape.FLAG
+)
+
+
 #: FLAG keywords whose rules the engine builds only for a *printed* keyword, so a grant would add the slug and nothing
 #: else (ENG-66: a keyword is granted only when its trigger / static / cost really runs on the receiving object).
 #: Flag triggers that run per object (`game.continuous.GRANTED_TRIGGERED_FLAG_KEYWORDS`: exalted, battle cry, prowess,
@@ -578,9 +615,11 @@ ALIAS_DISPLAYS: tuple[str, ...] = tuple(
 #: Germ is created by a bind-time trigger on the Equipment), soulbond (702.95, pairing state bound at load), job select
 #: (702.182, a printed-only ETB that creates and attaches a Hero), haunt (702.55, the printed card's own exile-haunting
 #: state), ravenous (702.156, an enters-with-X-counters replacement bound at load), living metal (702.161, a static
-#: type change bound at load) and read ahead (702.155, read at the Saga's cast).
+#: type change bound at load) and read ahead (702.155, read at the Saga's cast) unleash (702.98a, an as-enters counter choice), sunburst (702.44a, counters as it enters from the stack) and gravestorm (702.69a, read from the cast event only for the printed keyword). The flag keywords of `KEYWORDS_WITHOUT_BEHAVIOUR` are refused too.
 UNGRANTABLE_FLAG_KEYWORDS: frozenset[str] = frozenset(
-    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead"}
+    {"living_weapon", "soulbond", "job_select", "haunt", "ravenous", "living_metal", "read_ahead", "unleash",
+     "sunburst", "gravestorm", "rebound", "umbra_armor", "epic", "aftermath", "conspire", "cipher", "assist"}
+    | _INERT_FLAG_KEYWORDS
 )
 
 
@@ -665,6 +704,16 @@ def _printed_instances(text: str, display: str) -> int:
     return best
 
 
+PROTOTYPE_RE = re.compile(
+    rf"^prototype\s+(?P<cost>{_COST_RUN})\s*[—–-]\s*(?P<power>\d+)/(?P<toughness>\d+)"
+    r"\s*(?=\(|$)", re.I | re.M,
+)
+
+
+RECOVER_LIFE_COST = "pay half your life, rounded up"
+RECOVER_LIFE_RE = re.compile(r"^recover\s*[—–-]\s*" + RECOVER_LIFE_COST + r"\.?(?=\s*(?:\(|$))", re.I | re.M)
+
+
 def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -> dict:
     """Build the keyword's ``{name, param?}`` dict, extracting from oracle text.
 
@@ -707,12 +756,21 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
                 # one shared convention rather than raw clause text.
                 clause = groups["controller"].strip().lower()
                 param["controller"] = "you" if clause == "you control" else "not_you"
+    if kdef.slug == "recover" and RECOVER_LIFE_RE.search(text):
+        param["cost"] = RECOVER_LIFE_COST
     if kdef.slug == "escalate":
         # RULE 702.120: preserve the executable nonmana discard cost;
         # the ordinary COST extractor only sees mana symbols.
         fallback = re.search(r"(?:^|\n)escalate\s*[—–-]\s*(?P<cost>discard (?:a|\d+) cards?)\.?(?=\s*(?:\(|\n|$))", text, re.I)
         if fallback:
             param["cost"] = fallback.group("cost").lower()
+    if kdef.slug == "bloodthirst" and "n" not in param and re.search(r"\bbloodthirst x\b", text, re.I):
+        param["n"] = "X"  # RULE 702.54b: the total damage the opponents have been dealt this turn
+    if kdef.slug == "echo" and "cost" not in param:
+        # RULE 702.30a: the echo cost may be a non-mana cost ("Echo—Discard a card.", "Echo—Sacrifice two lands.").
+        fallback = _ECHO_TEXT_COST_RE.search(text)
+        if fallback and echo_dash_payable(fallback.group("cost")):
+            param["cost"] = fallback.group("cost").strip()
     if kdef.slug == "ward" and "cost" not in param:
         fallback = _WARD_TEXT_COST_RE.search(text)
         if fallback:
@@ -732,6 +790,12 @@ def _extract_param(kdef: KeywordDef, text: str, forced_quality: Optional[str]) -
         if fallback:
             param["exile_hand_card_color"] = _COLOR_LETTERS[fallback.group("color").lower()]
     return param
+
+
+SQUAD_DASH_RE = re.compile(
+    r"^squad\s*[—–-]\s*(?:(?P<mana>(?:\{[^}]+\})+),\s*discard a card"
+    r"|(?P<exile>exile (?:four|4) cards from your graveyard))\.?\s*(?=\(|$)", re.I | re.M,
+)
 
 
 def parse_keywords(card: "Card") -> list[AbilitySpec]:
@@ -760,7 +824,7 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
     # "Enchant" above rather than trusting the shared array either way.
     # Beam me up (RULE 702.196) is cross-checked the same way: a cache pulled before Scryfall listed the keyword has an empty
     # ``keywords`` array, and the printed line is the ground truth for the cost.
-    for kw_name in ("Daybound", "Nightbound", "Beam me up"):
+    for kw_name in ("Daybound", "Nightbound", "Beam me up", "Overload", "Prototype"):
         slug = keyword_slug(kw_name)
         if not any(keyword_slug(str(n)) == slug for n in names) and re.search(
             rf"^{re.escape(kw_name)}\b", text, re.I | re.M
@@ -817,6 +881,12 @@ def parse_keywords(card: "Card") -> list[AbilitySpec]:
         seen.add(dedupe_key)
 
         param = _extract_param(kdef, text, forced_quality)
+        if kdef.slug == "squad" and (dash := SQUAD_DASH_RE.search(text)) is not None:
+            param.update(cost=dash["mana"] or "{0}")
+            if dash["exile"]:
+                param["exile"] = 4
+            else:
+                param["discard"] = 1
         if typed_cycling:
             display = str(raw_name).strip()
             cost = re.search(rf"\b{re.escape(display)}\s*((?:\{{[^}}]+\}})+)", text, re.I)

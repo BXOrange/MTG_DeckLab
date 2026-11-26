@@ -53,7 +53,7 @@ class PlayerCostsMixin:
             return False
         if cost.exile_from_graveyard and (
             cost.exile_from_graveyard == EXILE_FROM_GRAVEYARD_X
-            or len(self._graveyard_exile_pool(player, cost)) < cost.exile_from_graveyard
+            or len(self._graveyard_exile_pool(player, cost, source)) < cost.exile_from_graveyard
         ):
             return False  # RULE 118.3: unpayable without enough graveyard cards; an X count needs an announcement
         if cost.sacrifice and not any(
@@ -139,14 +139,18 @@ class PlayerCostsMixin:
             player, None, cost.discard_filter, getattr(source, "name", None),
         )
 
-    def _graveyard_exile_pool(self, player: Player, cost: ActivationCost) -> list[GameObject]:
+    def _graveyard_exile_pool(
+        self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None,
+    ) -> list[GameObject]:
         """The ``player``'s graveyard cards that can pay ``cost``'s "exile a card from your graveyard" component
         (filter-narrowed), the shared `_graveyard_exile_cost_candidates` pool."""
         from ..game_engine import GameEngine  # function-scoped: import cycle
 
-        return GameEngine(self.state, rules=self)._graveyard_exile_cost_candidates(
+        pool = GameEngine(self.state, rules=self)._graveyard_exile_cost_candidates(
             player, len(player.graveyard), cost.exile_from_graveyard_filter,
         )
+        # RULE 109.5: "another" -- the source itself (a dies trigger's card is in this graveyard) cannot pay.
+        return [obj for obj in pool if not (cost.exile_from_graveyard_other and obj is source)]
 
     def _pay_player_cost(
         self, player: Player, cost: ActivationCost, source: Optional[GameObject] = None
@@ -170,28 +174,30 @@ class PlayerCostsMixin:
         if cost.discard and cost.discard_random and cost.discard != DISCARD_HAND:
             # RULE 701.8d: "discard a card at random" (Balduvian Horde) -- no choice, a uniform pick.
             self.discard_random(player, cost.discard, cause=source)
-        elif cost.discard and cost.discard_filter and cost.discard != DISCARD_HAND:
-            # RULE 601.2b / 118.3: "discard a land card" is the payer's own pick among the cards that
-            # qualify (Mox Diamond's "you may discard a land card instead"); forced when only
-            # ``cost.discard`` of them are in hand. Pausing here is fine: the "if you do" half waits
-            # for it (`_resume_pay_cost_then` parks `DEFERRED_PAID_COST`).
+        elif cost.discard and cost.discard != DISCARD_HAND:
+            # RULE 601.2b / 118.3: "discard a card" / "discard a land card" is the payer's own pick among the cards that
+            # qualify (Mox Diamond's "you may discard a land card instead"); forced when only ``cost.discard`` of them
+            # are in hand. Pausing here is fine: the "if you do" half waits for it (`_resume_pay_cost_then` parks
+            # `DEFERRED_PAID_COST`). MEC-171: the pick is recorded (RULE 608.2h) for "When you do, ... the discarded
+            # card's ..." (Mount Velus Manticore).
             self._request_choose_objects(
                 player, self._discard_pool(player, cost, source), "discard", count=cost.discard,
-                prompt="Wähle eine Karte zum Abwerfen", source=source,
+                prompt="Wähle eine Karte zum Abwerfen", source=source, record_referent=True,
             )
         elif cost.discard:
-            self.discard(player, len(player.hand) if cost.discard == DISCARD_HAND else cost.discard)
+            self.discard(player, len(player.hand))  # RULE 701.8: "discard your hand" leaves nothing to choose
         if cost.exile_from_graveyard and cost.exile_from_graveyard != EXILE_FROM_GRAVEYARD_X:
             # RULE 118.3 / 601.2b-style: the payer picks which graveyard cards are exiled (forced when only that
             # many qualify); the "if you do" half waits for the pick like the discard chooser above.
             self._request_choose_objects(
-                player, self._graveyard_exile_pool(player, cost), "exile", count=cost.exile_from_graveyard,
-                prompt="Wähle eine Karte aus deinem Friedhof zum Exilieren", source=source,
+                player, self._graveyard_exile_pool(player, cost, source), "exile", count=cost.exile_from_graveyard,
+                prompt="Wähle eine Karte aus deinem Friedhof zum Exilieren", source=source, record_referent=True,
             )
         if cost.sacrifice:
             # "another"/"other …": the source is not a legal pick (RULE 109.5).
             self.sacrifice(
                 player, cost.sacrifice, 1, exclude=source if _names_other_word(cost.sacrifice) else None, source=source,
+                record_referent=True,
             )
         if cost.sacrifice_count and isinstance(cost.sacrifice_count[0], int):
             self.sacrifice(player, cost.sacrifice_count[1], cost.sacrifice_count[0], source=source,

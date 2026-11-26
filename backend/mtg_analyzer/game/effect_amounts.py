@@ -835,7 +835,13 @@ def this_way_objects(context: "GameContext", source: Any, pool: str) -> list[Any
         found = (context.state.find_object(e.get("instance_id")) for e in discarded_this_way(context, source, None, False, pool))
         return [obj for obj in found if obj is not None]
     field = _CONTEXT_POOL_FIELDS.get(pool)
-    return list(getattr(context, field, None) or []) if field else []
+    found = list(getattr(context, field, None) or []) if field else []
+    if pool == "revealed":
+        # RULE 701.20a: cards a player revealed by choosing them ("reveal any number of ... cards in your hand",
+        # `RevealAnyNumberHandCardsEffect`) are kept on the source, so they survive the pick's pause.
+        picked = (context.state.find_object(iid) for iid in getattr(source, "revealed_with_ids", None) or [])
+        found += [obj for obj in picked if obj is not None and obj not in found]
+    return found
 
 
 def this_way_matching(context: "GameContext", source: Any, spec: dict[str, Any]) -> list[Any]:

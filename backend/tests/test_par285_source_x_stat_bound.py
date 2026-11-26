@@ -54,7 +54,7 @@ def test_targeting_reads_stat_against_announced_x():
     assert not targeting._creature_matches_filter(small, power_filt, reference=None, state=state)
 
 
-@pytest.mark.parametrize("name", ["Gang Up", "Killing Glare", "Entrancing Lyre"])
+@pytest.mark.parametrize("name", ["Killing Glare", "Entrancing Lyre"])
 def test_real_cards_are_modeled(name):
     card = CardDatabase(DB_PATH).get_card(name)
     if card is None:

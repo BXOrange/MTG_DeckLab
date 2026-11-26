@@ -8,9 +8,9 @@ from ..spec import EffectSpec
 from .dig import parse_criteria as _parse_criteria
 from .characteristic_phrase import parse_head
 
-_LIBRARY = r"(?:your library|target (?P<target>player|opponent)'s library)"
+_LIBRARY = r"(?:your library|target (?P<target>player|opponent)'s library|(?P<each_library>each player's) library)"
 _LEAD = re.compile(
-    rf"(?P<verb>look at|reveal) the top (?:(?P<count>\d+) cards|card) of {_LIBRARY}"
+    rf"(?:(?P<may_look>you may )(?=look))?(?P<verb>look at|reveal) the top (?:(?P<count>\d+) cards|card) of {_LIBRARY}"
     r"|target (?P<hand_target>player|opponent) reveals their hand"
     r"|target (?P<library_target>player|opponent) reveals the top (?:(?P<target_count>\d+) cards|card) of their library"
     r"|(?P<each>each player) reveals the top card of their library", re.I,
@@ -25,6 +25,12 @@ _DEST = {
     'back on top of your library in any order': 'top',
     'on top of their library in any order': 'top',
     'on the bottom of your library': 'bottom',
+    # RULE 401.4: the same piles with "of your library" implied after a "from among them" pick (Fertile Thicket, Munda).
+    'on top of your library': 'top', 'on the bottom in any order': 'bottom',
+    'on the bottom in a random order': 'bottom_random',
+    # RULE 400.3: a card put into a library or graveyard goes to its *owner's*, whoever owns the library it was
+    # looked at in ("on the bottom of that player's library" after "look at the top card of target player's library").
+    "on the bottom of that player's library": 'bottom', 'on the bottom of their library': 'bottom',
 }
 _REF = r"(?:it|them|that card|those cards|the chosen cards|the revealed cards)"
 _FROM = r"(?:from among (?:them|the revealed cards)|from it|of (?:them|those cards)|revealed this way)"
@@ -35,6 +41,11 @@ _PICK = re.compile(
     rf"(?:(?P<criteria>(?:.+? )?cards?) )?{_FROM}"
     rf"(?: and put {_REF})?(?: (?P<dest>.+))?", re.I,
 )
+
+
+#: "(You may) put that card into their graveyard / on the bottom of that player's library" after a one-card look.
+_LONE_PUT = re.compile(r"(?P<may>you may )?put (?:that card|it) (?P<dest>.+)", re.I)
+_LONE_PUT_DESTINATIONS = frozenset({'graveyard', 'bottom', 'top'})
 
 
 def parse_criteria(phrase: str) -> dict | None:
@@ -67,9 +78,13 @@ def parse_inspection(text: str, parse_tail: Callable) -> list[EffectSpec] | None
     target = lead['target'] or lead['hand_target'] or lead['library_target']
     params = {'zone': 'hand' if lead['hand_target'] else 'library',
               'count': int(lead['count'] or lead['target_count'] or 1), 'reveal': lead['verb'] == 'reveal' or bool(lead['hand_target'] or lead['library_target'] or lead['each']),
-              'scope': 'each_player' if lead['each'] else 'target' if target else 'you'}
+              # "each player's library" (Case the Joint): one top card per library.
+              'scope': 'each_player' if lead['each'] or lead['each_library'] else 'target' if target else 'you'}
     if target:
         params['target_kind'] = target
+    if lead['may_look']:
+        # RULE 701.20 / 608.2d: "you may look at ..." is its own yes/no; "if you do" then only repeats that it was taken.
+        params['optional_look'] = True
     steps = []
     markers = []
     selected = False
@@ -82,9 +97,13 @@ def parse_inspection(text: str, parse_tail: Callable) -> list[EffectSpec] | None
         part = re.sub(r', (?:and )?(\d+) (into your (?:hand|graveyard)|on the bottom of your library)',
                       r'. put \1 of them \2', part)
         part = re.sub(r' and the rest ', '. put the rest ', part)
+        # PAR-292 M29: "reveal ... from among them, then put those cards on top of your library": the put is its own step.
+        part = re.sub(r', then (?=put (?:that card|those cards|them) on top of your library)', '. ', part)
         sentences.extend(re.split(r'\. |,? (?:and |then )?(?=(?:put|exile) the rest\b)', part))
     for sentence in sentences:
         sentence = re.sub(r'^then ', '', sentence)
+        if params.get('optional_look') and not steps and not selected:
+            sentence = re.sub(r"^if you do,\s*", "", sentence)
         conditional = re.fullmatch(r"if you (?:(?P<negative>don't|didn't|do not)|do),\s*(?P<body>.+)", sentence)
         condition = None
         if conditional:
@@ -133,6 +152,18 @@ def parse_inspection(text: str, parse_tail: Callable) -> list[EffectSpec] | None
                 steps.append({'op': 'reveal', 'pool': 'chosen'})
             if dest:
                 steps.append({'op': 'move', 'pool': 'chosen', 'destination': dest})
+            continue
+        # RULE 701.20: a lone looked-at card is the pool a bare "put that card ..." picks from, so the decision is the
+        # looker's own optional one-card choice (Eye Spy, Precognition); the card goes to its owner's zone (RULE 400.3).
+        lone = _LONE_PUT.fullmatch(sentence)
+        if lone and not selected and params['count'] == 1 and params['zone'] == 'library' and params['scope'] != 'each_player':
+            dest = _DEST.get(lone['dest'])
+            if dest not in _LONE_PUT_DESTINATIONS:
+                return None
+            steps.append({'op': 'choose', 'criteria': parse_criteria('card'), 'count': 1, 'optional': bool(lone['may']),
+                          'chooser': 'you', 'all': False, 'random': False})
+            steps.append({'op': 'move', 'pool': 'chosen', 'destination': dest})
+            selected = True
             continue
         move = re.fullmatch(rf'(?:put {_REF} (.+)|(?:that player |they )?discards? {_REF}|exile {_REF})', sentence)
         if move and selected:

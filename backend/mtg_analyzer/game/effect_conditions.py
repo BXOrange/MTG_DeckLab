@@ -139,6 +139,9 @@ CONTEXT_CONDITION_KINDS: frozenset[str] = frozenset(
         # Unanswerable (``None``) when no clash is in scope, so neither the
         # "if you win" nor the "otherwise" branch fires.
         "clash_won",
+        # RULE 702.191a Increment: the firing SPELL_CAST event's ``mana_spent`` is greater than the source creature's
+        # power or toughness, read live at resolution (RULE 603.4).
+        "cast_mana_exceeds_source_stat",
         "sacrificed_cost_subtype",
         "begun_extra_turn",
         # RULE 705: "if you win the flip" — the last flip `CoinFlipEffect` recorded on
@@ -447,6 +450,12 @@ def _context_holds(
     targets: Optional[list[Any]],
 ) -> Optional[bool]:
     """The `CONTEXT_CONDITION_KINDS` rows. ``None`` = no referent in scope."""
+    if kind == "cast_mana_exceeds_source_stat":
+        event = getattr(context, "trigger_event", None) or {}
+        if source is None or not source.is_creature or event.get("mana_spent") is None:
+            return False
+        spent = int(event.get("mana_spent") or 0)
+        return spent > int(source.power or 0) or spent > int(source.toughness or 0)
     if kind == "begun_extra_turn":
         controller_id = _controller_id(source, context)
         return controller_id in context.state.players_begun_extra_turn if controller_id is not None else None
@@ -955,6 +964,7 @@ _FROM_LEGACY: dict[str, Callable[[Any], Optional[dict[str, Any]]]] = {
     "gift_promised": _flag("gift_promised"),  # RULE 702.174k (MEC-106)
     "madness_cost_paid": _flag("madness_cost_paid"),  # RULE 702.35 (PAR-139)
     "blitz_cost_paid": _flag("blitz_cost_paid"),  # RULE 702.152
+    "prowl_cost_paid": _flag("prowl_cost_paid"),
     "surge_cost_paid": _flag("surge_cost_paid"),  # RULE 702.117
     "teamwork_paid": _flag("teamwork_paid"),  # RULE 702.194b (PAR-56)
     "additional_cost_paid": _flag("additional_cost_paid"),

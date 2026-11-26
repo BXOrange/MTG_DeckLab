@@ -1456,12 +1456,19 @@ def _put_graveyard_pick_top(m: re.Match[str]) -> Optional[list[EffectSpec]]:
 #: has two linked choices: the player target identifies the graveyard and
 #: the controller then chooses its cards, represented by the existing
 #: Quandrix Command effect rather than independent card TargetSpecs.
+#: PAR-292 M27 widens the quantity ("any number of": Loaming Shaman) and adds the untargeted "you shuffle up to N cards
+#: from your graveyard into your library" (Stream of Thought), the controller choosing from their own graveyard.
 _SHUFFLE_TARGET_GRAVEYARD_CARDS_RE = compile_clause(
-    r"target player shuffles up to (?P<n>\d+) target cards from their graveyard into their library"
+    r"(?:target player shuffles (?:up to (?P<n>\d+)|(?P<any>any number of)) target cards from their graveyard into their library"
+    r"|you shuffle up to (?P<own_n>\d+) cards from your graveyard into your library)"
 )
 
 
 def _shuffle_target_graveyard_cards(m: re.Match[str]) -> list[EffectSpec]:
+    if m.group("own_n"):
+        return [EffectSpec("shuffle_target_graveyard_cards_into_library", {"count_max": int(m.group("own_n")), "own": True})]
+    if m.group("any"):
+        return [EffectSpec("shuffle_target_graveyard_cards_into_library", {"any_number": True})]
     return [EffectSpec("shuffle_target_graveyard_cards_into_library", {
         "count_max": int(m.group("n")),
     })]

@@ -496,6 +496,9 @@ SUBJECT_FLAGS: frozenset[str] = frozenset(
         "gift_promised",  # RULE 702.174k (MEC-106) — "if the gift was promised"
         "madness_cost_paid",  # RULE 702.35 (PAR-139) — "if its/this spell's madness cost was paid"
         "blitz_cost_paid",  # RULE 702.152: this instance was cast for blitz.
+        "impending_cost_paid",  # RULE 702.176
+        "prowl_cost_paid",  # RULE 702.76
+        "cast_via_sneak",
         "surge_cost_paid",  # RULE 702.117 — "if its/this spell's surge cost was paid"
         "emerge_cost_paid",  # RULE 702.119
         # RULE 601.2b's generic optional additional cost, stamped by
@@ -709,6 +712,12 @@ def _defender_condition_holds(condition: dict[str, Any], state: "GameState", sou
     if not inner or inner.get("kind") not in STATIC_CONDITION_KINDS:
         return False
     return condition_holds(inner, state, None, defender_id, affected)
+
+
+def _same_card_name_key(name: str) -> str:
+    """``name`` as a comparison key: case-folded, a hyphen read as a space -- Urza's Power Plant's oracle text spells
+    its sibling "Urza's Power-Plant" while its printed name has no hyphen (MEC-175)."""
+    return " ".join(name.lower().replace("-", " ").split())
 
 
 def condition_holds(
@@ -1282,11 +1291,13 @@ def condition_holds(
     if kind == "control_legendary_subtype":
         # "as long as you control a legendary Assassin" (Brotherhood Spy and
         # the like) — a live board read, like `control_count` above.
+        # RULE 205.2 / 205.3: the noun is either a subtype ("legendary Assassin") or a card type ("legendary
+        # creature" -- Errand-Rider of Gondor), and a legendary Equipment is no creature.
         subtype = str(condition.get("subtype", "")).lower()
         return bool(subtype and controller_id is not None and any(
-            o.is_creature and o.controller_id == controller_id
+            o.controller_id == controller_id
             and o.is_legendary
-            and o.has_subtype(subtype)
+            and (subtype in o.type_words or o.has_subtype(subtype))
             for o in state.battlefield
         ))
     if kind == "control_permanent_of_each_color":
@@ -1373,11 +1384,11 @@ def condition_holds(
         # only stable identity a parsed condition can carry (an instance id
         # can't exist at parse time). Case-folded, since `normalize`
         # lowercases every clause the parser sees.
-        name = str(condition.get("name") or "").strip().lower()
+        name = _same_card_name_key(str(condition.get("name") or ""))
         if not name or controller_id is None:
             return False
         return any(
-            (getattr(o, "name", "") or "").strip().lower() == name
+            _same_card_name_key(getattr(o, "name", "") or "") == name
             and o.controller_id == controller_id
             for o in state.permanents()
         )

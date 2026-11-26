@@ -67,7 +67,7 @@ from commander_tail_report import (  # noqa: E402
     _claims_alone,
     _strip_mode_prefix,
 )
-from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import card_coverage, is_registered  # noqa: E402
 from mtg_analyzer.parser.composition_diagnostics import CompositionProbe  # noqa: E402
 from mtg_analyzer.parser.oracle.normalize import normalize  # noqa: E402
 from mtg_analyzer.parser.oracle.segmenter import segment_line  # noqa: E402
@@ -487,7 +487,7 @@ def collect_fragments(cards) -> tuple[list[dict], list[str], dict[str, int]]:
         totals["pool"] += 1
         name = getattr(card, "name", "") or ""
         type_line = getattr(card, "type_line", "") or ""
-        result = parse_oracle(card)
+        result = card_coverage(card)  # BUG-86: every half the engine binds
         # RULE 123.2: Sticker inserts are never playable cards.
         sticker = type_line.strip().casefold() == "stickers"
         if sticker or result.coverage == NEVER_SUPPORTED:

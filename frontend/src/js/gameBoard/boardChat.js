@@ -1,3 +1,4 @@
+import { printingHoverAttr } from './html.js';
 import { getState } from '../state.js';
 import { cardImageUrl, sendGameAction } from '../api.js';
 
@@ -64,8 +65,8 @@ export function createBoardChat({
         <ul class="gf-revealed-list">${revealItems.map(message => {
           const card = message.revealed_card || { name: message.card_name, card_id: message.card_id };
           const image = resolveImageUrl(card, getState().imageCache);
-          return `<li><span>${escapeHtml(message.author)}</span><strong data-hover-card="${escapeAttr(card.name || '')}">${escapeHtml(card.name || '')}</strong>
-            ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(card.name || '')}" loading="lazy" data-hover-card="${escapeAttr(card.name || '')}" />` : ''}</li>`;
+          return `<li><span>${escapeHtml(message.author)}</span><strong data-hover-card="${escapeAttr(card.name || '')}"${printingHoverAttr(card.card_id)}>${escapeHtml(card.name || '')}</strong>
+            ${image ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(card.name || '')}" loading="lazy" data-hover-card="${escapeAttr(card.name || '')}"${printingHoverAttr(card.card_id)} />` : ''}</li>`;
         }).join('')}</ul>
       </section></div>`;
   }
@@ -77,7 +78,7 @@ export function createBoardChat({
       const text = message.kind === 'emote' ? message.text
         : t(`bd.chat.${message.action}`, { card, cost: message.cost_label || '' }) + (message.ability_text ? ` ${message.ability_text}` : '');
       const reveal = message.action === 'reveal' && message.card_id
-        ? `<img class="gf-chat-reveal" src="${escapeAttr(cardImageUrl(message.card_id))}" alt="${escapeAttr(card)}" data-hover-card="${escapeAttr(card)}" loading="lazy">`
+        ? `<img class="gf-chat-reveal" src="${escapeAttr(cardImageUrl(message.card_id))}" alt="${escapeAttr(card)}" data-hover-card="${escapeAttr(card)}"${printingHoverAttr(message.card_id)} loading="lazy">`
         : '';
       return `<li class="gf-chat-message ${message.kind === 'emote' ? 'is-chat' : 'is-announcement'}" data-message-id="${escapeAttr(message.id)}">`
         + `<span class="gf-chat-author">${escapeHtml(message.author)}</span>`

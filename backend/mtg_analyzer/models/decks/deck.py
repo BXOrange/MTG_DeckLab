@@ -111,6 +111,7 @@ class Deck:
         unmodeled_coverage_version: Optional[str] = None,
         scope: Optional[str] = None,
         owner: Optional[str] = None,
+        card_printings: Optional[dict[str, str]] = None,
     ) -> None:
         self.id = id or str(uuid.uuid4())
         self.name = name
@@ -125,6 +126,7 @@ class Deck:
         self.is_cube = is_cube
         self.archetypes = archetypes
         self.favorite_cards = favorite_cards
+        self.card_printings = card_printings or {}
         self.validation_result = validation_result
         self.unmodeled_coverage = unmodeled_coverage
         self.unmodeled_coverage_version = unmodeled_coverage_version
@@ -150,6 +152,7 @@ class Deck:
             "isCube": self.is_cube,
             "archetypes": self.archetypes,
             "favoriteCards": self.favorite_cards,
+            "cardPrintings": self.card_printings,
             "validationResult": self.validation_result,
             "unmodeledCoverage": self.unmodeled_coverage,
             "unmodeledCoverageVersion": self.unmodeled_coverage_version,
@@ -172,6 +175,7 @@ class Deck:
             is_cube=data.get("isCube", False),
             archetypes=data.get("archetypes"),
             favorite_cards=data.get("favoriteCards"),
+            card_printings=data.get("cardPrintings"),
             validation_result=data.get("validationResult"),
             unmodeled_coverage=data.get("unmodeledCoverage"),
             unmodeled_coverage_version=data.get("unmodeledCoverageVersion"),

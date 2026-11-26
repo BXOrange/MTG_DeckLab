@@ -52,7 +52,7 @@ def test_statics_do_not_drop_unknown_conjuncts(text):
     'Mounted Archers', 'Luminous Guardian', 'Grand Melee', 'Brave the Sands',
     'High Ground', "Cenn's Tactician", 'Angler Turtle', 'Goblin Assault',
     'Bedlam', 'Razorjaw Oni', 'Streetwise Negotiator', 'Ancient Lumberknot',
-    'Arcades, the Strategist', 'Gauntlets of Light', 'Treefolk Umbra',
+    'Arcades, the Strategist', 'Gauntlets of Light',
     "Vanguard's Shield", 'Hobble', 'Solid Footing', 'Bark of Doran',
     'Iron Golem', 'Razorgrass Screen', 'Act of Heroism',
 ])

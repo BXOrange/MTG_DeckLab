@@ -302,8 +302,29 @@ _CANDIDATE_CONTROLLER_GRAVEYARD = "cards in its controller's graveyard"
 _MV_COUNT_PLACEHOLDER = 0
 
 
+#: MEC-172 / RULE 601.2c + 603.3d: a *targeted* bound measured from an amount that already exists when the ability goes on
+#: the stack -- what an earlier instruction of the same ability moved ("mana value less than or equal to the mana value of
+#: the discarded card", Argentum Masticore) or what paid for the permanent ("...the number of colors of mana spent to cast
+#: ~", Sundering Archaic's converge). Read back through `continuous.count_selector` against the ability's source, with
+#: the referents the antecedent recorded bound to it (`cost_referents.bound_to_resolution`) while targets are announced.
+_MV_REFERENT_AMOUNT = (
+    r"(?:the number of colors of mana spent to cast (?:~|this (?:creature|permanent|artifact|enchantment))"
+    r"|the mana value of the (?:discarded|exiled|revealed) (?:card|creature|permanent)"
+    r"|the (?:discarded|exiled|revealed|tapped) (?:card|creature|permanent)'s mana value"
+    r"|that amount of excess damage)"
+)
+_MV_REFERENT_BOUND_RE = re.compile(
+    rf"^(?P<head>.+? target [^,]+? with mana value) (?P<cmp>equal to|less than or equal to) (?P<phrase>{_MV_REFERENT_AMOUNT})(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+
+
 def mana_value_count_bound_specs(body: str, *, reading: ClauseReading = STANDALONE) -> "Optional[list[EffectSpec]]":
-    m = _MV_COUNT_BOUND_RE.match(body.strip().rstrip(".").strip())
+    text = body.strip().rstrip(".").strip()
+    referent = _MV_REFERENT_BOUND_RE.match(text)
+    if referent is not None:
+        return _mana_value_referent_bound_specs(referent, reading)
+    m = _MV_COUNT_BOUND_RE.match(text)
     if m is None:
         return None
     per_candidate = m.group("phrase").lower() == _CANDIDATE_CONTROLLER_GRAVEYARD
@@ -324,6 +345,20 @@ def mana_value_count_bound_specs(body: str, *, reading: ClauseReading = STANDALO
     bound = {"candidate_controller_count": selector} if per_candidate else {"count_selector": selector}
     params = {**specs[0].params, key: bound}
     return [EffectSpec(specs[0].type, params, condition=specs[0].condition)]
+
+
+def _mana_value_referent_bound_specs(m: "re.Match[str]", reading: ClauseReading) -> "Optional[list[EffectSpec]]":
+    selector = parse_amount_phrase(m.group("phrase").lower())
+    if not isinstance(selector, str):
+        return None
+    exact = m.group("cmp").lower() == "equal to"
+    placeholder = f"{_MV_COUNT_PLACEHOLDER}" if exact else f"{_MV_COUNT_PLACEHOLDER} or less"
+    specs = parse_effect_body(f"{m.group('head')} {placeholder}{m.group('tail')}", reading=reading)
+    key = "exact_mana_value" if exact else "max_mana_value"
+    if not specs or len(specs) != 1 or specs[0].params.get(key) != _MV_COUNT_PLACEHOLDER \
+            or isinstance(specs[0].params.get(key), bool):
+        return None
+    return [EffectSpec(specs[0].type, {**specs[0].params, key: {"count_selector": selector}}, condition=specs[0].condition)]
 
 
 #: Effects whose target requirement reads a `TargetSpec.max_mana_value` count-selector dict (RULE 601.2c): a

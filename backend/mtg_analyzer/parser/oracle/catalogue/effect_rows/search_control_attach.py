@@ -189,6 +189,8 @@ _SEARCH_CRITERIA_BASE = (
     rf"(?P<types>{_SEARCH_TYPE_LIST})?(?:\s+(?P<types2>{_SEARCH_TYPE_WORD}))?\s*"
     r"cards?"
     rf"(?: named (?P<name>{CARD_NAME}))?"
+    # PAR-292 M28 (Fang-Druid Summoner), RULE 113.1: "a creature card with no abilities" is a vanilla card.
+    r"(?P<no_abilities> with no abilities)?"
     + _SEARCH_AURA_ENCHANT_CREATURE_TAIL
 )
 _SEARCH_CRITERIA = _SEARCH_CRITERIA_BASE + _SEARCH_MV_QUALIFIER
@@ -535,6 +537,8 @@ def _search_criteria_from_match(m: re.Match[str]) -> Optional[dict]:
     crit: dict = {}
     if m.groupdict().get("name"):
         crit["name"] = m.group("name").strip()
+    if m.groupdict().get("no_abilities"):
+        crit["no_abilities"] = True
     if m.groupdict().get("permanent"):
         # RULE 110.4: permanent cards have at least one permanent card type.
         crit["type"] = list(PERMANENT_CARD_TYPES)
@@ -1418,8 +1422,8 @@ _SEARCH_ZONE_PUT_RE = compile_clause(
     # PAR-292 M23 (Boonweaver Giant, Runed Crown): "... onto the battlefield attached to ~" -- the found Aura enters
     # attached to this ability's source (RULE 303.4f), which `AttachEffect(target_kind="source", mover="created")`
     # does with the found card as the follow-up's referent.
-    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?P<attach> attached to ~)?(?:\.\s*"
-    r"if you search(?:ed)? your library this way,?\s*shuffle|, then shuffle)"
+    rf"(?:and\s+)?put {_SEARCH_PRONOUN} (?P<dest>{_SEARCH_DESTINATION_ALT})(?P<attach> attached to ~)?"
+    r"(?:(?P<conditional>\.\s*if you search(?:ed)? your library this way,?\s*shuffle)|, then shuffle)"
 )
 
 
@@ -1442,6 +1446,10 @@ def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "destination": destination,
         "zones": zones,
     }
+    if m.group("conditional"):
+        # "If you search your library this way, shuffle": the player names the zones, the shuffle follows the library.
+        # A plain ", then shuffle" tail shuffles whatever was searched, so every zone is simply looked through.
+        params["choose_zones"] = True
     if m.group("attach"):
         if destination != "battlefield":
             return None  # only a permanent that enters can be attached on entry
@@ -1449,6 +1457,32 @@ def _search_zone_put(m: re.Match[str]) -> Optional[list[EffectSpec]]:
     count = _search_count_from_match(m)
     if count is not None:
         params["count"] = count
+    if re.search(r"\breveal\b", m.group(0)):
+        params["reveal"] = True  # RULE 701.20: "reveal it" shows the find to every player before it moves
+    return [EffectSpec("search", params)]
+
+
+#: PAR-292 M28, RULE 701.23a / 701.24: "search your graveyard, hand, and/or library for <anything a library search can
+#: ask for>. If you search your library this way, shuffle." (Agency Outfitter, Fang-Druid Summoner, Say Its Name, Gate
+#: to the Afterlife's shape): the same search over a union of zones, the player naming which to look through. The
+#: criteria, count, reveal and destination grammar is the library search's own, so the clause is read as that search
+#: ("..., then shuffle") and only the zones are added; the shuffle then follows the zones actually searched.
+_SEARCH_MULTI_ZONE_RE = compile_clause(
+    r"search your (?P<zones>(?:library|graveyard|hand)(?:(?:, |,? and/or |,? and )(?:library|graveyard|hand)){1,2}) for "
+    r"(?P<rest>[^.]+?)\.\s*if you search(?:ed)? your library this way,?\s*shuffle"
+)
+
+
+def _search_multi_zone(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    zones = re.findall(r"library|graveyard|hand", m["zones"])
+    if "library" not in zones or len(set(zones)) != len(zones):
+        return None
+    plain = match_clause(f"search your library for {m['rest']}, then shuffle")
+    if not plain or len(plain) != 1 or plain[0].type != "search" or "zones" in plain[0].params:
+        return None
+    params = {**plain[0].params, "zones": zones, "choose_zones": True}
+    if re.search(r"\breveal\b", m["rest"]):
+        params["reveal"] = True  # RULE 701.20: "reveal it" shows the find to every player before it moves
     return [EffectSpec("search", params)]
 
 
@@ -2686,6 +2720,8 @@ ROWS: list[EffectHandler] = [
         _SEARCH_ZONE_PUT_RE,
         _search_zone_put,
     ),
+    # The general zone union; the narrower row above keeps the clauses it already claimed.
+    EffectHandler("search_multi_zone", _SEARCH_MULTI_ZONE_RE, _search_multi_zone, fallback_for=("search_zone_put",)),
     # "search your library [and graveyard] for N cards and exile the rest.
     # Put the chosen cards on top of your library in any order."
     # (Doomsday-shaped).

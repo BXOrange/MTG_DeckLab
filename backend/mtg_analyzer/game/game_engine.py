@@ -168,6 +168,7 @@ class GameEngine(
             self.state.resolution_play_followup = {
                 "max_casts": casts_left,
                 "bottom_remaining": list(choice.get("bottom_remaining") or []),
+                "bottom_in_chosen_order": choice.get("bottom_in_chosen_order", False),
                 "bottom_player_id": choice.get("bottom_player_id"), "bottom_visits": choice.get("bottom_visits"),
                 "player_id": player.id,
                 "instance_ids": [iid for iid in choice["instance_ids"] if iid != obj.instance_id],
@@ -204,6 +205,7 @@ class GameEngine(
                 owner_life_losses=followup.get("owner_life_losses"), max_casts=followup.get("max_casts"),
                 bottom_remaining=followup.get("bottom_remaining"), bottom_player_id=followup.get("bottom_player_id"),
                 bottom_visits=followup.get("bottom_visits"),
+                bottom_in_chosen_order=followup.get("bottom_in_chosen_order", False),
             )
         while not self.state.pending_choice and self.rules.resume_deferred_effects():
             pass

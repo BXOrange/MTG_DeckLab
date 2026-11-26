@@ -12,8 +12,10 @@ from ..mana_abilities import (
     mana_types_a_land_could_produce,
     option_label,
     resolve_options,
+    resolve_restriction_owner,
     self_damage_amount,
 )
+from ..mana_ability_extras import apply_mana_ability_extras
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 
 
@@ -111,8 +113,7 @@ def finish_resolution(rules):
     ability = effect.ability
     player = rules.state.player_by_id(frame['player_id'])
     restriction = copy.deepcopy(ability.restriction)
-    if restriction and restriction.get('your_commander'):
-        restriction['owner_id'] = player.id
+    restriction = resolve_restriction_owner(restriction, player.id)
     if restriction and restriction.get('kind') == 'chosen_type_spell':
         restriction = {'kind': 'type_spell', 'types': [source.chosen_type] if source.chosen_type else [],
                        'allow_ability': restriction.get('allow_ability', False)}
@@ -138,3 +139,4 @@ def finish_resolution(rules):
             rules.add_counters(effect.source, amount, kind, source=source)
     for kind, amount in ability.player_counters.items():
         rules.add_player_counters(player, amount, kind, source=source)
+    apply_mana_ability_extras(rules, player, effect.source if frame['live'] else source, ability)

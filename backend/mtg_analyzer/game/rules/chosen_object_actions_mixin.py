@@ -7,7 +7,7 @@ from ...models.game.events import EventType, GameEvent
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.game_state import DelayedTrigger
 from ...models.game.player import Player
-from .. import continuous
+from .. import continuous, cost_referents
 from ..effects.core import SacrificeObjectEffect
 from .misc_helpers import (
     CHEAP_CREATURE_MAX_MANA_VALUE,
@@ -33,8 +33,13 @@ class ChosenObjectActionsMixin:
         source_incarnation: Optional[int] = None,
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
+        record_referent: bool = False,
     ) -> None:
         """Do the one thing a `choose_objects` action names to one pick."""
+        kind = cost_referents.referent_kind_for_action(action) if record_referent else None
+        if kind is not None:
+            # RULE 608.2h: last-known information, taken before the pick moves (see `_request_choose_objects`).
+            cost_referents.store_referents(source, kind, [cost_referents.referent_record(obj)])
         if action == "select_only":
             return
         if action == "return_from_exile_finality":
@@ -124,16 +129,14 @@ class ChosenObjectActionsMixin:
             self.exile(obj)
             self.grant_free_cast_window_from_exile(obj, caster=player)
         elif action == "graveyard_to_library":
-            # Quandrix Command mode 4: move the pick from its owner's
-            # graveyard to its owner's library, then shuffle that library
-            # (RULE 701.20). ``player`` here is the spell's controller (the
-            # chooser), who need not own the card.
+            # Quandrix Command mode 4: move the pick from its owner's graveyard to its owner's library. The
+            # shuffle (RULE 701.24a) is one `then_specs` shuffle after the last pick, not one per card.
+            # ``player`` here is the spell's controller (the chooser), who need not own the card.
             owner = self.state.player_by_id(obj.owner_id)
             if owner is not None and obj in owner.graveyard:
                 owner.remove_from_zone(obj, Zone.GRAVEYARD)
                 obj.zone = Zone.LIBRARY
                 owner.add_to_zone(obj, Zone.LIBRARY)
-                self.shuffle_library(owner)
         elif action == "discard":
             # RULE 701.47 (connive, MEC-43 — Ledger Shredder): "if a
             # nonland card was discarded this way, put a +1/+1 counter on

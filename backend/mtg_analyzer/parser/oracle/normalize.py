@@ -619,6 +619,34 @@ def _fold_gendered_self_pronouns(text: str) -> str:
     return "\n".join(fold_line(line) for line in text.split("\n"))
 
 
+#: PAR-291 M4 (RULE 101.4, 608.2c): "Whenever ~ deals combat damage to a player, you and that player each draw that many
+#: cards" (Diviner Spirit, Xyris) is the two single-player draws it abbreviates; "that player" is the damaged player, so only
+#: a damage head names it (Yume's "that player" is the assisting player, which no row reads). The draws do not depend on
+#: each other, so the order is immaterial.
+_SHARED_DAMAGE_DRAW_RE = re.compile(
+    r"(?P<head>(?:whenever|when) [^,.\n]*\bdeals (?:combat )?damage to [^,.\n]*, )"
+    r"you and that player each draw (?P<amount>a card|\d+ cards|that many cards)(?=[.\n]|$)"
+)
+
+
+def _fold_shared_damage_draw(text: str) -> str:
+    return _SHARED_DAMAGE_DRAW_RE.sub(
+        lambda m: f"{m.group('head')}you draw {m.group('amount')}. that player draws {m.group('amount')}", text,
+    )
+
+
+#: PAR-291 M5: "each opponent exiles cards ... until that player has exiled cards with total mana value N or greater"
+#: (Tasha's Hideous Laughter) -- "that player" is the opponent the dig is currently running for, the same person "they"
+#: names in the sibling printing (Dream Harvest), so it reads as "they" instead of waiting for a firing event.
+_EACH_OPPONENT_DIG_THAT_PLAYER_RE = re.compile(
+    r"(?P<head>each opponent exiles cards from the top of their library until )that player has exiled"
+)
+
+
+def _fold_each_opponent_dig_that_player(text: str) -> str:
+    return _EACH_OPPONENT_DIG_THAT_PLAYER_RE.sub(lambda m: f"{m.group('head')}they have exiled", text)
+
+
 def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str]] = None) -> str:
     """Canonicalise ``text`` for the segmenter and handler table (docs/09).
 
@@ -647,6 +675,8 @@ def normalize(text: str, name: Optional[str] = None, keywords: Optional[list[str
     text = _fold_dies_long_form(text)
     text = _fold_leading_until_end_of_turn(text)
     text = _NUMBER_WORD_RE.sub(lambda m: _NUMBER_WORDS[m.group(1).lower()], text)
+    text = _fold_shared_damage_draw(text)
+    text = _fold_each_opponent_dig_that_player(text)
     # Collapse horizontal whitespace only; keep '\n' as the ability separator.
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" *\n *", "\n", text)

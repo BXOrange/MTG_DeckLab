@@ -294,7 +294,7 @@ def test_edict_by_mana_value_parses_as_sacrifice_or_exile():
                            "selector": "each_opponent"}
     [spec] = _parse("Target opponent exiles a creature or planeswalker they control with the greatest mana value "
                     "among creatures and planeswalkers they control.")
-    assert spec.params["action"] == "exile" and spec.params["target_kind"] == "player"
+    assert spec.params["action"] == "exile" and spec.params["target_kind"] == "opponent"  # BUG-88
     # a pool that is not the picked type is another card
     assert not _parse("Each opponent sacrifices a creature with the greatest mana value among creatures and "
                       "planeswalkers they control.")

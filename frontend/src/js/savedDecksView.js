@@ -255,7 +255,7 @@ export function renderSavedDecksView(container, { onLoadDeck, onAnalyzeDeck } = 
         const trimmed = newName.trim();
         if (!trimmed || trimmed === currentName) return;
         btn.disabled = true;
-        const { scope: _scope, ...fields } = deck;
+        const { scope: _scope, cardPrintings: _cardPrintings, ...fields } = deck;
         const saved = await saveDeck({ ...fields, name: trimmed });
         if (!saved) {
           btn.disabled = false;

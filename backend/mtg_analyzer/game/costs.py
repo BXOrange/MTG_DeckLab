@@ -289,6 +289,9 @@ class ActivationCost:
     #: RULE 602.2b: Night Soil's "exile two creature cards from **a single graveyard**" -- the cards may come from any
     #: player's graveyard, but all from the same one (rulings: no graveyard holding enough cards means unpayable).
     exile_from_graveyard_single: bool = False
+    #: "exile **another** creature card from your graveyard" (RULE 109.5): the ability's own source -- a dies trigger's
+    #: card sits in that graveyard -- is not a legal pick (Resplendent Marshal).
+    exile_from_graveyard_other: bool = False
     #: RULE 701.59a (Collect Evidence, PAR-29 — Murders at Karlov Manor): the
     #: **total-mana-value threshold** — "exile any number of cards with total
     #: mana value N or greater from your graveyard". The MV-sum sibling of
@@ -459,6 +462,7 @@ class ActivationCost:
     #: (`GameEngine._sacrifice_count_pool`, so the word may be a compound like ``other_artifact_creature_or_vehicle``). They are
     #: recorded on the source's `GameObject.exiled_with_ids` (RULE 607.2a).
     exile_others: Optional[tuple[int, str]] = None
+    craft_materials: Optional[dict[str, Any]] = None
     exile_others_total_mana_value_x: bool = False
     exile_instant_or_sorcery_spell: bool = False
     #: "Spend only mana of the chosen color to activate this ability" (Throne
@@ -1043,6 +1047,7 @@ class ActivationCost:
             "exile_from_graveyard": self.exile_from_graveyard,
             "exile_from_graveyard_filter": self.exile_from_graveyard_filter,
             "exile_from_graveyard_single": self.exile_from_graveyard_single,
+            "exile_from_graveyard_other": self.exile_from_graveyard_other,
             "exile_from_graveyard_mana_value_x": self.exile_from_graveyard_mana_value_x,
             "collect_evidence": self.collect_evidence,
             "forage": self.forage,
@@ -1223,6 +1228,7 @@ def parse_activation_cost(
         else:
             # Escape's own dict form (`grant`), a bare int.
             parsed.exile_from_graveyard = int(raw)
+    parsed.exile_from_graveyard_other = bool(cost.get("exile_from_graveyard_other", False))
     if cost.get("exile_from_graveyard_filter"):
         parsed.exile_from_graveyard_filter = str(cost["exile_from_graveyard_filter"])
     parsed.exile_from_graveyard_mana_value_x = bool(cost.get("exile_from_graveyard_mana_value_x", False))
@@ -1580,6 +1586,7 @@ def _parse_text(text: str) -> ActivationCost:
         if exile_graveyard.group("type"):
             cost.exile_from_graveyard_filter = exile_graveyard.group("type").lower().replace(" ", "_")
         cost.exile_from_graveyard_single = bool(exile_graveyard.group("single"))
+        cost.exile_from_graveyard_other = re.search(r"\bexile another\b", cost_text, re.IGNORECASE) is not None
     graveyard_top = hits.get("exile_graveyard_top")
     if graveyard_top:
         # ENG-51: "Exile the top [creature] card of your graveyard" (Alms).

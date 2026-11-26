@@ -62,7 +62,7 @@ def _find_backend() -> Path:
 
 sys.path.insert(0, str(_find_backend()))
 
-from mtg_analyzer.game.card_registry import is_registered  # noqa: E402
+from mtg_analyzer.game.card_registry import card_coverage, is_registered  # noqa: E402
 from mtg_analyzer.parser.oracle import (  # noqa: E402
     NEVER_SUPPORTED,
     PARSER_VERSION,
@@ -98,7 +98,7 @@ def scan(cards):
     counts = Counter()
     for card in cards:
         name = getattr(card, "name", "") or ""
-        result = parse_oracle(card)
+        result = card_coverage(card)  # BUG-86: every half the engine binds
         if result.coverage == NEVER_SUPPORTED:
             # RULE 123 Stickers &c: a permanent non-goal. Neither covered nor
             # backlog — no unclaimed clauses, so it contributes to no ranking
@@ -131,7 +131,8 @@ def cmd_rank(args):
     rows, counts = scan(cards)
     _print_coverage(counts)
     from mtg_analyzer.parser.gap_catalogue import build_catalogue
-    catalogue = build_catalogue(cards, covered=lambda card: is_registered(card.name))
+    catalogue = build_catalogue(cards, covered=lambda card: is_registered(card.name),
+                               verdict=card_coverage)
     pattern = re.compile(args.grep, re.IGNORECASE) if args.grep else None
     print(f"unresolved accounting: {catalogue.accounting()}")
     print(f"gap catalogue: {len(catalogue.requirements)} cards / {len(catalogue.occurrences)} unresolved occurrences / "
@@ -289,7 +290,7 @@ def cmd_card(args):
             print(f"  {c.name}")
         return
 
-    result = parse_oracle(card)
+    result = card_coverage(card)
     authored = is_registered(card.name)
     print(f"{card.name}")
     print(f"  coverage={result.coverage} modeled={result.modeled} hand-authored={authored}")

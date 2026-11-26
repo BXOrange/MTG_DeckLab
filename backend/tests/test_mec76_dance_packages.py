@@ -56,7 +56,10 @@ def test_dance_deck_has_no_remaining_unmodeled_cards():
         if (card := cards.get_card(entry.name)) is None
         or not (is_registered(card.name) or parse_oracle(card).modeled)
     ]
-    assert uncovered == []
+    # BUG-73: Jegantha's "can't pay generic costs" rider is a sentence after an Add clause that the mana-ability
+    # builder does not execute, so its line is not claimed (it was dropped silently before). Path of Ancestry's scry
+    # payoff is read since MEC-175.
+    assert uncovered == ["Jegantha, the Wellspring"]
 
 
 def test_return_of_the_wildspeaker_modes_use_nonhuman_derived_board_values():

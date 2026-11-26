@@ -6,7 +6,7 @@ import { CHOICE_ICONS, TARGET_CHOICE_KINDS, TARGET_OWNER_ZONES } from './labels.
 import { bannerStyle } from '../bannerColors.js';
 import { cardImageUrl } from '../api.js';
 import { castTargetHtml, lookTopChoiceHtml } from './cardForms.js';
-import { escapeAttr, escapeHtml } from './html.js';
+import { escapeAttr, escapeHtml, printingHoverAttr } from './html.js';
 import { measurementValue, triggerOptionKey } from './miscHtml.js';
 import { t } from '../i18n.js';
 
@@ -196,7 +196,7 @@ export function createChoiceRenderer(ctx) {
           return `<button type="button" class="gf-decline" data-action='${escapeAttr(action)}'>${escapeHtml(opt.label || t('bd.choice.chooseNothing'))}</button>`;
         }
         const action = JSON.stringify(opt.action || { type: 'choose', option_id: opt.id, instance_id: opt.instance_id, name: opt.label });
-        const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"` : '';
+        const hover = opt.instance_id != null ? ` data-hover-card="${escapeHtml(opt.label || '')}"${printingHoverAttr(opt.card_id)}` : '';
         // VIS-13: a RULE 115 target offered through the generic choice popup
         // (`trigger_target`) says who controls each candidate.
         const chip = TARGET_CHOICE_KINDS.has(pending.kind) ? targetControllerChipHtml(opt) : '';
@@ -229,7 +229,7 @@ export function createChoiceRenderer(ctx) {
     const revealed = ctx.view.state?.clash_revealed || [];
     const faces = revealed.map((card) => {
       const img = card.card_id ? cardImageUrl(card.card_id, 'small', 'front') : null;
-      return `<article class="gf-clash-card" data-hover-card="${escapeHtml(card.name || '')}">
+      return `<article class="gf-clash-card" data-hover-card="${escapeHtml(card.name || '')}"${printingHoverAttr(card.card_id)}>
         ${img ? `<img class="gf-lt-card-img" src="${escapeAttr(img)}" alt="${escapeAttr(card.name || '')}" loading="lazy">` : ''}
         <span class="gf-lt-card-label">${escapeHtml(card.name || 'Karte')}</span>
       </article>`;

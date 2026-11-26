@@ -35,13 +35,13 @@ export async function checkHealth() {
  *   pool, not a real deck) — see `models/deck.py`'s `is_cube`.
  * @returns {Promise<{ok: true, deck: object} | {ok: false, error: string}>}
  */
-export async function submitDeck(sections, isCube = false) {
+export async function submitDeck(sections, isCube = false, { resolvePrintings = true } = {}) {
   let response;
   try {
     response = await apiFetch(`${getServerUrl()}/api/decks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...sections, isCube }),
+      body: JSON.stringify({ ...sections, isCube, resolvePrintings }),
     });
   } catch {
     return { ok: false, error: 'Server nicht erreichbar – lokale Vorschau wird verwendet.' };
@@ -92,6 +92,10 @@ export async function importArchidektDeck(deckIdOrUrl) {
   } catch {
     return { ok: false, error: t('api.invalidResponse') };
   }
+}
+
+export function isDeckPrintingId(id) {
+  return typeof id === 'string' && id.startsWith('deck-printing-');
 }
 
 /**
@@ -154,6 +158,15 @@ export async function listCachedCards(scope = 'all') {
 
   try {
     return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function browseCachedCards(params, signal) {
+  try {
+    const response = await apiFetch(`${getServerUrl()}/api/cards/browse?${params}`, { signal });
+    return response.ok ? await response.json() : null;
   } catch {
     return null;
   }
@@ -905,3 +918,12 @@ async function deleteRequest(path) {
 
 export async function getMcpSettings() { return gameRequest('GET', '/api/mcp-settings'); }
 export async function getMcpSetup() { return gameRequest('POST', '/api/mcp-settings/setup', {}); }
+export async function getDeckPrintingOptions(card) {
+  try {
+    const query = new URLSearchParams({ card });
+    const response = await apiFetch(`${getServerUrl()}/api/decks/printings/options?${query}`);
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}

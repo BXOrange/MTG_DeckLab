@@ -15,13 +15,15 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
 from mtg_analyzer.i18n import api_error
-from mtg_analyzer.api.dependencies import get_card_database, get_image_cache
+from mtg_analyzer.api.dependencies import get_card_database, get_deck_database, get_image_cache
 from mtg_analyzer.services.card_database import CardDatabase
+from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_printings import IMAGE_SIZES, PRINTING_ID_PREFIX
 from mtg_analyzer.services.image_cache import ImageCache
 
 router = APIRouter(prefix="/api/cards", tags=["cards"])
 
-_VALID_SIZES = ("small", "normal", "large", "png")
+_VALID_SIZES = IMAGE_SIZES
 
 
 _VALID_FACES = ("front", "back")
@@ -34,11 +36,18 @@ def get_card_image(
     face: str = Query("front"),
     database: CardDatabase = Depends(get_card_database),
     images: ImageCache = Depends(get_image_cache),
+    decks: DeckDatabase = Depends(get_deck_database),
 ) -> FileResponse:
     if size not in _VALID_SIZES:
         raise api_error(400, "image_invalid_size", allowed=", ".join(sorted(_VALID_SIZES)))
     if face not in _VALID_FACES:
         raise api_error(400, "image_invalid_face", allowed=", ".join(sorted(_VALID_FACES)))
+
+    if card_id.startswith(PRINTING_ID_PREFIX):
+        image_url = decks.get_printing_images(card_id).get(face, {}).get(size)
+        if not image_url:
+            raise api_error(404, "card_id_not_cached", card_id=card_id)
+        return FileResponse(images.get_or_fetch(card_id, size, image_url, face))
 
     card = database.get_card_by_id(card_id)
     if card is None:

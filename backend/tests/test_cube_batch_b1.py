@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.support.cards import strip_inert_keywords
 from mtg_analyzer.game import card_registry as ac
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
@@ -61,7 +62,7 @@ def _card(name: str) -> Card:
     card = db.get_card(name)
     if card is None:
         pytest.skip(f"{name!r} not present in the local card cache")
-    return card
+    return strip_inert_keywords(card)  # BUG-75: Extort has no engine behaviour; the rest of the text is under test
 
 
 def _battlefield(state, card: Card, controller: str = "p1") -> GameObject:

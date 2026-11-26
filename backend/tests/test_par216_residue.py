@@ -23,7 +23,8 @@ def _effects(result):
 
 def _modeled(name):
     from mtg_analyzer.services.card_database import CardDatabase, DEFAULT_DB_PATH
-    return parse_oracle(CardDatabase(DEFAULT_DB_PATH).get_card(name)).modeled
+    from tests.support.cards import strip_inert_keywords  # BUG-75: the printed card minus keywords the engine ignores
+    return parse_oracle(strip_inert_keywords(CardDatabase(DEFAULT_DB_PATH).get_card(name))).modeled
 
 
 def _fund(eng, player="p1"):
@@ -237,7 +238,7 @@ def test_captains_maneuver_redirects_x_damage_to_a_player():
 
 def test_encircling_fissure_stops_only_the_chosen_opponents_creatures():
     eng = game(library=0)
-    spell = card(eng, "Encircling Fissure", zone=Zone.HAND)
+    spell = card(eng, "Encircling Fissure", zone=Zone.HAND, without=True)
     mine = filler(eng, "Mine", power=3, toughness=3)
     theirs = filler(eng, "Theirs", player="p2", power=3, toughness=3)
     me = eng.state.player_by_id("p1")

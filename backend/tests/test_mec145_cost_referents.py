@@ -421,11 +421,18 @@ class TestCardTypeCount:
         eng.resolve_until_stable()
         assert host.power == 1 + 2
 
-    def test_optional_pay_cost_then_discard_stays_unclaimed(self):
-        # Mount Velus Manticore: `pay_cost_then` auto-picks the discard and records nothing, so the amount has no referent.
+    def test_optional_pay_cost_then_discard_is_claimed(self):
+        # MEC-171: Mount Velus Manticore -- the `pay_cost_then` discard is a real, recorded choice now (see
+        # `test_mec171_reflexive_referents.py`), so the amount has the referent it reads.
         result = parse_oracle(creature("Manticore Probe", oracle=(
             "At the beginning of combat on your turn, you may discard a card. When you do, ~ deals X damage to any "
             "target, where X is the number of card types the discarded card has.")))
+        assert result.modeled
+
+    def test_trigger_without_a_payment_still_has_no_referent(self):
+        result = parse_oracle(creature("Manticore Probe", oracle=(
+            "At the beginning of combat on your turn, ~ deals X damage to any target, where X is the number of card "
+            "types the discarded card has.")))
         assert not result.modeled
 
 

@@ -7,7 +7,7 @@ from ...models.game.game_object import GameObject, Zone
 from ...models.game.player import Player
 from ..costs import ActivationCost
 from ..effects.core import TriggeredAbility
-from .. import continuations, copy_mechanics
+from .. import continuations, copy_mechanics, cost_referents
 from .misc_helpers import (
     PAY_COST_THEN_MAX_X,
     PAY_X_OPTION_PREFIX,
@@ -531,6 +531,11 @@ class PaymentChoicesMixin:
             modes_repeatable=bool(modal.get("repeatable", False)),
         )
         ability.parent_ability = parent_ability
+        # RULE 608.2h + 603.12 (MEC-171): the payoff measures what the antecedent moved ("the discarded card's mana value",
+        # "the sacrificed creature's power"), so it takes its own snapshot of the source's recorded referents -- a later
+        # payment by the same source (a second trigger, another activation) must not rewrite what this trigger reads.
+        if source is not None and (source.cost_referents or source.sacrificed_cost_instance_id is not None):
+            ability.cost_stamps = cost_referents.snapshot_activation_stamps(source)
         # Carry the outer event so a payoff naming it ("that player") reads
         # it off its own `StackItem.trigger_event`.
         stamped_event = event if isinstance(event, GameEvent) else GameEvent(EventType.SPELL_RESOLVED)

@@ -592,7 +592,7 @@ def test_basic_or_subtype_reuses_only_tails_the_plain_search_reads():
 
 # --- M4: the reveal ends the search sentence and the put is a sentence of its own ----------------------------------
 
-@pytest.mark.parametrize("name", ["Fork in the Road", "Jarad's Orders", "Viewpoint Synchronization", "Peregrination",
+@pytest.mark.parametrize("name", ["Fork in the Road", "Jarad's Orders", "Peregrination",
                                   "Flourishing Bloom-Kin", "Guidelight Pathmaker", "Stoic Farmer"])
 def test_reveal_then_put_cards_are_modeled(name):
     assert _modeled(name)
@@ -633,7 +633,7 @@ def test_fork_in_the_road_first_pick_to_hand_second_to_graveyard_and_shuffles():
 def test_viewpoint_synchronization_two_tapped_onto_the_battlefield_and_the_third_to_hand():
     eng = game(library=0)
     _basic_library(eng)
-    cast(eng, card(eng, "Viewpoint Synchronization", zone=Zone.HAND))
+    cast(eng, card(eng, "Viewpoint Synchronization", zone=Zone.HAND, without=True))
     _pick_each(eng, ["BForest", "BIsland", "BSwamp"])
     p = eng.state.player_by_id("p1")
     on_bf = {o.name: o for o in eng.state.battlefield if o.name.startswith("B")}

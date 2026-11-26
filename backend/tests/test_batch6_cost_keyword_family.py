@@ -133,9 +133,7 @@ def test_a_keywords_own_continuation_that_looks_like_prose_is_still_rejected():
         "blitz—{2}{b}{b}, pay 2 life.",                        # Tenacious Underdog
         "evoke—{1}{b}{b}, pay 3 life.",                        # Infestation
         "buyback—pay 3 life, discard a card at random.",       # Flowstone Flood
-        "recover—pay half your life, rounded up.",             # Garza's Assassin
         "madness—{2}{b}, pay 8 life.",                         # Shadowgrange Archfiend
-        "squad—{1}, discard a card.",                          # Thrill-Kill Disciple
         "equip—{2}, pay 2 life.",                              # My Precious
         "protection from blue, from black, and from red",      # Oversoul of Dusk
         "protection from vampires, from werewolves, and from zombies",
@@ -145,8 +143,8 @@ def test_a_keywords_own_continuation_that_looks_like_prose_is_still_rejected():
         "firebending x, where x is the number of creatures you control.",
         "mobilize x, where x is your devotion to mardu.",
         "devour x, where x is the number of creatures devoured this way",
-        "companion — your starting deck contains no cards with a silver, "
-        "gold, orange, or purple expansion symbol.",           # Lutri
+        # Recover, Squad and Companion share these compound shapes but have no engine behaviour (BUG-75), so their lines are
+        # refused: see tests/test_bug75_keyword_behaviour.py.
     ],
 )
 def test_par27_compound_keyword_lines_are_recognised(line):
@@ -188,8 +186,7 @@ def test_par27_recognisers_do_not_swallow_a_real_ability_body(line):
         "snow landwalk",        # Zombie Musher
         "snow forestwalk",      # Rime Dryad
         "snow-covered plainswalk",
-        "fox offering",         # Patron of the Kitsune
-        "artifact offering",    # Blast-Furnace Hellkite
+        # "<type> offering" (Patron of the Kitsune, Blast-Furnace Hellkite) has no engine behaviour (BUG-75): refused there.
     ],
 )
 def test_par27_multiword_landwalk_and_offering_lines_are_recognised(line):

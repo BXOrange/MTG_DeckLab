@@ -26,17 +26,8 @@ def _crypt_ghast() -> list[AbilitySpec]:
     precedent for a filter this event doesn't pre-stamp).
     """
     return [
-        AbilitySpec(
-            "triggered",
-            [EffectSpec("pay_cost_then", {
-                "cost": "{W/B}",
-                "effects": [
-                    {"type": "lose_life", "params": {"amount": 1, "selector": "each_opponent"}},
-                    {"type": "gain_life", "params": {"count_selector": "life_lost_this_way"}},
-                ],
-            })],
-            trigger={"event": EventType.SPELL_CAST, "condition": {"subject": "you"}},
-        ),
+        # MEC-176: Extort is a bound keyword now (`binding.core._kw_extort`); this entry keeps only the mana ability.
+        AbilitySpec("keyword", keyword={"name": "extort"}),
         AbilitySpec(
             "triggered",
             [EffectSpec("add_mana", {"colors": ["B"]})],

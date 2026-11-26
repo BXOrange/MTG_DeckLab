@@ -109,7 +109,7 @@ def test_aethertow_uses_combat_target_filter_and_moves_card():
     from mtg_analyzer.game.targeting import legal_targets
     eng = engine()
     card = Card(id='aethertow', name='Aethertow', type_line='Instant', is_instant=True,
-                oracle_text="Put target attacking or blocking creature on top of its owner's library.\nConspire")
+                oracle_text="Put target attacking or blocking creature on top of its owner's library.")  # Conspire has no engine behaviour (BUG-75)
     assert parse_oracle(card).modeled
     src = GameObject(card, owner_id='p1', zone=Zone.STACK)
     src.controller_id = 'p1'

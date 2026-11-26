@@ -49,6 +49,7 @@ from mtg_analyzer.api.schemas import (
 from mtg_analyzer.models.cards.card import Card
 from mtg_analyzer.parser.deckliste_parser import parse_deck_sections
 from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_printings import PrintingLookup, apply_deck_printings
 from mtg_analyzer.services.deck_tokens import producible_tokens
 from mtg_analyzer.services.deck_validation import apply_legality
 from mtg_analyzer.services.game_session import (
@@ -87,11 +88,11 @@ def resolve_seat_deck(
 
     ``None`` is an anonymous viewer: global decks only (PLR-18)."""
     deck = decks.get_readable(deck_id, player_uuid) if deck_id else None
-    return resolve_deck(deck, loader, include_sideboard=include_sideboard, has_id=bool(deck_id))
+    return resolve_deck(deck, loader, lookup_printing=decks.get_printing_images, include_sideboard=include_sideboard, has_id=bool(deck_id))
 
 
 def resolve_deck(
-    deck, loader: LazyCardLoader, *, include_sideboard: bool = False, has_id: bool = True
+    deck, loader: LazyCardLoader, *, lookup_printing: PrintingLookup, include_sideboard: bool = False, has_id: bool = True
 ) -> tuple[list, list, list[str]] | tuple[list, list, list[str], list]:
     """Resolve a seat to library, commanders and errors; optionally append sideboard.
 
@@ -112,14 +113,15 @@ def resolve_deck(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
-    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
+    cards = apply_deck_printings(resolved.cards, deck.card_printings, lookup_printing)
+    library, missing_lib = expand_entries(parsed.main_deck, cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, cards)
     if not parsed.validation.is_legal:
         return result([], [], list(parsed.validation.errors))
     if not library and not commanders:
         missing = sorted(set(missing_lib) | set(missing_cmd))
         return result([], [], [CodedText("seat_no_resolvable_cards", names=", ".join(missing) or "—")])
-    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, cards)
     if missing_sideboard:
         return result([], [], [CodedText("seat_sideboard_unresolved", names=", ".join(missing_sideboard))])
     # RULE 903.5f: a Commander seat gets no sideboard (the saved decklist keeps it).
@@ -136,6 +138,7 @@ def start_goldfish(
     who: Viewer = Depends(play_viewer),
 ) -> dict[str, object]:
     """Start a solo goldfish game from a saved deck or decklist text."""
+    deck = None
     commander_text = request.commander_text
     mainboard_text = request.mainboard_text
     sideboard_text = request.sideboard_text
@@ -153,10 +156,11 @@ def start_goldfish(
         [e.name for e in parsed.commanders] + [e.name for e in parsed.all_cards] + [e.name for e in parsed.sideboard]
     )
     apply_legality(parsed, resolved)
+    cards = apply_deck_printings(resolved.cards, deck.card_printings, decks.get_printing_images) if deck else resolved.cards
 
-    library, missing_lib = expand_entries(parsed.main_deck, resolved.cards)
-    commanders, missing_cmd = expand_entries(parsed.commanders, resolved.cards)
-    sideboard, missing_sideboard = expand_entries(parsed.sideboard, resolved.cards)
+    library, missing_lib = expand_entries(parsed.main_deck, cards)
+    commanders, missing_cmd = expand_entries(parsed.commanders, cards)
+    sideboard, missing_sideboard = expand_entries(parsed.sideboard, cards)
     missing = sorted(set(missing_lib) | set(missing_cmd) | set(missing_sideboard) | set(resolved.not_found))
 
     # Only legal decks may start a goldfish game (docs/02 UC3, this file's
@@ -297,6 +301,7 @@ def start_replay(
     request: StartReplayRequest,
     sessions: GameSessionManager = Depends(get_game_session_manager),
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    decks: DeckDatabase = Depends(get_deck_database),
     who: Viewer = Depends(play_viewer),
 ) -> dict[str, object]:
     """Start a Replay/Puzzle session: load a saved board or a blank one.
@@ -306,7 +311,7 @@ def start_replay(
     puzzle, 2-4 = with opponents). The board is editable via ``edit_*`` actions.
     """
     descriptor = request.replay or blank_replay(request.num_players, who.player_name)
-    session = sessions.create_replay(descriptor, loader, owner=who.owner)
+    session = sessions.create_replay(descriptor, loader, owner=who.owner, lookup_printing=decks.get_printing_images)
     return session.view()
 
 

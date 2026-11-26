@@ -490,7 +490,17 @@ export function createGameBoardView(opts = {}) {
 
   function selectedKickerAction(action, kicked = readKicker(action.instance_id, action.face, action.splice_ids)) {
     const count = Array.isArray(kicked) ? kicked.length : kicked;
-    return count > 0 && action.kicker_variant ? action.kicker_variant : action;
+    if (!(count > 0)) return action;
+    const selected = action.kicker_variant || action;
+    if (action.squad_discard_cost) {
+      const cost = action.squad_discard_cost;
+      return { ...selected, discard_cost: { ...cost, count: count * cost.count } };
+    }
+    if (action.squad_exile_cost) {
+      const cost = action.squad_exile_cost;
+      return { ...selected, graveyard_exile_cost: { ...cost, count: count * cost.count } };
+    }
+    return selected;
   }
 
   function setLatestByInstance(byInstance) {

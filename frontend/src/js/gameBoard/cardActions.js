@@ -64,7 +64,7 @@ export function cardActionButtons(cardActions, attack) {
       buttons.push(
         `<button type="button" class="gf-card-action gf-locked" disabled title="${escapeAttr(reason)}">🔒 ${escapeHtml(reason)}${faceHint(a)}</button>`
       );
-    } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost || a.reveal_cost)) {
+    } else if (a.type === 'cast_spell' && (a.requires_target || a.kicker_variant || a.damage_divisions?.length || a.graveyard_exile_cost || a.sacrifice_count_cost || a.reveal_cost || a.squad_discard_cost || a.squad_exile_cost || a.tap_cost)) {
       buttons.push(castTargetHtml(a));
     } else if (a.type === 'cast_spell' && a.discard_cost) {
       // "As an additional cost to cast this spell, discard N cards" (RULE
@@ -87,7 +87,7 @@ export function cardActionButtons(cardActions, attack) {
         a.has_x ? 'X' : null,
         a.replicate_costs?.length ? 'Replicate' : null,
         a.splice_ids?.length ? `Splice (${(a.splice_names || []).join(', ')})` : null,
-        a.has_kicker ? (a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
+        a.has_kicker ? (a.kicker_keyword === 'squad' ? 'Squad' : a.kicker_keyword === 'offspring' ? 'Offspring' : 'Kicker') : null,
         a.pay_additional ? a.additional_cost_label || 'Zusatzkosten' : null,
         a.bargained ? 'Bargain' : null,
         a.gift_opponent_id ? t('bd.cast.giftSuffix', { name: a.gift_opponent_name || a.gift_opponent_id }) : null,

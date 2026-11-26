@@ -216,6 +216,23 @@ def free_cast_condition_holds(condition: dict[str, Any], obj: "GameObject", stat
             active = getattr(state, "active_player", None)
             if active is not None and active.id == controller_id and active.turns_taken <= int(value):
                 return False
+        elif key in ("freerunning", "prowl"):
+            from ..models.game.events import EventType
+            from .continuous import derived_subtype_words
+
+            subtypes = derived_subtype_words(obj)
+            qualifying_hits = (
+                event for event in state.events_this_turn()
+                if event.type == EventType.DAMAGE and event.get("is_player") and event.get("combat")
+                and event.get("source_controller_id") == controller_id and event.get("amount", 0) > 0
+            )
+            if key == "freerunning":
+                if not any(hit.get("source_is_creature") and (
+                    hit.get("source_is_commander") or "assassin" in hit.get("source_subtypes", ())
+                ) for hit in qualifying_hits):
+                    return False
+            elif not any(subtypes.intersection(hit.get("source_subtypes", ())) for hit in qualifying_hits):
+                return False
         elif key == "opponent_lost_life_this_turn":
             # "You can't cast Rakdos unless an opponent lost life this turn." — RULE 119.3, derived from this turn's events.
             lost = getattr(state, "life_lost_this_turn", None) or {}

@@ -19,6 +19,8 @@ Pure — **no `game/` imports** (front-end security boundary).
 
 from __future__ import annotations
 
+import json
+
 import copy
 import hashlib
 import re
@@ -28,6 +30,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .catalogue.counters import entry_counters_condition
+from .catalogue.subgrammars import COUNTERS_REMOVED_BOUND_SELECTOR
 from .catalogue.dig import THAT_MANY_FIELD, reads_dig_x
 from .catalogue.cost_text import scan_cost_text
 from .catalogue.effect_rows.costs_mana_limits import MAY_COST_THEN_CLAUSE
@@ -51,12 +54,14 @@ from .catalogue.opening_hand import (
     opening_hand_graveyard_permission_line,
     opening_hand_reveal_permission_line,
 )
+from .catalogue.overload import variant as overload_variant
 from .catalogue.station import split_station_blocks, station_creature_threshold
 from .catalogue.clause_primitives import ACTION_ONCE_PER_TURN_MARKER
 from .catalogue.effect_rows.shared import DEFENDING_PLAYER_COMBAT_EVENTS, EVENT_PLAYER_EVENTS_KEY
 from .catalogue.static_handlers import commander_eligibility_line, deck_any_number_line
 from .normalize import normalize
 from .residue import UnclaimedSpan, minimal_unclaimed_span
+from .segmenter.overrides_and_amounts import CAST_PAYMENT_SELECTORS
 from .segmenter import (
     FLASHBACK_DISCOUNT_LINE_RE,
     Segment,
@@ -84,7 +89,7 @@ _ATTACH_KEYWORDS = frozenset({"equip", "fortify", "reconfigure"})
 
 #: Bumped when the catalogue/pipeline changes shape; stamped on every spec's provenance so a cached parse
 #: can be invalidated (docs/09 "Versioning"). Per-version changelog: `PARSER_VERSION_HISTORY.md` (this directory).
-PARSER_VERSION = "1060"
+PARSER_VERSION = "1081"
 
 
 def parser_source_hash() -> str:
@@ -758,6 +763,17 @@ def parse_oracle(card: Any) -> ParseResult:
             cached = _merge_flip_halves(parse_oracle(flip[0]), parse_oracle(flip[1]))
         else:
             cached = _parse_oracle_uncached(card)
+            if cached.modeled and any(
+                (spec.keyword or {}).get("name") == "overload" for spec in cached.specs
+            ):
+                altered = overload_variant(card)
+                transformed = parse_oracle(altered) if altered is not None else None
+                if transformed is None or not transformed.modeled:
+                    residue = list(transformed.unclaimed) if transformed else []
+                    cached = ParseResult(
+                        specs=cached.specs, coverage=UNMODELED,
+                        unclaimed=[f"Overload: {line}" for line in residue] or ["Overload"],
+                    )
         _PARSE_CACHE[key] = cached
     return copy.deepcopy(cached)
 
@@ -778,6 +794,23 @@ def _room_halves(card: Any) -> list[Any]:
     front.back_name = front.back_type_line = front.back_oracle_text = front.back_mana_cost_string = ""
     front.keywords = []
     return [front, back]
+
+
+#: Layouts whose second printed face is its own castable / playable / transformable characteristics set, bound
+#: separately from the front when it is cast, played or turned face up (RULE 709.3 split halves, RULE 712.8b modal
+#: DFC back, RULE 712.6 transform back, RULE 716.2b Adventure half, RULE 723.3c prepare spell). A Room (RULE 709.5)
+#: and a flip card (RULE 710) share fields with these but are merged by their own helpers above.
+_BACK_HALF_LAYOUTS = frozenset({"split", "adventure", "modal_dfc", "transform", "prepare"})
+
+
+def castable_back_half(card: Any) -> Any:
+    """The other half of a split / aftermath / fuse / Adventure / MDFC / transform / prepare card as a card of its own
+    (`Card.back_face`), or ``None`` when the card has one face only. The card-level verdict reads this half too
+    (``game.card_registry.card_coverage`): a card whose back half is unbound would otherwise count as playable on its
+    front alone. `parse_oracle` itself stays the front's verdict, since only the registry knows a hand-authored half."""
+    if getattr(card, "layout", "") not in _BACK_HALF_LAYOUTS or not hasattr(card, "back_face"):
+        return None
+    return card.back_face()
 
 
 def _flip_halves(card: Any) -> list[Any]:
@@ -861,6 +894,10 @@ def _that_player_head_ok(event: str, filt: Any, text: str, *, allow_prior_target
         return False
     head, sep, body = text.lower().partition(", ")
     if not sep or not _THAT_PLAYER_HEAD_RE.search(head):
+        return False
+    if event == "SPELL_CAST" and re.search(r"\byou cast\b", head):
+        # RULE 603.2c: a spell trigger's "that player" is the one who cast it; under "whenever you cast ... during each
+        # opponent's turn" that is you, while the printed "that player" names the opponent whose turn it is (Blightwing Bandit).
         return False
     return not _THAT_PLAYER_BODY_RIVAL_RE.search(body.split("that player", 1)[0])
 
@@ -1232,6 +1269,17 @@ def _iteration_reference_ok(spec: AbilitySpec) -> bool:
     return not unbound([spec.effects, spec.modes], False)
 
 
+def _reveal_mana_ability_ok(spec: AbilitySpec) -> bool:
+    """RULE 605.1a / 605.3: an untargeted activated ability that adds mana is a mana ability and resolves at once, so
+    it can pay for a spell mid-cast. "Reveal any number of <quality> cards in your hand. Add {C}{C} for each card
+    revealed this way." (Metalworker, Sacellum Godspeaker) needs the reveal answered during payment, which the mana
+    path cannot ask; the stack-based reading would be wrong, so it stays unclaimed."""
+    if spec.ability_kind != "activated":
+        return True
+    types = json.dumps([e.to_dict() for e in spec.effects], default=str)
+    return not ('"reveal_any_number_hand_cards"' in types and '"add_mana"' in types)
+
+
 def _this_way_window_ok(spec: AbilitySpec) -> bool:
     """PAR-284 (RULE 608.2c): a discard / sacrifice "this way" amount reads the events logged since a `mark_event_log`
     window opened in front of the instruction it measures (`effect_body.open_this_way_window`). An ability that reads
@@ -1284,6 +1332,13 @@ def _counters_removed_amounts_ok(spec: AbilitySpec) -> bool:
         if isinstance(node, EffectSpec):
             return walk(node.params)
         if isinstance(node, dict):
+            if node.get("selector") == COUNTERS_REMOVED_BOUND_SELECTOR:
+                # MEC-172 / RULE 601.2b-c: a target bound reading the removed count needs an *announced* removal (X, "any
+                # number" or "1 or more"), so the amount exists while targets are chosen.
+                if spec.ability_kind != "activated" or not re.search(
+                    r"\bremove (?:\d+ or more|any number of|x) (?:\S+ )?counters? from ~(?:,|$)", cost,
+                ):
+                    return False
             if node.get("kind") == "counters_removed_as_cost":
                 counter = re.escape(str(node["counter"])) + " " if node.get("counter") else r"(?:\S+ )?"
                 if spec.ability_kind != "activated" or not re.search(
@@ -1305,11 +1360,14 @@ _COST_REFERENT_COST_TEXT: dict[str, str] = {
     "exiled": r"\bexile (?!~)[^,:]*(?:from your graveyard|of your library)|\bexile an? creature you control",
     "tapped": r"\btap (?!~)", "revealed": r"\breveal\b",
     "sacrificed": r"\bsacrifice\b",
+    "amassed": r"\bamass\b",  # MEC-172: not a cost -- the Army an `amass` instruction of the same ability fed
+    "excess": r"\bexcess\b",  # MEC-172: ... nor is the excess damage a spell dealt before its reflexive trigger
 }
 _COST_REFERENT_ADDITIONAL_KEYS: dict[str, frozenset[str]] = {
     "discarded": frozenset({"discard"}), "exiled": frozenset({"exile_from_graveyard"}),
     "tapped": frozenset({"tap_others"}), "revealed": frozenset({"reveal_from_hand"}),
     "sacrificed": frozenset({"sacrifice", "sacrifice_count"}),
+    "amassed": frozenset(), "excess": frozenset(),
 }
 _COST_REFERENT_SELECTOR_RE = re.compile(
     r"^cost_referent_(?P<kind>[a-z]+?)_(?:creature_)?(?:mana_value|power|toughness|card_types|count|subtype_[a-z-]+_count)$")
@@ -1320,8 +1378,20 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
     cost) moved, so it is sound only in an activated ability whose cost text, or a spell whose `additional_cost`, has that
     verb. A trigger, or a cost of another verb, fails closed rather than measuring an empty record as 0."""
     cost = str((spec.cost or {}).get("text", ""))
+    # MEC-171 / RULE 603.12: a "you may <discard / exile / sacrifice ...>. When you do, ..." is a `pay_cost_then` whose own
+    # cost moves the object; it records that object on the source for the reflexive payoff exactly as an ability cost does.
+    # MEC-172: a plain `choose_objects{record_referent}` ("tap up to one untapped creature you control. When you do, ...")
+    # records its pick the same way, and an `amass` records the Army it fed.
+    paid_in_body = " ".join(
+        str(params.get("cost", "")) if kind == "pay_cost_then"
+        else f"{params.get('action', '')} " if kind == "choose_objects" and params.get("record_referent")
+        else "amass" if kind == "amass" else "excess" if kind == "reflexive_trigger" and params.get("record_excess") else ""
+        for kind, params in _effect_nodes([spec.effects, spec.modes])
+    )
 
     def paid(kind: str) -> bool:
+        if paid_in_body and re.search(_COST_REFERENT_COST_TEXT[kind], paid_in_body) is not None:
+            return True
         if spec.ability_kind == "activated":
             return re.search(_COST_REFERENT_COST_TEXT[kind], cost) is not None
         if spec.ability_kind == "spell_effect":
@@ -1335,6 +1405,9 @@ def _cost_referents_ok(spec: AbilitySpec, effect_specs: list[AbilitySpec]) -> bo
         if isinstance(node, EffectSpec):
             return walk(node.params)
         if isinstance(node, dict):
+            kind_read = node.get("shares_creature_type_with_referent")  # MEC-171: a filter reading a recorded object
+            if kind_read is not None and not paid(str(kind_read)):
+                return False
             # Any string value may name the selector (``selector``, an anthem's ``power_count``, ...).
             for value in node.values():
                 found = _COST_REFERENT_SELECTOR_RE.match(value) if isinstance(value, str) else None
@@ -1504,6 +1577,56 @@ def _amassed_army_ok(spec: AbilitySpec) -> bool:
 
     return not reads([spec.effects, spec.modes]) or any(
         kind == "amass" for kind, _ in _effect_nodes([spec.effects, spec.modes]))
+
+
+def _cast_payment_bounds_ok(spec: AbilitySpec) -> bool:
+    """MEC-172 / RULE 601.2c-h: a target ceiling measured from the mana that paid for a spell ("mana value less than or equal
+    to the number of colors of mana spent to cast ~") is knowable only for a *triggered* ability of the resulting
+    permanent; a spell's or an activation's own targets are chosen before that payment exists, so they stay unclaimed."""
+    if spec.ability_kind == "triggered":
+        return True
+
+    def reads(node: Any) -> bool:
+        if isinstance(node, EffectSpec):
+            return reads(node.params)
+        if isinstance(node, dict):
+            for key in ("max_mana_value", "exact_mana_value"):
+                bound = node.get(key)
+                selector = bound.get("count_selector") if isinstance(bound, dict) else None
+                if isinstance(selector, str) and selector in CAST_PAYMENT_SELECTORS:
+                    return True
+            return any(reads(v) for v in node.values())
+        if isinstance(node, (list, tuple)):
+            return any(reads(v) for v in node)
+        return False
+
+    return not reads([spec.effects, spec.modes])
+
+
+def _referent_bounds_announceable_ok(spec: AbilitySpec) -> bool:
+    """MEC-172 / RULE 601.2c vs 601.2h + 603.3d: a *target bound* that reads a recorded referent ("mana value less than or equal
+    to the discarded card's mana value", "power less than or equal to the tapped creature's power") is knowable only for the
+    target of a reflexive trigger, announced after the antecedent moved the object. In the ability's own body (or an
+    activation / spell whose cost moves the object) the target is chosen before that cost is paid, so it stays unclaimed."""
+
+    def violates(node: Any, reflexive: bool) -> bool:
+        if isinstance(node, EffectSpec):
+            return violates(node.params, reflexive)
+        if isinstance(node, dict):
+            if not reflexive:
+                bound_selectors = [
+                    (node.get(key) or {}).get("count_selector") for key in ("max_mana_value", "exact_mana_value")
+                    if isinstance(node.get(key), dict)
+                ]
+                bound_selectors.append((node.get("stat_count_bound") or {}).get("selector"))
+                if any(isinstance(sel, str) and sel.startswith("cost_referent_") for sel in bound_selectors):
+                    return True
+            return any(violates(v, reflexive or key == "then_trigger") for key, v in node.items())
+        if isinstance(node, (list, tuple)):
+            return any(violates(v, reflexive) for v in node)
+        return False
+
+    return not violates([spec.effects, spec.modes], False)
 
 
 def _sacrificed_mv_filter_ok(spec: AbilitySpec) -> bool:
@@ -2651,7 +2774,7 @@ def _parse_oracle_uncached(card: Any) -> ParseResult:
             all_claimed = False
             unclaimed.append(spec.raw_text)
         if not _dig_x_ok(spec) or not _amass_x_ok(spec) or not _tap_x_cost_ok(spec) or not _cast_window_ok(spec) \
-                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _sacrificed_mv_filter_ok(spec):
+                or not _spell_mv_antecedent_ok(spec) or not _event_amount_antecedent_ok(spec) or not _spell_name_antecedent_ok(spec) or not _any_counter_referent_ok(spec) or not _trigger_subject_counters_ok(spec) or not _group_reference_ok(spec) or not _iteration_reference_ok(spec) or not _this_way_window_ok(spec) or not _reveal_mana_ability_ok(spec) or not _cost_referents_ok(spec, effect_specs) or not _amassed_army_ok(spec) or not _cast_payment_bounds_ok(spec) or not _referent_bounds_announceable_ok(spec) or not _sacrificed_mv_filter_ok(spec):
             all_claimed = False
             unclaimed.append(spec.raw_text)
 

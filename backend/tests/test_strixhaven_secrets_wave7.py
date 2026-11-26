@@ -25,7 +25,7 @@ def _db():
 
 @pytest.mark.parametrize("name", [
     "Morbid Opportunist", "Sengir Connoisseur", "Vraan, Executioner Thane",
-    "Dramatic Finale", "Ghoulish Procession", "Homicide Investigator",
+    "Dramatic Finale", "Homicide Investigator",
 ])
 def test_batch_dies_once_per_turn_cards_modeled(name):
     c = _db().get_card(name)

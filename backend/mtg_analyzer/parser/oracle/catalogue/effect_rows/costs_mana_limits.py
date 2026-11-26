@@ -227,7 +227,8 @@ def _exchange_control_spawnbroker(m: re.Match[str]) -> list[EffectSpec]:
 # "have" phrasing — the same causative verb `_THEN`'s neighborhood already
 # tolerates for "have it fight").
 def _exchange_life_totals_self(m: re.Match[str]) -> list[EffectSpec]:
-    return [EffectSpec("exchange_life_totals", {"target_kind": "player"})]
+    # BUG-88, RULE 102.3: "with target opponent" excludes the controller (Magus of the Mirror, Mirror Universe).
+    return [EffectSpec("exchange_life_totals", {"target_kind": resolve_target_kind(m.group("who"))})]
 
 
 def _exchange_life_totals_two_target(m: re.Match[str]) -> list[EffectSpec]:
@@ -843,7 +844,7 @@ MAY_COST_THEN_CLAUSE = (
     r"|pay (?:\{e\})+"
     # PAR-207: a typed discard -- `costs.parse_activation_cost` reads the card type into ``discard_filter`` (Dokuchi
     # Silencer's "you may discard a creature card"). Only the type words that function reads, so "nonland" stays out.
-    r"|discard an? (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card"
+    r"|discard an? (?:creature|land|nonland|artifact|enchantment|instant|sorcery|planeswalker) card"
     # PAR-148: "sacrifice another creature or an artifact" (Gut) — `costs.py`'s type-union words.
     r"|sacrifice an? (?:nonland permanent|\w+(?: or (?:an? )?\w+)?)"
     # PAR-285: a qualified pool -- "sacrifice a nontoken creature" (Feed the Pack), "a nonartifact creature" (Ravenous
@@ -854,6 +855,12 @@ MAY_COST_THEN_CLAUSE = (
     # PAR-152 (Strefan): "sacrifice two Blood tokens" — `costs.ActivationCost.sacrifice_count`.
     r"|sacrifice \d+ \w+(?: tokens)?"
     r"|discard (?:your hand|a card|\d+ cards?|[a-z]+ cards?)"
+    # MEC-171: a typed pick from the graveyard ("exile another creature card from your graveyard", Resplendent Marshal);
+    # `_pay_player_cost` makes it the payer's own choice and records the card for the "When you do" payoff.
+    # Only when the payoff names the exiled card: any other "you may exile a card from your graveyard. When you do" keeps
+    # the older rows (Kishla Trawlers), which a claim here would shadow.
+    r"|exile (?:another|an?) (?:creature|land|artifact|enchantment|instant|sorcery|planeswalker) card from your graveyard"
+    r"(?=\.\s*when you do,.*\bthe exiled card\b)"
     r"|pay \d+ life"
     # RULE 701.59a — a non-mana graveyard cost sized by total mana value;
     # `costs.parse_activation_cost` recognises it and `_can/_pay_player_cost`
@@ -878,7 +885,9 @@ def _cost_text(cost: str) -> str:
 
 
 _PAY_COST_THEN_GENERAL_RE = compile_clause(
-    r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you do,?\s*(?P<effect>.+)"
+    r"you may (?P<cost>" + MAY_COST_THEN_CLAUSE + r")\.\s*(?P<link>if|when) you "
+    # MEC-171: "When you discard a card this way" is the discard's own spelling of "When you do" (RULE 603.12).
+    r"(?:do|(?<=when you )discard a card this way),?\s*(?P<effect>.+)"
 )
 #: RULE 603.5's *negative* antecedent: "you may `<cost>`. If you don't,
 #: `<effect>`." (Chaos Spewer, Gutsplitter Gang, Scuzzback Scrounger — the
@@ -986,6 +995,18 @@ def sacrificed_referent_payoff(antecedent: str, payoff: str) -> str:
     return _SACRIFICED_PRONOUN_RE.sub(lambda m: f"the sacrificed creature's {m.group('what').lower()}", payoff)
 
 
+#: What a payoff reads from the object its antecedent instruction moved (`game/cost_referents.py`): a recorded-referent
+#: count selector, the `sacrificed_cost_*` scalars, or a filter against the recorded object.
+_RECORDED_REFERENT_MARKERS = ("cost_referent_", "sacrificed_cost_", "shares_creature_type_with_referent")
+
+
+def _reads_recorded_referent(spec: EffectSpec) -> bool:
+    """RULE 603.12 + 608.2h (MEC-171): a "When you do" payoff that reads the antecedent's recorded object is a real
+    reflexive trigger on the stack (the record is snapshotted onto it), even when it announces no target."""
+    text = json.dumps(spec.to_dict(), default=str)
+    return any(marker in text for marker in _RECORDED_REFERENT_MARKERS)
+
+
 def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
     if m.group("link") == "if" and re.fullmatch(r"pay (?:\{e\})+", m.group("cost")):
         return None  # PAR-207: an energy payment's "if you do" stays `_pay_energy_then`'s (it keeps the caller's reading)
@@ -1014,7 +1035,7 @@ def _pay_cost_then_general(m: re.Match[str], reading: ClauseReading) -> Optional
     if not sub:
         return None  # follow-up not modeled → whole clause unclaimed
     if m.group("link") == "when" and any(
-        s.params.get("target_kind")
+        s.params.get("target_kind") or _reads_recorded_referent(s)
         or (s.type in _BODY_ANNOUNCING_NODES and _body_has_target(s.params.get("effects")))
         or (s.type == "fight" and s.params.get("other_kind") not in (None, "previous_target", "previous_target_2", "trigger_subject", "attached_permanent")) for s in sub
     ):
@@ -1199,6 +1220,27 @@ def _pay_cost_then_or_else(m: re.Match[str]) -> Optional[list[EffectSpec]]:
         "cost": _cost_text(m.group("cost")),
         "effects": [],
         "else_effects": [s.to_dict() for s in sub],
+    })]
+
+
+#: MEC-172 (RULE 118.12 + 603.12): "sacrifice ~ unless you `<cost>`. When you `<do / discard a card this way>`, <payoff>"
+#: (Argentum Masticore) -- the mandatory pay-or-lose-it of `sacrifice_unless_pay`, with a reflexive payoff once the cost is
+#: paid. It is `pay_cost_then`: paying fires the `then_trigger`, declining (or being unable to pay, which is never asked)
+#: sacrifices the source, which is exactly the "unless". The payoff may read what the payment moved (`cost_referents`).
+_SACRIFICE_SELF_UNLESS_THEN_RE = compile_clause(
+    r"sacrifice (?:~|this [a-z]+) unless you (?P<cost>discard an? (?:creature|land|nonland|artifact|enchantment|instant|sorcery|planeswalker) card|discard a card)"
+    r"\.\s*when you (?:do|discard a card this way),?\s*(?P<effect>.+)"
+)
+
+
+def _sacrifice_self_unless_then(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    sub = parse_effect_body(m.group("effect").strip(), reading=ClauseReading(self_subject=True))
+    if not sub or not any(s.params.get("target_kind") or _reads_recorded_referent(s) for s in sub):
+        return None  # a payoff with neither a target nor a recorded referent is not what makes this a reflexive trigger
+    return [EffectSpec("pay_cost_then", {
+        "cost": _cost_text(m.group("cost")),
+        "then_trigger": [s.to_dict() for s in sub],
+        "else_effects": [EffectSpec("sacrifice_self", {}).to_dict()],
     })]
 
 
@@ -1514,9 +1556,67 @@ _TARGETED_CARRYING_ANTECEDENTS: frozenset[str] = frozenset({"return_from_graveya
 CARRIED_CREATED = "created"  # mirrors `game/effects/choices_actions.CARRIED_CREATED` (no game/ import here)
 #: "the amassed Army's power" names the same object "that creature's power" does under the carried reading.
 _AMASSED_ARMY_POSSESSIVE_RE = re.compile(r"\bthe amassed army'?s\b", re.IGNORECASE)
+#: MEC-172: ... except as a target bound ("with power less than or equal to the amassed Army's power"), which is measured as
+#: the reflexive trigger's targets are announced; any *other* mention of the Army in the payoff keeps the carried reading
+#: (and this row then refuses the mix: two readings of one object would be ambiguous).
+_AMASSED_ARMY_BOUND_RE = re.compile(r" with power less than or equal to the amassed army'?s power", re.IGNORECASE)
+_AMASSED_ARMY_OTHER_USE_RE = re.compile(r"\bthe amassed army\b", re.IGNORECASE)
 #: The serialized spots a payoff read as the carried object leaves behind (`dealer_kind` / `fighter_kind` /
 #: `of`: "previous_target"); a payoff without one never looked at the antecedent.
 _CARRIED_REFERENT_MARKERS: tuple[str, ...] = ("previous_target", "previous_subject")
+
+
+#: The one shape a plain "Sacrifice a creature." parses to: the resolving player's own pick among their permanents.
+_PLAIN_SACRIFICE_KEYS = frozenset({"selector", "what", "count", "exclude_source"})
+
+
+def _recorded_sacrifice_instruction(action: EffectSpec) -> EffectSpec:
+    """MEC-171: a plain "Sacrifice a creature." ahead of a "When you do" payoff is the resolving player's own pick
+    (`choose_objects`, a real choice -- RULE 701.21a) that records the sacrificed object (RULE 608.2h) for the payoff;
+    any other sacrifice shape is returned unchanged."""
+    params = action.params
+    if (action.type != "sacrifice" or set(params) - _PLAIN_SACRIFICE_KEYS or params.get("selector") != "controller"
+            or params.get("count") != 1):
+        return action
+    return EffectSpec("choose_objects", {
+        "action": "sacrifice", "what": params.get("what", "permanent"), "count": 1, "record_referent": True,
+        **({"exclude_self": True} if params.get("exclude_source") else {}),
+    })
+
+
+def _recorded_sacrifice_payoff(action_text: str, action: EffectSpec, payoff_text: str) -> Optional[list[EffectSpec]]:
+    """The payoff of "Sacrifice a creature. When you do, ..." parsed with its sacrificed-object references respelled onto
+    the recorded `sacrificed_cost_*` amounts, or ``None`` unless every reference reads that record (a payoff naming the
+    object some other way stays unclaimed)."""
+    if action.type != "choose_objects" or action.params.get("action") != "sacrifice" or not action.params.get("record_referent"):
+        return None
+    payoff = parse_effect_body(sacrificed_referent_payoff(action_text, payoff_text), reading=ClauseReading(self_subject=True))
+    if not payoff or "sacrificed_cost_" not in json.dumps([s.to_dict() for s in payoff]):
+        return None
+    return _fold_later_x_into_bind(payoff)
+
+
+#: The count word a later sentence of the payoff repeats from the "where X is ..." that bound the first ("draw X cards").
+_BOUND_X_WORD = "x"
+
+
+def _fold_later_x_into_bind(payoff: list[EffectSpec]) -> Optional[list[EffectSpec]]:
+    """RULE 608.2h: "~ deals X damage ..., where X is that creature's power. If the sacrificed creature was a Hamster, draw
+    X cards." -- the second sentence's X is the same bound amount, so it is folded into the first sentence's `bind` (its
+    ``$n``). A later sentence naming X when there is no such bind, or any other later effect, fails closed."""
+    head, *rest = payoff
+    if not rest:
+        return payoff
+    if head.type != "bind":
+        return None
+    folded: list[dict[str, Any]] = []
+    for spec in rest:
+        serialized = spec.to_dict()
+        params = {key: ("$n" if value == _BOUND_X_WORD else value) for key, value in spec.params.items()}
+        if json.dumps(params).count(f'"{_BOUND_X_WORD}"') or serialized["type"] not in ("draw", "gain_life", "lose_life", "damage"):
+            return None
+        folded.append({**serialized, "params": params})
+    return [EffectSpec("bind", {**head.params, "effects": [*head.params["effects"], *folded]})]
 
 
 def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[list[EffectSpec]]:
@@ -1529,6 +1629,7 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
     if not action or len(action) != 1:
         return None  # "When you do" answers the *last* instruction; a longer antecedent would fire on its first half
         # (Blood Spatter Analysis: "mill a card and put a counter ... then sacrifice it if ... When you do").
+    action = [_recorded_sacrifice_instruction(action[0])]
     targeted_antecedent = bool(action[0].params.get("target_kind"))
     if targeted_antecedent and action[0].type not in _TARGETED_CARRYING_ANTECEDENTS:
         return None  # a targeted antecedent needs its own announcement; "return a land you control" is no target
@@ -1551,7 +1652,22 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
     first_sentence = _PAYOFF_OWN_TARGET_PRONOUN_RE.sub(r"\1 and the target \2", first_sentence)
     names_antecedent = _PAYOFF_PRONOUN_RE.search(first_sentence) is not None or _AMASSED_ARMY_POSSESSIVE_RE.search(first_sentence)
     carry = None
-    if names_antecedent and carries_created:
+    recorded_payoff = _recorded_sacrifice_payoff(action_text, action[0], payoff_text) if names_antecedent else None
+    amassed_bound = (action[0].type == "amass" and _AMASSED_ARMY_BOUND_RE.search(first_sentence) is not None
+                     and not _AMASSED_ARMY_OTHER_USE_RE.search(_AMASSED_ARMY_BOUND_RE.sub("", payoff_text)))
+    if amassed_bound:
+        # MEC-172 / RULE 603.3d + 608.2h: "...with power less than or equal to the amassed Army's power" is a *target bound*,
+        # known as the reflexive trigger goes on the stack: `AmassEffect` records the Army (`cost_referents`, kind
+        # "amassed") and the trigger carries it. The payoff reads that record, not the Army as a previous pick.
+        payoff = parse_effect_body(payoff_text, reading=ClauseReading(self_subject=True))
+        if not payoff or "cost_referent_amassed_power" not in json.dumps([s.to_dict() for s in payoff]):
+            return None
+    elif recorded_payoff is not None:
+        # MEC-171 / RULE 608.2h: the instruction sacrificed a chosen permanent, so the payoff's "that creature's power" /
+        # "the sacrificed creature" reads the record the sacrifice left on the source (`sacrificed_cost_*`, snapshotted onto
+        # the reflexive trigger when it is created) -- Minsc & Boo, Timeless Heroes.
+        payoff = recorded_payoff
+    elif names_antecedent and carries_created:
         # PAR-286: the payoff's "it" is the object the antecedent made / returned, read as the previous clause's pick
         # (`GameContext.previous_targets`, seeded by `CarriedAntecedentEffect`). Only a reading that actually points
         # at that referent counts: a payoff that parses with "it" as the source would act on the wrong object.
@@ -1576,6 +1692,29 @@ def _action_when_you_do(m: re.Match[str], reading: ClauseReading) -> Optional[li
         "effects": [s.to_dict() for s in action] + [EffectSpec("reflexive_trigger", trigger).to_dict()],
         "if_you_do_from": len(action),
     })]
+
+
+#: MEC-172 (RULE 120.4a + 603.12): "~ deals N damage to target <creature or planeswalker>. When it deals excess damage this way,
+#: <payoff>" (Unleash the Inferno). The payoff is a reflexive trigger that exists only when the damage was excess and measures
+#: "that amount of excess damage" (`cost_referent_excess_amount`, recorded by `ReflexiveTriggerEffect.record_excess`) in its own
+#: target bound, so it is announced after the damage was dealt (RULE 603.3d).
+_DAMAGE_EXCESS_WHEN_RE = compile_clause(
+    r"(?P<action>(?:~|it) deals \d+ damage to target [^.]+?)\.\s*when (?:it|~) deals excess damage this way,\s*(?P<payoff>.+)"
+)
+_EXCESS_AMOUNT_SELECTOR = "cost_referent_excess_amount"
+
+
+def _damage_excess_when(m: re.Match[str]) -> Optional[list[EffectSpec]]:
+    action = parse_effect_body(m.group("action").strip(), reading=ClauseReading(self_subject=True))
+    if not action or len(action) != 1 or action[0].type != "damage" or not action[0].params.get("target_kind"):
+        return None
+    payoff = parse_effect_body(m.group("payoff").strip(), reading=ClauseReading(self_subject=True))
+    if not payoff or _EXCESS_AMOUNT_SELECTOR not in json.dumps([s.to_dict() for s in payoff]):
+        return None  # a payoff that never reads the excess amount is not this shape
+    return [EffectSpec("seq", {"effects": [
+        action[0].to_dict(),
+        EffectSpec("reflexive_trigger", {"then_trigger": [s.to_dict() for s in payoff], "record_excess": True}).to_dict(),
+    ]})]
 
 
 #: PAR-208: the sentence boundary that opens an outcome rider's "else" half ("Otherwise," / "If you don't,").
@@ -2298,7 +2437,7 @@ ROWS: list[EffectHandler] = [
     # RULE 701.10's life-total half.
     EffectHandler(
         "exchange_life_totals_self",
-        compile_clause(r"exchange life totals with (?:target opponent|target player)"),
+        compile_clause(r"exchange life totals with (?P<who>target opponent|target player)"),
         _exchange_life_totals_self,
     ),
     EffectHandler(
@@ -2362,6 +2501,18 @@ ROWS: list[EffectHandler] = [
         "pay_cost_then_or_else",
         _PAY_COST_THEN_OR_ELSE_RE,
         _pay_cost_then_or_else,
+    ),
+    # MEC-172: "~ deals N damage to target <permanent>. When it deals excess damage this way, <payoff>" (Unleash the Inferno).
+    EffectHandler(
+        "damage_excess_when",
+        _DAMAGE_EXCESS_WHEN_RE,
+        _damage_excess_when,
+    ),
+    # MEC-172: "sacrifice ~ unless you discard a card. When you discard a card this way, <payoff>" (Argentum Masticore).
+    EffectHandler(
+        "sacrifice_self_unless_then",
+        _SACRIFICE_SELF_UNLESS_THEN_RE,
+        _sacrifice_self_unless_then,
     ),
     # PAR-79 seventh increment: "return another/<N> other <type>[s] you
     # control to its/their owner's/owners' hand" / "tap another/<N> other

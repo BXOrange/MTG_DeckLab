@@ -50,6 +50,8 @@ _DE: dict[str, str] = {
     # -- decks, cards, images -----------------------------------------------------------------
     "deck_not_found": 'Kein gespeichertes Deck mit der ID "{deck_id}".',
     "card_not_found": 'Keine Karte zu "{name}" gefunden.',
+    "invalid_deck_printing": 'Ungültiger Kartendruck für "{name}".',
+    "deck_printings_unavailable": "Kartendrucke konnten nicht von Scryfall geladen werden.",
     "card_id_not_cached": 'Keine zwischengespeicherte Karte mit der ID "{card_id}".',
     "card_image_unavailable": 'Kein Bild "{size}" ({face}) für "{name}" verfügbar.',
     "image_invalid_size": "Ungültige Bildgröße (erlaubt: {allowed}).",
@@ -228,6 +230,8 @@ _EN: dict[str, str] = {
     "global_deck_read_only": "Global decks are read-only.",
     "deck_not_found": 'No saved deck with id "{deck_id}".',
     "card_not_found": 'No card found for "{name}".',
+    "invalid_deck_printing": 'Invalid printing for "{name}".',
+    "deck_printings_unavailable": "Could not load card printings from Scryfall.",
     "card_id_not_cached": 'No cached card with id "{card_id}".',
     "card_image_unavailable": 'No "{size}" {face} image available for "{name}".',
     "image_invalid_size": "Invalid image size (allowed: {allowed}).",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.support.cards import strip_inert_keywords
 from mtg_analyzer.config import DB_PATH
 from mtg_analyzer.game.binding.core import build_effects
 from mtg_analyzer.game.effects.core import GameContext
@@ -23,7 +24,7 @@ from tests.test_mec118_opponent_choice import _engine, _put
 
 #: Newly MODELED by this slot (full-pool spec diff vs v984).
 NEWLY_COVERED = [
-    "Abiding Grace", "Arcane Proxy", "Narset, Enlightened Exile", "Nashi, Moon's Legacy", "Nucklavee",
+    "Abiding Grace", "Narset, Enlightened Exile", "Nashi, Moon's Legacy", "Nucklavee",
     "Obscura Charm", "Reborn Hope", "Salvaging Station", "Scrivener", "Sequence Engine", "The Mirari Conjecture",
     "Toshiro Umezawa",
 ]
@@ -34,7 +35,7 @@ def _real(name: str):
     card = CardDatabase(DB_PATH).get_card(name)
     if card is None:
         pytest.skip("card cache not available")
-    return card
+    return strip_inert_keywords(card)  # BUG-75: Prototype has no engine behaviour; the rest of the text is under test
 
 
 def _picks(name: str):

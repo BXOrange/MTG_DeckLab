@@ -74,6 +74,7 @@ def test_real_evoke_costs_still_parse():
 
 def test_casualty_copy_rider_is_not_swallowed():
     assert not is_keyword_line("casualty x. the copy isn't legendary and has starting loyalty x.")
+    # MEC-176: bare Casualty is wired (optional creature-sacrifice cost + copy trigger), so the plain line parses.
     assert is_keyword_line("casualty 2")
 
 
@@ -97,7 +98,6 @@ def test_casualty_copy_rider_is_not_swallowed():
         "flashback—{1}{b}, pay 3 life.",
         "suspend 4—{r}",
         "suspend x—{x}{g}{g}. x can't be 0.",
-        "craft with artifact {2}{r}",
         "disguise {3}{u}",
         "protection from blue and from red",
         "partner with some name",

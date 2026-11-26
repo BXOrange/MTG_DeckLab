@@ -146,6 +146,34 @@ const ILLEGAL_REASON_LABELS = {
   colorIdentity: 'cardTile.illegal.colorIdentity',
 };
 
+function renderCoveredOracleText(card) {
+  const lines = card.coverage?.unmodeled_lines;
+  const ranges = card.coverage?.unmodeled_ranges;
+  const title = escapeAttr(t('cardTile.coverage.unmodeledAbility'));
+  const mark = (text) =>
+    `<mark class="card-tile-unmodeled-ability" title="${title}">${renderOracleText(text)}</mark>`;
+  const renderFace = (text, face) => {
+    if (!lines?.[face]?.length) return renderOracleText(text);
+    return text.split('\n').map((line, index) => {
+      if (!lines[face].includes(index)) return renderOracleText(line);
+      const range = ranges?.[face]?.[index];
+      if (!range) return mark(line);
+      // The backend counts Unicode code points. JS string offsets count UTF-16 units.
+      const points = Array.from(line);
+      const [start, end] = range;
+      return renderOracleText(points.slice(0, start).join(''))
+        + mark(points.slice(start, end).join(''))
+        + renderOracleText(points.slice(end).join(''));
+    }).join('\n');
+  };
+  const front = card.oracle_text
+    ? `<p class="card-tile-text">${renderFace(card.oracle_text, 'front')}</p>` : '';
+  const back = lines?.back?.length && card.back_oracle_text
+    ? `<p class="card-tile-back-name">${escapeHtml(card.back_name)}</p>
+       <p class="card-tile-text">${renderFace(card.back_oracle_text, 'back')}</p>` : '';
+  return front + back;
+}
+
 /**
  * `card.coverage` (only present on `GET /api/cards` — the Karten-Cache
  * listing, see `api/cards.py`'s `_coverage_for`) tells whether the rules
@@ -195,7 +223,7 @@ function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
 
 /**
  * @param {object} card A resolved card dict (Card.to_dict() shape).
- * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null, favorite?: boolean}} [options]
+ * @param {{qty?: number, illegalReason?: 'banned'|'colorIdentity'|null, favorite?: boolean, printingId?: string}} [options]
  *   `qty`: optional quantity badge (deck-import context only).
  *   `illegalReason`: set when the deck's commander-legality check
  *   (POST /api/decks) flagged this exact card — banned, or outside the
@@ -210,7 +238,7 @@ function renderTileFooter(coverageBadge, scryfallHref, scryfallTitle) {
  *   update its own tracked favorite set rather than this module owning any
  *   state itself.
  */
-export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
+export function renderCardTile(card, { qty, illegalReason, favorite, printingId = card.id } = {}) {
   const manaCost = renderManaCost(card);
   const powerToughness = card.power != null && card.toughness != null ? `${card.power}/${card.toughness}` : '';
   const metaParts = [card.rarity, card.set_code ? card.set_code.toUpperCase() : ''].filter(Boolean);
@@ -222,8 +250,8 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
   // two faces (see the delegated handler at the bottom of this module).
   const flipButton = card.has_back_face
     ? `<button type="button" class="card-tile-flip"
-         data-front-src="${cardImageUrl(card.id, 'normal', 'front')}"
-         data-back-src="${cardImageUrl(card.id, 'normal', 'back')}"
+         data-front-src="${cardImageUrl(printingId, 'normal', 'front')}"
+         data-back-src="${cardImageUrl(printingId, 'normal', 'back')}"
          title="${escapeAttr(t('cardTile.showBack'))}" aria-label="${escapeAttr(t('cardTile.showBack'))}">🔄</button>`
     : '';
 
@@ -240,7 +268,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         ${qtyBadge}
         ${flipButton}
         ${favoriteButton}
-        <img src="${cardImageUrl(card.id, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
+        <img src="${cardImageUrl(printingId, 'normal')}" alt="${escapeHtml(card.name)}" loading="lazy" />
       </div>
       <div class="card-tile-info">
         <h4>${illegalLabel ? '❗ ' : ''}${escapeHtml(card.name)}</h4>
@@ -248,7 +276,7 @@ export function renderCardTile(card, { qty, illegalReason, favorite } = {}) {
         <p class="card-tile-type">${escapeHtml(card.type_line)}</p>
         ${manaCost ? `<p class="card-tile-cost">${manaCost}</p>` : ''}
         ${powerToughness ? `<p class="card-tile-pt">${escapeHtml(powerToughness)}</p>` : ''}
-        ${card.oracle_text ? `<p class="card-tile-text">${renderOracleText(card.oracle_text)}</p>` : ''}
+        ${renderCoveredOracleText(card)}
         ${card.keywords?.length ? `<p class="card-tile-keywords">${escapeHtml(card.keywords.join(', '))}</p>` : ''}
         ${metaParts.length ? `<p class="card-tile-meta">${escapeHtml(metaParts.join(' · '))}</p>` : ''}
         ${renderTileFooter(renderCoverageBadge(card.unsupported ? card : card.coverage), scryfallUrl(card.name), t('cardTile.viewOnScryfall'))}
@@ -299,7 +327,7 @@ export function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function escapeAttr(str) {
+export function escapeAttr(str) {
   return String(str).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
 

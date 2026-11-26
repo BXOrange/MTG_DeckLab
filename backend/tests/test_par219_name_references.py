@@ -56,6 +56,8 @@ def test_named_comma_search_finds_graveyard_card():
     filler(eng, 'Jace', zone=Zone.GRAVEYARD)
     spell = card(eng, 'Grasping Current', zone=Zone.HAND)
     cast(eng, spell, targets=[])
+    assert eng.state.pending_choice['kind'] == 'search_zones'  # PAR-292 M28: library and/or graveyard, the player picks
+    eng.resolve_pending_choice('graveyard')
     assert eng.state.pending_choice is not None
     assert {entry['name'] for entry in eng.state.pending_choice['eligible']} == {good.name}
     eng.rules.resolve_choice(good.instance_id)

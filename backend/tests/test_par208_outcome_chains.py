@@ -446,7 +446,7 @@ def test_survival_cache_draws_only_while_you_lead_in_life():
     for opp_life, hand in ((20, 1), (30, 0)):
         eng = _game()
         eng.state.player_by_id("p2").life = opp_life
-        spell = _real_card(eng, "Survival Cache", zone=Zone.HAND)
+        spell = _real_card(eng, "Survival Cache", zone=Zone.HAND, without=("Rebound",))
         _cast(eng, spell)
         _answer_all(eng)
         assert eng.state.player_by_id("p1").life == 22

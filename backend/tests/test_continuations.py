@@ -112,7 +112,26 @@ class TestRegistryTotality:
                     kinds.add(found.group(1))
         return kinds
 
+    @staticmethod
+    def _import_every_game_module() -> None:
+        """Import every module the source scan reads, so handler registration
+        (which happens at import time) does not depend on test run order.
+
+        Handlers live beside the effect that opens them and several effect
+        modules are only imported lazily by the binder; a live game cannot
+        open a kind without having imported its defining module, but this
+        static check scans all of `game/` and so must load all of it too.
+        """
+        import importlib
+        import pkgutil
+
+        import mtg_analyzer.game as game_pkg
+
+        for info in pkgutil.walk_packages(game_pkg.__path__, f"{game_pkg.__name__}."):
+            importlib.import_module(info.name)
+
     def test_every_kind_the_source_opens_has_a_handler(self) -> None:
+        self._import_every_game_module()
         opened = self._kinds_opened_in_source()
         assert opened, "no open_choice call sites found — has the shape changed?"
         unanswerable = sorted(opened - set(continuations.CHOICE_HANDLERS))
@@ -254,7 +273,9 @@ class TestPublicSurfaceShrank:
         # Mossbridge Troll: regenerate_instead is called by the replacement
         # effect (`context.engine.regenerate_instead`), not by another
         # RulesEngine method — the RULE 701.19 destruction replacement.
-        assert count <= 181, f"RulesEngine still exposes {count} public methods"
+        # PAR-292 M27: shuffle_objects_into_libraries is called by `GameContext` (`ReturnToLibraryEffect`), the
+        # RULE 701.24a "shuffle ~ and <objects> into their owners' libraries" operation (each library shuffled once).
+        assert count <= 182, f"RulesEngine still exposes {count} public methods"
 
     def test_the_dispatcher_is_no_longer_a_cascade(self) -> None:
         source = inspect.getsource(GameEngine.resolve_pending_choice)

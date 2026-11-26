@@ -1117,9 +1117,14 @@ class ReflexiveTriggerEffect(GameEffect):
         then_trigger_condition: Optional[dict[str, Any]] = None,
         then_trigger_modes: Optional[dict[str, Any]] = None,
         carry_referent: Optional[str] = None,
+        record_excess: bool = False,
     ) -> None:
         super().__init__(source)
         self.then_trigger_specs = list(then_trigger or [])
+        #: RULE 120.4a + 603.12 (MEC-172): "When it deals excess damage this way, <payoff reading that amount>" -- the
+        #: trigger exists only when the preceding damage was excess, and carries that amount as a last-known referent
+        #: (`cost_referents`, kind ``excess``) readable while its own targets are announced.
+        self.record_excess = bool(record_excess)
         #: RULE 603.12 + 608.2h (PAR-286): the antecedent's object the payoff names ("it", "the amassed Army"). The only
         #: vocabulary is `CARRIED_CREATED`: what the instruction before it made / returned / amassed
         #: (`GameContext.created_objects`). Anything else carries nothing (the readers ignore unknown keys).
@@ -1137,6 +1142,14 @@ class ReflexiveTriggerEffect(GameEffect):
             [o for o in context.created_objects if o is not None]
             if self.carry_referent == CARRIED_CREATED else None
         )
+        if self.record_excess:
+            from .. import cost_referents  # function-scoped: cost_referents imports `continuous`, which imports this package
+
+            excess = int(context.excess_damage_this_way or 0)
+            if excess <= 0:
+                return  # RULE 120.4a: no excess damage, so nothing triggered
+            cost_referents.forget_referents(self.source, cost_referents.EXCESS_KIND)
+            cost_referents.store_referents(self.source, cost_referents.EXCESS_KIND, [{"amount": excess, "count": 1}])
         context.enqueue_reflexive_trigger(
             self.then_trigger_specs, self.source, condition=self.then_trigger_condition,
             modes=self.then_trigger_modes or None, carried_objects=carried)
@@ -1635,6 +1648,7 @@ class ChooseObjectsEffect(GameEffect):
         permanent_filter: Optional[dict[str, Any]] = None,
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         pool_zone: str = "battlefield",
         minimum_card_types: int = 0,
         pool_player_selector: str = "chooser",
@@ -1645,8 +1659,12 @@ class ChooseObjectsEffect(GameEffect):
         saddlers_only: bool = False,
         reference: Optional[str] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         super().__init__(source)
+        #: RULE 608.2h + 603.12 (MEC-171): record each pick as last-known information on the source, for the reflexive
+        #: "When you do, ... that creature's power / the tapped creature's power" that follows (`cost_referents`).
+        self.record_referent = bool(record_referent)
         #: "return exactly N … or else" (Bull Elephant's "sacrifice it unless you return two Forests"): the controller
         #: either commits to the whole ``count`` or does none of it; fewer than ``count`` candidates is the same as
         #: declining, and ``else_effects`` follows. See `_request_choose_objects`.
@@ -1672,6 +1690,8 @@ class ChooseObjectsEffect(GameEffect):
         self.permanent_filter = permanent_filter
         self.then_that_many = then_that_many
         self.distinct_card_types = distinct_card_types
+        #: One card per slot (`RulesEngine._pick_labels`): each slot an object-filter ``{"filter": ...}`` dict here.
+        self.pick_slots = [dict(slot) for slot in (pick_slots or [])] or None
         self.minimum_card_types = minimum_card_types
         self.pool_zone = pool_zone
         self.pool_zones = list(pool_zones) if pool_zones else None
@@ -1716,8 +1736,9 @@ class ChooseObjectsEffect(GameEffect):
             optional=self.optional, prompt=self.prompt, source=self.source,
             then_specs=self.then, then_specs_if_commander=self.then_if_commander,
             else_specs=self.else_effects, then_that_many=self.then_that_many,
-            distinct_card_types=self.distinct_card_types,
+            distinct_card_types=self.distinct_card_types, pick_slots=self.pick_slots,
             minimum_card_types=self.minimum_card_types, all_or_nothing=self.all_or_nothing,
+            record_referent=self.record_referent,
         )
 
     def _defending_chooser(self, context: GameContext) -> Optional[Any]:

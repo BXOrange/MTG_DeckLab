@@ -47,11 +47,13 @@ from ..mana_abilities import (
     mana_source_land_subtypes,
     option_label,
     resolve_options,
+    resolve_restriction_owner,
     restriction_predicate_for_activation,
     restriction_predicate_for_cast,
     validate_color_split,
 )
 from .. import mana_potential
+from ..mana_ability_extras import apply_mana_ability_extras
 from ..mana_spend_riders import arm_next_cast_rider, build_rider
 from ..phases import GamePhase, GameStep, default_turn_sequence
 from ..rules_engine import RulesEngine
@@ -229,6 +231,10 @@ class ManaMixin:
                 self.rules.gain_life(player, x)
         if cost.once_per_turn:
             source.mana_abilities_activated_this_turn.add(ability_index)
+        if ability.skips_next_untap:
+            # RULE 611.2a / 502.3: "~ doesn't untap during your next untap step" is a one-shot effect of the
+            # ability, the same flag an exert consequence sets (RULE 702.19b), consumed by `_step_untap`.
+            source.skip_next_untap = True
         if cost.once_per_game:
             source.mana_abilities_used_this_game.add(ability_index)  # RULE 702.177a
         if cost.exile_creature:
@@ -250,8 +256,7 @@ class ManaMixin:
             # `_pay_activation_cost` just sacrificed (RULE 608.2h last-known mana value, stamped on the source).
             produced = {color: source.sacrificed_cost_mana_value or 0 for color in produced}
         restriction = ability.restriction
-        if restriction is not None and restriction.get("your_commander"):
-            restriction = {**restriction, "owner_id": player.id}
+        restriction = resolve_restriction_owner(restriction, player.id)
         if restriction is not None and restriction.get("kind") == "chosen_type_spell":
             # Cavern of Souls/Unclaimed Territory-shaped: "of the chosen
             # type" names no fixed type at parse time — resolve it here,
@@ -309,6 +314,7 @@ class ManaMixin:
                 self.rules.add_counters(source, amount, kind, source=source)
         for kind, amount in ability.player_counters.items():
             self.rules.add_player_counters(player, amount, kind, source=source)
+        apply_mana_ability_extras(self.rules, player, source, ability)  # MEC-175: life / draw / counter exhaustion
         activation_event.data['produced'] = dict(produced)
         self.state.record_stat(player.id, "mana", amount=sum(produced.values()))
         mana_potential.record_mana_produced(self, player, produced)

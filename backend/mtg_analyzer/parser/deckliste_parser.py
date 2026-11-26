@@ -40,8 +40,8 @@ BASIC_LAND_NAMES: frozenset[str] = frozenset(
 )
 
 _CARD_LINE_RE = re.compile(r"^(\d+)\s*[xX]?\s+(.+)$")
-_SET_SUFFIX_RE = re.compile(r"\s*[\[(][A-Za-z0-9]{2,6}[)\]]\s*[\dA-Za-z-]*\s*$")
-_TAG_RE = re.compile(r"\s*\*([A-Za-z]+)\*")
+_SET_SUFFIX_RE = re.compile(r"\s*[\[(]([A-Za-z0-9]{2,6})[)\]]\s*([\w-]*)\s*$")
+_TAG_RE = re.compile(r"\s*\\?\*([A-Za-z]+)\\?\*")
 #: Foil/star markers some exports append to a name (e.g. "Sol Ring ★").
 #: They aren't part of the card name and break resolution, so strip them.
 _STAR_RE = re.compile(r"[★☆]")
@@ -98,6 +98,7 @@ class ParsedDeck:
     total_count: int
     parse_errors: list[str]
     validation: DeckValidationResult
+    printing_hints: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -116,6 +117,7 @@ class ParsedDeck:
 class _ParsedSection:
     cards: list[CardEntry] = field(default_factory=list)
     parse_errors: list[str] = field(default_factory=list)
+    printing_hints: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 def _parse_card_lines(raw_text: str) -> _ParsedSection:
@@ -132,10 +134,11 @@ def _parse_card_lines(raw_text: str) -> _ParsedSection:
             continue
 
         qty = int(match.group(1))
-        name = match.group(2).strip()
-        name = _TAG_RE.sub("", name).strip()
-        name = _SET_SUFFIX_RE.sub("", name).strip()
-        name = _STAR_RE.sub("", name)
+        name = match.group(2).strip().removesuffix("\\").rstrip()
+        name = _STAR_RE.sub("", _TAG_RE.sub("", name)).strip()
+        printing = _SET_SUFFIX_RE.search(name)
+        if printing:
+            name = name[:printing.start()]
         name = re.sub(r"\s{2,}", " ", name).strip()
 
         if not name:
@@ -143,6 +146,8 @@ def _parse_card_lines(raw_text: str) -> _ParsedSection:
             continue
 
         section.cards.append(CardEntry(name=name, qty=qty))
+        if printing and printing[2]:
+            section.printing_hints.setdefault(name, (printing[1].lower(), printing[2].lower()))
 
     return section
 
@@ -217,6 +222,14 @@ def parse_deck_sections(
 
     validation = _validate_commander_deck(all_cards, commanders, total_count, is_cube)
 
+    printing_hints = {}
+    seen_names = set()
+    for section in (commander_parsed, mainboard_parsed, sideboard_parsed):
+        for name, code in section.printing_hints.items():
+            if name.lower() not in seen_names:
+                printing_hints[name] = code
+                seen_names.add(name.lower())
+
     return ParsedDeck(
         commanders=commanders,
         main_deck=main_deck,
@@ -225,4 +238,5 @@ def parse_deck_sections(
         total_count=total_count,
         parse_errors=parse_errors,
         validation=validation,
+        printing_hints=printing_hints,
     )

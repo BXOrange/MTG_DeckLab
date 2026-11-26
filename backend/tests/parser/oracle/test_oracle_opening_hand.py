@@ -188,6 +188,9 @@ def test_pregame_setup_permission_none_when_absent():
 
 
 def test_gemstone_caverns_is_fully_modeled():
+    # BUG-73 left "If this land has a luck counter on it, instead add one mana of any color." unclaimed; MEC-175 builds
+    # it as the ability's `instead` production, so the opening-hand permission, the luck-counter start
+    # (`pregame_setup_permission`, above) and the override are all claimed.
     result = parse_oracle(gemstone_caverns())
     assert result.coverage == MODELED
     assert result.unclaimed == []

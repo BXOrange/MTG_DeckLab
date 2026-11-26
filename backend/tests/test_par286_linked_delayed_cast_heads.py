@@ -277,7 +277,7 @@ def test_flame_on_counters_then_flying_on_the_same_creature():
     target = _creature_with_flying_or_trample(engine, "Target")
     for i in range(3):
         filler(engine, f"Spell {i}", type_line="Instant", zone=Zone.GRAVEYARD)
-    cast(engine, card(engine, "Flame On!", zone=Zone.HAND), targets=[target])
+    cast(engine, card(engine, "Flame On!", zone=Zone.HAND, without=True), targets=[target])
     engine.recompute_continuous_effects()
     assert target.counters.get("+1/+1", 0) == 3
     assert "flying" in {k.lower() for k in target.granted_keywords}

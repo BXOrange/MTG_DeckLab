@@ -6,7 +6,8 @@
 // exception (it makes network calls), kept here so the "⚠️" deck-picker
 // marker stays a single implementation across all three modes.
 
-import { getDeckCoverage, cardImageUrl } from './api.js';
+import { getDeckCoverage, cardImageUrl, isDeckPrintingId } from './api.js';
+import { printingHoverAttr } from './gameBoard/html.js';
 import { t } from './i18n.js';
 
 /** HTML-escape arbitrary text for use as element content. */
@@ -134,7 +135,7 @@ export function mulliganTileHtml(o, { imageCache, selected = false, bottomEnable
   // fell back to a bare text label. `card_id` has no such mismatch — build
   // the front-face URL straight from it instead, the same fallback
   // `gameBoardView.js`'s `resolveImageUrl` already uses for the live board.
-  const imageUrl = image?.small || (o.card_id ? cardImageUrl(o.card_id, 'small') : null);
+  const imageUrl = (!isDeckPrintingId(o.card_id) && image?.small) || (o.card_id ? cardImageUrl(o.card_id, 'small') : null);
   const inner = imageUrl
     ? `<img src="${imageUrl}" alt="${escapeAttr(o.name)}" loading="lazy" />`
     : escapeHtml(o.name);
@@ -145,7 +146,7 @@ export function mulliganTileHtml(o, { imageCache, selected = false, bottomEnable
   const toggle = bottomEnabled ? ` data-bottom-toggle="${o.instance_id}"` : '';
   return `
     <div class="gf-card-slot">
-      <div class="${classes.join(' ')}" data-hover-card="${escapeAttr(o.name)}" title="${escapeAttr(o.name)}"${toggle}>${inner}</div>
+      <div class="${classes.join(' ')}" data-hover-card="${escapeAttr(o.name)}"${printingHoverAttr(o.card_id)} title="${escapeAttr(o.name)}"${toggle}>${inner}</div>
       ${bottomEnabled ? `<button type="button" class="gf-card-action" data-bottom-toggle="${o.instance_id}">${selected ? t('setup.bottomDone') : t('setup.bottomAction')}</button>` : ''}
     </div>`;
 }

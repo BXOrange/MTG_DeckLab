@@ -249,7 +249,7 @@ def test_unrecognised_bodies_stay_unclaimed(text):
 # --- real cards ---------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize('name', [
-    'Karn, Silver Golem', 'Serpentine Ambush', 'Dragonshift', 'Dream Thrush', 'Cerulean Wisps', 'Caldera Kavu',
+    'Karn, Silver Golem', 'Serpentine Ambush', 'Dream Thrush', 'Cerulean Wisps', 'Caldera Kavu',
     'Chimeric Staff', 'Opal Caryatid', 'Hidden Stag', 'Skilled Animator', 'Tide Shaper', 'Streambed Aquitects',
 ])
 def test_real_cards_are_modeled(name):

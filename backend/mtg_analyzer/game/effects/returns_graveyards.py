@@ -485,9 +485,16 @@ class ReturnToLibraryEffect(GameEffect):
         depth: int = 1,
         group: Optional[dict[str, Any]] = None,
         creature_filter: Optional[dict[str, Any]] = None,
+        with_source: bool = False,
+        same_graveyard: bool = False,
     ) -> None:
         super().__init__(source)
         self.target = target
+        #: "Shuffle ~ and target creature into their owners' libraries" (Void Stalker, Gomazoa, Serene Remembrance):
+        #: the source itself moves together with the targets / group, every affected library shuffled once (RULE 701.24a).
+        self.with_source = bool(with_source)
+        #: "up to three target cards from a single graveyard" (RULE 601.2c: the picks share one graveyard).
+        self.same_graveyard = bool(same_graveyard)
         #: "Put target attacking creature on the bottom of its owner's library." (Condemn) — narrows the target.
         self.creature_filter = dict(creature_filter) if creature_filter else None
         #: "Put all creatures on the bottom of their owners' libraries." (Terminus, Hallowed Burial) — a structured
@@ -511,7 +518,7 @@ class ReturnToLibraryEffect(GameEffect):
         self.attached = target_kind == "attached_permanent"
         self.target_spec = (
             TargetSpec(kind=target_kind, optional=optional, count=count, colors=self.colors,
-                       creature_filter=self.creature_filter)
+                       creature_filter=self.creature_filter, same_graveyard=self.same_graveyard)
             if target_kind and self.group is None and not self.attached else None
         )
 
@@ -520,6 +527,22 @@ class ReturnToLibraryEffect(GameEffect):
             context.shuffle_into_library(obj)
         else:
             context.return_to_library(obj, self.position, self.depth)
+
+    def _place_all(self, context: GameContext, objs: list[Any]) -> None:
+        if self.position == SHUFFLE_POSITION and len(objs) > 1:
+            # RULE 400.3 / 701.24a: each card to its own owner's library, each library shuffled once.
+            context.shuffle_objects_into_libraries(objs)
+            return
+        for obj in objs:
+            self._place(context, obj)
+
+    def _source_if_in_play(self) -> list[Any]:
+        """The source as one of the moved objects: only the object that activated / was cast (RULE 400.7), so a
+        source that already left the battlefield (or the stack) is not dragged out of its new zone."""
+        source = self.source
+        if self.with_source and source is not None and source.zone in (Zone.BATTLEFIELD, Zone.STACK):
+            return [source]
+        return []
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         if self.attached:
@@ -530,8 +553,10 @@ class ReturnToLibraryEffect(GameEffect):
                 self._place(context, host)
             return
         if self.group is not None:
-            for obj in _group_objects(context, self.group, None, self.source, None) or []:
-                self._place(context, obj)
+            # The group is read before anything moves: "each creature it's blocking" ends with the blocker's own move.
+            moved = self._source_if_in_play()
+            moved += [o for o in _group_objects(context, self.group, None, self.source, None) or [] if o not in moved]
+            self._place_all(context, moved)
             return
         if self.target_spec is None:
             target = (targets[0] if targets else None) or self.target or self.source
@@ -540,12 +565,10 @@ class ReturnToLibraryEffect(GameEffect):
             return
         if self.target_spec.effective_count != 1:
             chosen = _chosen_targets(targets, self.target_spec.effective_count, self.target)
-            for target in chosen:
-                self._place(context, target)
-            return
-        target = (targets[0] if targets else None) or self.target
-        if target is not None:
-            self._place(context, target)
+        else:
+            target = (targets[0] if targets else None) or self.target
+            chosen = [target] if target is not None else []
+        self._place_all(context, self._source_if_in_play() + chosen)
 
 
 class ReturnToLibraryThenDigSharedTypeEffect(GameEffect):
@@ -2519,6 +2542,7 @@ class InspectTopChooseEffect(GameEffect):
         max_picks: Union[int, str] = 1,
         max_picks_if_teamwork: Optional[int] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         source: Optional["GameObject"] = None,
         criteria: Optional[dict[str, Any]] = None,
         else_effects: Optional[list[dict[str, Any]]] = None,
@@ -2555,6 +2579,9 @@ class InspectTopChooseEffect(GameEffect):
         #: Grand Unifier) — each pick represents a different card type; multi-type cards may
         #: share types when a distinct assignment exists (`RulesEngine._resume_choose_objects`).
         self.distinct_card_types = bool(distinct_card_types)
+        #: "A Cleric card, a Rogue card, and/or a Wizard card" (Harper Recruiter): each pick fills a different slot, each
+        #: slot a `card_query` ``criteria`` dict (`RulesEngine._pick_labels`); the pool is ``criteria`` (their union).
+        self.pick_slots = [{"criteria": dict(slot)} for slot in (pick_slots or [])] or None
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         player = _controller_of(self.source, context)
@@ -2578,7 +2605,7 @@ class InspectTopChooseEffect(GameEffect):
             max_picks=max_picks,
             criteria=criteria,
             else_specs=self.else_effects,
-            distinct_card_types=self.distinct_card_types,
+            distinct_card_types=self.distinct_card_types, pick_slots=self.pick_slots,
             then_specs=self.placed_effects or None,
             reveal=self.reveal, entry_counters=self.entry_counters, entry_specs=self.entry_specs,
         )

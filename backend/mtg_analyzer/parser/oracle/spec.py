@@ -90,7 +90,7 @@ _CLAMPED_PARAM_KEYS: tuple[str, ...] = (
 #: present instead of picking the first recognised one.
 _ALLOWED_CONDITION_KEYS: frozenset[str] = frozenset(
     {
-        "kicked", "kicked_at_least", "bargained", "gift_promised", "madness_cost_paid", "surge_cost_paid", "blitz_cost_paid", "teamwork_paid", "tribute_paid", "target_is_controller",
+        "kicked", "kicked_at_least", "bargained", "gift_promised", "madness_cost_paid", "surge_cost_paid", "prowl_cost_paid", "blitz_cost_paid", "teamwork_paid", "tribute_paid", "target_is_controller",
         "life_gained_this_turn_at_least", "opponent_lost_life_this_turn_at_least",
         "is_ring_bearer", "ring_tempted_at_least",
         # ``ring_tempted_at_most`` is `ring_tempted_at_least`'s upper-bound
@@ -207,6 +207,8 @@ IF_YOU_DO_ANTECEDENT_TYPES: frozenset[str] = frozenset({
     "remove_counters",
     # A card placed from hand moves zones (Ultra Magnus-shaped "you may put … onto the battlefield. If you do, …").
     "put_from_hand_onto_battlefield", "put_from_defending_hand", "group_put_from_hand",
+    # Fire Prophecy: a hand card put on the bottom of the library changes hand and library membership.
+    "put_hand_cards_on_library",
     # PAR-228: "each player may shuffle their hand and graveyard into their library. Each player who does draws" --
     # performed by attempting (`composition.ALWAYS_DONE_ANTECEDENTS`), so an empty hand and graveyard still counts.
     "shuffle_hand_and_graveyard_into_library",

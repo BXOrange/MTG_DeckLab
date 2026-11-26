@@ -279,6 +279,17 @@
   white-space: pre-line;
 }
 
+.card-tile-unmodeled-ability {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: inherit;
+  text-decoration: underline dotted var(--warn);
+  text-underline-offset: 0.2em;
+}
+
+.card-tile-back-name {
+  font-weight: 600;
+}
+
 .card-tile-keywords {
   color: var(--ok);
   font-style: italic;
@@ -311,4 +322,8 @@
 .card-tile-coverage-unmodeled {
   color: var(--text-dim);
   cursor: help;
+}
+
+#cache-pagination[hidden] {
+  display: none;
 }

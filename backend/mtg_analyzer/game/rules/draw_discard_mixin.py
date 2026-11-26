@@ -786,7 +786,7 @@ class DrawDiscardMixin:
     @_one_event
     def discard_matching(
         self, player: Player, mana_value: Optional[int] = None,
-        cause: Optional[GameObject] = None,
+        cause: Optional[GameObject] = None, criteria: Optional[dict[str, Any]] = None,
     ) -> None:
         """Non-interactive "discards all cards with `<X>` mana value" (PAR-74
         — Infernal Kirin: "target player reveals their hand and discards all
@@ -797,11 +797,18 @@ class DrawDiscardMixin:
         chooser over a foregone conclusion. ``cause`` — see `discard`'s own
         docstring (MEC-101).
         """
-        if mana_value is None:
+        if mana_value is None and criteria is None:
             return
+        from ...models.cards import card_query  # function-scoped: rules mixin <-> models import boundary
+
         for obj in list(player.hand):
-            if obj.mana_value == mana_value:
-                self.discard_specific(obj, cause=cause)
+            # PAR-291 M3, RULE 701.8 / 400.2: "discards all <class> cards" -- the class is a `card_query` criteria
+            # over the card as it is in hand; an empty class (or hand) discards nothing.
+            if mana_value is not None and obj.mana_value != mana_value:
+                continue
+            if criteria is not None and not card_query.matches(obj.card, criteria):
+                continue
+            self.discard_specific(obj, cause=cause)
 
     def look_at_hand(
         self, player: Player, owner: Player, source: Optional[GameObject] = None,
@@ -891,12 +898,24 @@ class DrawDiscardMixin:
             track_exiled_with=track_exiled_with,
         )
 
-    def put_hand_cards_on_top(self, player: Player, count: int) -> None:
-        """Choose hand cards and their library order (RULE 401.4)."""
+    def put_hand_cards_on_top(self, player: Player, count: int, position: str = "top") -> None:
+        """Choose hand cards and put them on the top or bottom of their owner's library.
+
+        RULE 401.4: cards put into a library at the same time are arranged in any order by their
+        owner, so the pick order is the order even when every hand card moves (the chooser step is
+        kept for a pool of two or more). ``position`` is ``"top"`` (the last pick ends on top) or
+        ``"bottom"`` (the last pick ends lowest).
+        """
+        action = "hand_to_library_bottom" if position == "bottom" else "hand_to_library_top"
         self._request_choose_objects(
-            player, list(player.hand), "hand_to_library_top", count=count,
-            prompt="Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)",
+            player, list(player.hand), action, count=count,
+            prompt=(
+                "Lege Handkarten unter die Bibliothek (die zuletzt gewählte Karte liegt ganz unten)"
+                if position == "bottom"
+                else "Lege Handkarten auf die Bibliothek (die zuletzt gewählte Karte liegt ganz oben)"
+            ),
         )
+
     def put_hand_card_on_bottom_then_draw(self, player: Player) -> None:
         """"You may put a card from your hand on the bottom of your library.
         If you do, draw a card." (Volcanic Spite) — a pure card exchange

@@ -41,6 +41,7 @@ from typing import Any, Optional, Union
 
 from mtg_analyzer.config import DATA_DIR, DECKS_DB_PATH
 from mtg_analyzer.models.decks.deck import Deck
+from mtg_analyzer.services.deck_printings import PrintingImages
 from mtg_analyzer.services.schema_version import reconcile_schema
 
 _log = logging.getLogger(__name__)
@@ -78,6 +79,12 @@ CREATE TABLE IF NOT EXISTS decks (
     data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_decks_created_at ON decks (created_at);
+CREATE TABLE IF NOT EXISTS deck_printings (
+    id TEXT NOT NULL,
+    card_name TEXT NOT NULL,
+    images TEXT NOT NULL,
+    PRIMARY KEY (id, card_name)
+);
 """
 
 #: Additive, versioned migrations (``PRAGMA user_version`` = number applied). The schema-hash
@@ -271,7 +278,24 @@ class DeckDatabase:
 
     # -- writes ---------------------------------------------------------------
 
-    def save_private(self, deck: Deck, player_uuid: str) -> bool:
+    def save_printing_options(self, name: str, options: list[tuple[str, PrintingImages]]) -> None:
+        with self._lock, self._connection:
+            self._connection.executemany(
+                "INSERT OR REPLACE INTO deck_printings (id, card_name, images) VALUES (?, ?, ?)",
+                [(printing_id, name.lower(), json.dumps(images)) for printing_id, images in options],
+            )
+
+    def get_printing_images(self, printing_id: str, name: str | None = None) -> PrintingImages:
+        query = "SELECT images FROM deck_printings WHERE id = ?"
+        params = (printing_id,)
+        if name is not None:
+            query += " AND card_name = ?"
+            params += (name.lower(),)
+        with self._lock:
+            row = self._connection.execute(query + " LIMIT 1", params).fetchone()
+        return json.loads(row[0]) if row else {}
+
+    def save_private(self, deck: Deck, player_uuid: str, *, update_printings: bool = True) -> bool:
         """Insert or update a private deck owned by ``player_uuid``.
 
         Returns ``False`` when ``deck.id`` already belongs to somebody else or is global: the
@@ -283,9 +307,11 @@ class DeckDatabase:
             cursor = self._connection.execute(
                 "INSERT INTO decks (id, name, created_at, data, scope, owner) "
                 "VALUES (?, ?, ?, ?, 'private', ?) "
-                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, data = excluded.data "
+                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, "
+                "data = CASE WHEN ? THEN excluded.data ELSE json_set(excluded.data, '$.cardPrintings', "
+                "COALESCE(json_extract(decks.data, '$.cardPrintings'), json('{}'))) END "
                 "WHERE decks.scope = 'private' AND decks.owner = excluded.owner",
-                (deck.id, deck.name, deck.created_at, json.dumps(deck.to_dict()), player),
+                (deck.id, deck.name, deck.created_at, json.dumps(deck.to_dict()), player, update_printings),
             )
             self._connection.commit()
         return cursor.rowcount > 0

@@ -140,6 +140,7 @@ class GameObject:
         #: Multikicker. Set once at cast time by `GameEngine._cast_current_face`
         #: and left on the object afterward as a record of what was paid.
         self.kicker_count: int = 0
+        self.squad_count: int = 0
         #: RULE 702.33b/702.33f (ENG-62): *which* kicker costs were paid, as indices into
         #: the card's printed kicker costs, for a spell with two ("Kicker {1}{U} and/or {B}").
         #: Empty for a single-cost Kicker/Multikicker, whose ``kicker_count`` says it all.
@@ -313,6 +314,8 @@ class GameObject:
         #: `GameEngine.cast_spell`, read by the ``surge_cost_paid`` flag
         #: condition — "if its surge cost was paid").
         self.surge_cost_paid: bool = False
+        self.prowl_cost_paid: bool = False
+        self.impending_cost_paid: bool = False
         self.emerge_cost_paid: bool = False  # RULE 702.119: alternative-cost choice.
         #: RULE 406.3: face-down exile identity is hidden unless the effect
         #: permits a player to look. Explicit viewers can be empty (Flamewar);
@@ -464,6 +467,11 @@ class GameObject:
         #: the beginning of the next end step" delayed trigger right after
         #: it enters, then clears this flag (same shape as `cast_via_evoke`).
         self.cast_via_dash: bool = False
+        self.cipher_encoded_on: Optional[tuple[int, int]] = None
+        self.prototyped: bool = False
+        self.overloaded: bool = False
+        self.cast_via_sneak: bool = False
+        self.sneak_defender: Optional[dict[str, Any]] = None
         #: RULE 702.51c — instance ids of the creatures tapped to pay this spell's Convoke ("each creature that
         #: convoked this spell …", Lethal Scheme). Stamped by `_consume_cast_help`; reset as a new object.
         self.convoked_by_ids: list = []
@@ -603,6 +611,12 @@ class GameObject:
         #: for an object that has never been on the battlefield.
         self.turn_entered: Optional[int] = None
         self.entry_controller_id: Optional[str] = None
+        #: RULE 702.30a (Echo): the turn number in which the current controller last gained control of this permanent
+        #: (stamped on entry by `GameState.add_to_battlefield` and by every control change in `game/control.py`), and the
+        #: turn number whose upkeep last settled its echo cost. "Came under your control since the beginning of your last
+        #: upkeep" is `control_since_turn < current turn` and not yet settled for that control.
+        self.control_since_turn: Optional[int] = None
+        self.echo_settled_turn: Optional[int] = None
         #: RULE 702.26 (phasing): while ``True``, this permanent is treated
         #: as though it doesn't exist — untargetable, can't attack/block,
         #: ignored by static/continuous effects and SBAs. Still structurally
@@ -1537,12 +1551,15 @@ class GameObject:
 
         Also rebuilds the front face's abilities, since the other face's were bound onto this object (RULE 400.7 /
         712.11).  Used by `reset_as_new_object` and by a converted spell leaving the stack (`Player.add_to_zone`)."""
-        was_other_face = self.transformed or self.flipped
-        if self.transformed or self.flipped:
+        # RULE 709.2 / 400.7: the selected Aftermath half only exists on the stack.
+        was_other_face = self.transformed or self.flipped or self.prototyped or self.overloaded or (self.card.has_aftermath and self.card is not self._front_card)
+        if was_other_face:
             self.card = self._front_card  # RULE 711.8 / 710.4: a new object presents its front face
         self._front_card = self.card
         self.transformed = False
         self.flipped = False
+        self.prototyped = False
+        self.overloaded = False
         if was_other_face:
             # RULE 400.7 / 712.11: the other face's abilities were bound onto this object, so the front's must
             # replace them now (a bound-once ability list is otherwise only rebuilt by an explicit bind).
@@ -1626,6 +1643,7 @@ class GameObject:
         clear_designations(self)
         self.ability_resolutions = {}
         self.kicker_count = 0
+        self.squad_count = 0
         self.kicker_costs_paid = ()
         # RULE 400.7 / 702.138a: a new object was never cast for Escape (Woe Strider-style riders read this flag).
         self.cast_via_escape = False
@@ -1674,6 +1692,8 @@ class GameObject:
         self.gift_recipient_id = None
         self.madness_cost_paid = False
         self.surge_cost_paid = False
+        self.prowl_cost_paid = False
+        self.impending_cost_paid = False
         self.emerge_cost_paid = False
         self.face_down_in_exile = False
         self.face_down_exile_viewers = set()
@@ -1685,6 +1705,9 @@ class GameObject:
         self.blitz_cost_paid = False
         self.cast_via_evoke = False
         self.cast_via_dash = False
+        self.cipher_encoded_on = None
+        self.cast_via_sneak = False
+        self.sneak_defender = None
         self.convoked_by_ids = []
         self.cast_from_zone = None
         self.greatest_creature_power_as_cast = 0
@@ -1700,6 +1723,8 @@ class GameObject:
         self.summoning_sick = True
         self.turn_entered = None
         self.entry_controller_id = None
+        self.control_since_turn = None
+        self.echo_settled_turn = None
         self.phased_out = False
         self.phased_out_with = None
         self.phase_in_source_visit = None

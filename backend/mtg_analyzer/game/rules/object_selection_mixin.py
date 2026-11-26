@@ -5,7 +5,7 @@ from typing import Any, Optional
 from ...models.game.game_object import GameObject, Zone
 from ...models.game.player import Player
 from ..effects.core import ProliferateEffect
-from .. import continuations
+from .. import continuations, cost_referents
 from .misc_helpers import (
     _card_type_words,
     _distinct_card_type_assignment,
@@ -219,12 +219,14 @@ class ObjectSelectionMixin:
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         total_power_budget: Optional[int] = None,
         minimum_card_types: int = 0,
         force_choice: bool = False,
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         """Open a "choose N of these objects" decision (RULE 601.2c-style).
 
@@ -324,12 +326,20 @@ class ObjectSelectionMixin:
         trigger (`enqueue_reflexive_trigger`), so it may carry targets. Only
         fires when something was picked, like ``then_specs``.
 
+        ``record_referent`` (MEC-171, RULE 608.2h / 603.12) snapshots each picked object's characteristics onto
+        ``source``'s `cost_referents` (kind from `cost_referents.referent_kind_for_action`) as the pick is made, before it
+        moves, so a following "When you do, ... the discarded card's mana value / the sacrificed creature's power"
+        payoff reads last-known information (`enqueue_reflexive_trigger` carries the records to that trigger).
+
         ``all_or_nothing`` (PAR-225 — "sacrifice it unless you return two Forests you control") makes an optional
         pick of ``count`` objects an indivisible decision: declining is offered only before the first pick, and
         a pool smaller than ``count`` cannot satisfy it at all, so ``else_specs`` run without a prompt.
         """
         if action not in self.CHOOSE_OBJECT_ACTIONS:
             raise ValueError(f"unknown choose-objects action {action!r}")
+        referent_kind = cost_referents.referent_kind_for_action(action) if record_referent and source is not None else None
+        if referent_kind is not None:
+            cost_referents.forget_referents(source, referent_kind)  # a new instruction replaces the earlier record
         pool = [obj for obj in candidates if obj is not None]
         if minimum_card_types:
             from ..continuous import card_types_of
@@ -337,8 +347,8 @@ class ObjectSelectionMixin:
             # RULE 608.2d: an impossible optional set cannot be selected.
             if len(set().union(*(card_types_of(obj) for obj in pool))) < minimum_card_types:
                 return
-        if distinct_card_types:
-            pool = [obj for obj in pool if _card_type_words(obj)]
+        if distinct_card_types or pick_slots:
+            pool = [obj for obj in pool if self._pick_labels(obj, pick_slots)]
         if total_mana_value_budget is not None:
             pool = [obj for obj in pool if int(
                 getattr(obj, "mana_value", 0) or 0
@@ -360,9 +370,10 @@ class ObjectSelectionMixin:
                 self._apply_effect_specs(list(else_specs), source)
             return
         # RULE 401.4: even when all cards must move, their library order is a choice.
-        ordered_library_move = action == "hand_to_library_top" and len(pool) > 1
+        ordered_library_move = action in ("hand_to_library_top", "hand_to_library_bottom") and len(pool) > 1
         if len(pool) <= count and not optional and not force_choice and not ordered_library_move and (
-            not distinct_card_types or _distinct_card_type_assignment([_card_type_words(o) for o in pool])
+            not (distinct_card_types or pick_slots)
+            or _distinct_card_type_assignment([self._pick_labels(o, pick_slots) for o in pool])
         ):
             # Forced: every candidate is taken anyway, so asking would be
             # theatre. (An *optional* one still asks — declining matters.)
@@ -378,6 +389,7 @@ class ObjectSelectionMixin:
                         control_recipient_id=control_recipient_id,
                         entry_counters=entry_counters, entry_specs=entry_specs,
                         source_incarnation=self.context.resolving_source_incarnation,
+                        record_referent=referent_kind is not None,
                     )
             if rest_destination and rest_ids:
                 taken_ids = {o.instance_id for o in pool}
@@ -402,12 +414,28 @@ class ObjectSelectionMixin:
             decline_leaves_untouched=decline_leaves_untouched,
             total_mana_value_budget=total_mana_value_budget,
             then_that_many=then_that_many,
-            distinct_card_types=distinct_card_types,
+            distinct_card_types=distinct_card_types, pick_slots=pick_slots,
             total_power_budget=total_power_budget,
             minimum_card_types=minimum_card_types,
             entry_counters=entry_counters, entry_specs=entry_specs,
             all_or_nothing=all_or_nothing,
+            record_referent=referent_kind is not None,
         ))
+    def _pick_labels(self, obj: GameObject, pick_slots: Optional[list[dict[str, Any]]]) -> set:
+        """What one pick can stand for in a "one card per slot" selection: its RULE 205.2a card types, or -- with
+        ``pick_slots`` ("a Cleric card, a Rogue card, and/or a Wizard card") -- the indexes of the slots whose criteria
+        it meets (an object matching two slots may fill either, never both: `_distinct_card_type_assignment`).
+        A slot is a `card_query` ``criteria`` dict or an object-filter ``filter`` dict (the vocabulary of the pool)."""
+        if not pick_slots:
+            return _card_type_words(obj)
+        from ...models.cards import card_query
+        from .. import combat
+
+        return {
+            index for index, slot in enumerate(pick_slots)
+            if (combat.matches_object_filter(obj, slot["filter"], reference=obj, state=self.state)
+                if "filter" in slot else card_query.matches(obj.characteristic_card(), slot.get("criteria") or {}))
+        }
     @staticmethod
     def _power_for_budget(obj: GameObject) -> int:
         """An object's power as a "total power N or less" budget counts it: the derived power on the battlefield,
@@ -492,11 +520,13 @@ class ObjectSelectionMixin:
         total_mana_value_budget: Optional[int] = None,
         then_that_many: Optional[dict] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         total_power_budget: Optional[int] = None,
         minimum_card_types: int = 0,
         entry_counters: Optional[dict[str, int]] = None,
         entry_specs: Optional[list[dict]] = None,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> dict[str, Any]:
         """Build the serializable `choose_objects` `pending_choice`."""
         source = self._object_by_instance_id(source_id)
@@ -577,11 +607,14 @@ class ObjectSelectionMixin:
             "total_mana_value_budget": total_mana_value_budget,
             "total_power_budget": total_power_budget,
             "distinct_card_types": bool(distinct_card_types),
+            "pick_slots": [dict(slot) for slot in (pick_slots or [])] or None,
             "minimum_card_types": minimum_card_types,
             "then_that_many": dict(then_that_many) if then_that_many else None,
             "entry_counters": dict(entry_counters or {}),
             "entry_specs": list(entry_specs or []),
             "all_or_nothing": bool(all_or_nothing),
+            # MEC-171: whether each pick is recorded as a last-known referent on ``source`` (`_request_choose_objects`).
+            "record_referent": bool(record_referent),
         }
     @continuations.choice("choose_objects", answer=continuations.ANSWER_INT, rule="601.2b")
     def _resume_choose_objects(self, choice: dict[str, Any], instance_id: Optional[int]) -> None:
@@ -624,8 +657,9 @@ class ObjectSelectionMixin:
         declined = instance_id is None
         chosen = self._object_by_instance_id(instance_id) if instance_id is not None else None
         picked_card_types = [set(types) for types in choice.get("picked_card_types", [])]
-        if chosen is not None and choice.get("distinct_card_types"):
-            picked_card_types.append(_card_type_words(chosen))
+        slots = choice.get("pick_slots")
+        if chosen is not None and (choice.get("distinct_card_types") or slots):
+            picked_card_types.append(self._pick_labels(chosen, slots))
         # Applied as each pick is made rather than all at the end: tapping
         # or sacrificing one permanent can change what the remaining
         # candidates even are (RULE 608.2's "as the effect resolves").
@@ -649,6 +683,7 @@ class ObjectSelectionMixin:
                 hideaway_incarnation=choice.get("hideaway_incarnation"),
                 source_incarnation=choice.get("source_incarnation"),
                 entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
+                record_referent=bool(choice.get("record_referent")),
             )
         remaining_pool = [
             obj
@@ -673,9 +708,9 @@ class ObjectSelectionMixin:
             remaining_pool = [
                 obj for obj in remaining_pool if self._power_for_budget(obj) <= int(power_budget) - spent_power
             ]
-        if choice.get("distinct_card_types"):
+        if choice.get("distinct_card_types") or slots:
             remaining_pool = [o for o in remaining_pool if _distinct_card_type_assignment(
-                picked_card_types + [_card_type_words(o)]
+                picked_card_types + [self._pick_labels(o, slots)]
             )]
         if declined or len(picked) >= choice["count"] or not remaining_pool:
             # (a choice the pick itself opened — RULE 508.4a's planeswalker offer for a creature just put into
@@ -729,10 +764,12 @@ class ObjectSelectionMixin:
             total_mana_value_budget=choice.get("total_mana_value_budget"),
             then_that_many=choice.get("then_that_many"),
             distinct_card_types=bool(choice.get("distinct_card_types")),
+            pick_slots=slots,
             total_power_budget=choice.get("total_power_budget"),
             minimum_card_types=int(choice.get("minimum_card_types", 0)),
             entry_counters=choice.get("entry_counters"), entry_specs=choice.get("entry_specs"),
             all_or_nothing=bool(choice.get("all_or_nothing")),
+            record_referent=bool(choice.get("record_referent")),
         )
         next_choice["effect_controller_id"] = choice.get("effect_controller_id")
         next_choice["source_incarnation"] = choice.get("source_incarnation")

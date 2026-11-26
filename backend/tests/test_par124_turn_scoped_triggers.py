@@ -93,7 +93,7 @@ def test_a_trailing_duration_on_a_permanents_trigger_is_still_a_duration():
 @pytest.mark.parametrize(
     "name",
     ["Beck // Call", "Bonus Round", "First Day of Class", "Indulge // Excess",
-     "Mage Hunters' Onslaught", "Ondu Rising", "Rite of Harmony"],
+     "Mage Hunters' Onslaught", "Rite of Harmony"],
 )
 def test_the_previously_inert_claims_are_now_turn_triggers(name):
     result = parse_oracle(_named(name))

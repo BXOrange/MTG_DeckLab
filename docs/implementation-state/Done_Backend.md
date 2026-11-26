@@ -217,6 +217,59 @@ payments, countered triggers, copies and zone changes. Full-cache validation:
 13,719 passed, one skipped. Coverage remains 21,515/35,046 (Commander 20,703/32,068),
 parser v658; these changes correct runtime behavior without expanding parser claims.
 
+### Mana-ability riders fail closed (BUG-73; RULE 605.1a / 605.3a)
+
+The segmenter used to claim a whole `<cost>: Add <mana>. <anything>` line, so a sentence the
+mana-ability builder never reads (a draw, a life gain, a copy rider) was dropped silently on a
+MODELED card. `parser/oracle/mana_riders.py` is now the single, pure-text home of the rider readers
+(spend restrictions, activation limits, damage / rad / counter riders, spend and next-cast payoffs);
+`game/mana_abilities.py` imports them, and the segmenter claims a mana line only when every
+sentence after the Add clause is one of them, so parser claim and engine execution agree by
+construction. A full-cache parity test checks every claimed rider against the built `ManaAbility`.
+That test found three engine gaps, fixed here: "~ doesn't untap during your next untap step"
+(Cinder Marsh family) sets the source's `skip_next_untap`; the Talismans' "This artifact deals 1
+damage to you" now hits; "Activate only if this land ..." riders are normalized before the
+activation-condition vocabulary reads them (Mirrex, Flywheel Racer, Pyramid of the Pantheon gain
+their gated ability). Parser 1061: 125 cards dropped to UNMODELED, none gained; the shared shapes
+are MEC-174 / MEC-175, one-offs in `singletons.md`. Tests:
+`test_bug73_mana_rider_claims.py`.
+
+The Add clause itself got the same treatment (BUG-85, parser 1063): `mana_riders.add_clause_readable` refuses
+the shapes the builder cannot read (non-mana symbols such as `{T}{T}`, "two mana of different colors", an
+X sized by removing counters, an unread "any type" or X-combination referent), and a full-cache parity test
+fails whenever a claimed mana line builds no `ManaAbility`, which keeps that list honest. The sweep also
+fixed the builder: a basic-typed land keeps its own printed mana lines next to the type-line ability
+(Murmuring Bosk, RULE 305.6); an Add clause without a closing period is read (Artist Alley's `{C}`); "mana
+of any type that a land / Gate you control could produce" is a new colour selector including colourless,
+with the reflection-cycle guard (Reflecting Pool, Naga Vitalist, Cactus Preserve, Plaza of Harmony, RULE
+106.7). 15 cards dropped to UNMODELED (storage lands built a wrong one-of-each ability before); the
+shared shapes are now implemented in MEC-179. Tests: `test_bug85_add_clause_claims.py`.
+
+Spend-restriction vocabulary widened (MEC-174, parser 1067, +23): `mana_riders.parse_restriction` gains
+`ability_only` ("to activate abilities [of <source>]"), `type_list_spell` (a list of card types, subtypes or
+"colorless", optionally "or activate an ability of <source>"), `spell` (any spell, never an ability),
+`x_spell` (a spell with {X}) and `spell_from_zone` ("from your graveyard / exile / anywhere other than your
+hand", read from the card's zone while it is cast, RULE 601.2a, with "your" bound to the producing player by
+`resolve_restriction_owner`, shared with "your commander"). Enforcement reuses `_restriction_allows_cast` /
+`_restriction_allows_activation`; the existing "or activate an ability of <source>" tail now must name a
+source that agrees with the spell half. Cards: Omen Hawker, Cryptic Trilobite, Sunken Citadel, Base Camp,
+Avengers Tower, Sage of the Unknowable, Lord of the Forsaken and 16 more; the unshared shapes (class levels,
+cumulative upkeep, equip, special-action costs, per-pip "can't be spent on generic") are tagged MEC-174 in
+`singletons.md`. Tests: `test_mec174_mana_spend_restrictions.py`.
+
+Rider effects executed (MEC-175, parser 1068, +44): `ManaAbility` gains `instead` / `instead_when` ("If <cond>,
+add ... instead", resolved in `resolve_options`, so planning and copies see it; Urza's Tower / Mine / Power
+Plant via hyphen-insensitive `control_named`, Gemstone Caverns, Leafkin Druid, Command Mine), `gain_life`
+(+ condition; Pristine Talisman, The Great Henge, Black Tom Cassidy), `draw_cards` (Chromatic Sphere, the
+Eggs), `delayed_draw_cards` (a real `DelayedTrigger` for the next turn's upkeep, RULE 603.7; Astrolabe,
+Barbed Sextant) and `sacrifice_when_no_counters` (Peat Bog, Gemstone Mine, Sandstone Needle). One applier,
+`game/mana_ability_extras.py`, serves `tap_for_mana` and copied mana abilities (RULE 605.1a / 605.3b: no
+stack except the delayed draw). `mana_condition_dict` backs "Activate only if" in builder and gate ("A or if
+B", same-name lands: Dark Fortress, Gathering Place, Hidden Lair). Spend / next-cast payoffs gain triggered
+life / scry / draw, granted haste and Brass Infiniscope's X payoff (Arena of Glory, Scaled Nurturer, Path of
+Ancestry via `shares_type_with_commander`). The rest are MEC-175 rows in `singletons.md`. Tests:
+`test_mec175_mana_riders.py`; the BUG-73 / BUG-85 parity tests carry every new field.
+
 ### Mana cost model: Hybrid and Phyrexian mana
 
 - **What:** A real per-symbol mana cost model (`ManaCost.parse` → `ManaSymbol`s tagged generic/variable/color/colorless/hybrid/mono-hybrid/Phyrexian, exposing `payment_opti…
@@ -983,6 +1036,38 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Files:** `game/{cost_referents,continuous,combat,effect_amounts}.py`, `game/effects/{core,composition,returns_graveyards}.py`, `game/engine/{activation_mixin,casting_mixin}.py`, `game/rules/{casting_mixin,copies_mixin}.py`, `models/game/{game_object,game_state}.py`; `parser/oracle/gate.py`, `catalogue/{count_phrase,cost_text,characteristic_phrase}.py`, `catalogue/effect_rows/damage_copy.py`, `segmenter/{activation_clauses,cost_line_patterns,effect_body,line_rows_abilities,overrides_and_amounts,where_x}.py`; tests `tests/test_mec145_cost_referents.py` (45).
 - **Validation:** `parser_probe` diffs against HEAD worktrees per milestone: v1016 +14, v1017 +5, v1018 +5, 0 regressed each (Essence Burn surfaced once and was withdrawn after execution showed the rider unarmed). Every claimed card executed on a real engine including the LKI case (the referent gone or changed before resolution), two activations on the stack and a paused resolution. `--full-cache` on the M1 tree: 26,346 passed / 4 skipped; final tree (with MEC-169): see the MEC-169 entry. Coverage at v1018: 26,595 / 35,493 (74.9%).
 
+**Reflexive triggers read the recorded referent (MEC-171, PARSER_VERSION 1065, +7).** RULE 603.12 / 608.2h:
+"you may <discard / exile from your graveyard / sacrifice / tap ...>. When you do, <effect reading that object>".
+Generalises `pay_cost_then` / `reflexive_trigger` and the records above, no parallel primitive:
+`_request_choose_objects(record_referent=True)` snapshots each pick into `cost_referents` before it moves
+(`CHOSEN_ACTION_REFERENT_KINDS`: discard, exile, sacrifice, tap; a new instruction replaces the old record);
+`_pay_player_cost` makes a plain discard, graveyard exile and sacrifice a real, declinable, recorded choice
+(a plain discard used to throw away the last card of the hand); `ActivationCost.exile_from_graveyard_other`
+keeps a dying source from paying for itself (RULE 109.5). `enqueue_reflexive_trigger` snapshots the stamps
+onto `TriggeredAbility.cost_stamps`, `_place_trigger` onto `StackItem.cost_stamps`, so the payoff reads LKI
+from the stack. Parser: plain "Sacrifice a creature. When you do" becomes `choose_objects{record_referent}`
+plus a payoff on `sacrificed_cost_*`; "When you discard a card this way" links like "When you do"; new filter
+`shares_creature_type_with_referent`. Cards: Mount Velus Manticore, Wolf of Devil's Breach, Minsc & Boo
+(-2, incl. the Hamster draw), Resplendent Marshal, Endemic Plague, Hypothesizzle, Serum-Core Chimera. Argentum
+Masticore, Nihiloor, Grishnákh need MEC-172's target bound; one-offs in `singletons.md` ("Reflexive-referent
+residue"). Tests: `test_mec171_reflexive_referents.py`; suite 27,204 passed / 506 skipped, `--full-cache`
+27,706 passed / 4 skipped.
+
+**Target bounds from a recorded or resolution referent (MEC-172, PARSER_VERSION 1066, +5).** RULE 603.3d /
+608.2h: a reflexive trigger's targets are announced with the antecedent's referents bound
+(`triggers_mixin._place_or_pause_trigger` / `_continue_trigger_multi_target` bind `ability.cost_stamps`), so
+"mana value less than or equal to the discarded card's" is measured as the trigger goes on the stack. No new
+bound kind: mana-value bounds are `max_mana_value {"count_selector": ...}`, power bounds `stat_count_bound`.
+New referent kinds `amassed` (`AmassEffect`), `excess` (`ReflexiveTriggerEffect(record_excess=True)`, no
+trigger on 0 excess, RULE 120.4a) and a stat `amount`; selector `cost_counters_removed` reads the announced X,
+and `legal_actions` offers the X-dependent targets per X. Gate: converge bounds only on triggered abilities,
+referent bounds only inside a `then_trigger`, a counters-removed bound needs a removal cost. The target frame
+`artifact_or_enchantment_you_dont_control` now applies its `max_mana_value` (it silently ignored it). Cards:
+Argentum Masticore, Sundering Archaic, Simic Manipulator, Grishnákh Brash Instigator, Unleash the Inferno (and
+Unerring Sling's tapped-power amount). Mandate of Abaddon / Fell the Mighty, Nihiloor and Saruman of Many
+Colors are one-offs in `singletons.md` ("Target-bound residue (MEC-172)"). Tests:
+`test_mec172_target_bounds_from_referents.py`.
+
 ### Variable resolution payments (MEC-146, PARSER_VERSION 1021)
 
 - A state-owned choice records contributions per player and binds their sum or individual amounts to the rest of the resolution (RULE 118.1 / 608.2d). Mana, life, energy, and discard choices survive clone and undo. The payer can activate mana abilities during resolution under RULE 608.2g.
@@ -1000,6 +1085,58 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 ### Chosen reveal costs (MEC-170, parser 1046)
 
 - Casting validates the selected creature card before paying costs, records the public reveal, and snapshots the card's mana value through `cost_referents`. Disaster Radius, Induce Despair and Calamity of the Titans read that snapshot on resolution. Calamity filters the hand for colorless creatures and exiles creatures and planeswalkers strictly below the chosen mana value. The board uses the hand-card picker for the reveal cost.
+
+### Keywords without engine behaviour fail closed (BUG-75, PARSER_VERSION 1062)
+
+The RULE 702 keyword catalogue is recognition only, but `is_keyword_line` claimed every recognised
+keyword, so a card printed with, say, Echo or Rebound parsed MODELED while the keyword did nothing.
+An audit of all 190 catalogue slugs (bind-time diff of each keyword spec on real MODELED cards, plus a
+consumer scan of `game/`, `services/` and `models/`) found 47 with no binder builder, casting, combat or
+layer reader. They form `KEYWORDS_WITHOUT_BEHAVIOUR` in `catalogue/keywords.py`; the segmenter refuses a
+keyword line that names one (`names_inert_keyword`, in a comma list too), and flag-shaped ones join
+`UNGRANTABLE_FLAG_KEYWORDS` so a grant or a token "with decayed" is refused as well. Partner and choose a
+Background stay claimed (commander legality reads them). 509 cards dropped to UNMODELED, none gained
+(6 stay covered through hand-authored entries); the open keywords are MEC-176 / MEC-177 / MEC-178, the
+split-card verdict gap it exposed is BUG-86. `test_bug75_keyword_behaviour.py` fails when a denied keyword
+gains an engine consumer, so the set cannot go stale; tests of such cards' other text strip the keyword
+(`tests/support/cards.strip_inert_keywords`).
+
+### Every bound half counts toward a card's verdict (BUG-86, PARSER_VERSION 1064)
+
+`parse_oracle` judges the front face, but a split / aftermath / fuse, Adventure, modal DFC, transform or
+prepare card binds its other half as a card of its own when it is cast, played or transformed, so a
+MODELED front over an unbound back half counted the card as playable. `card_registry.card_coverage` is
+the one card-level rule: MODELED only when the front is and the back half (`gate.castable_back_half`) is
+hand-authored under its own name or parser-MODELED, carrying the back half's unclaimed lines otherwise;
+`is_card_covered` adds whole-card authoring. Rooms and flip cards already merged both halves inside
+`parse_oracle`. The card-list / saved-deck badge (`api/cards.coverage_for`), `coverage_report.py` and the
+other coverage scripts, `parser_probe` / `find_fragments` and the gap catalogue (`verdict=`) use it, and
+the coverage-ledger hash records whether the back half is registered. 123 cards dropped to UNMODELED
+(split 31 incl. the 20 Aftermath backs refused since 1062, transform 56, adventure 20, modal DFC 14,
+prepare 2), none gained. `parse_oracle(card).modeled` alone stays front-only: card-level callers use
+`card_coverage`. Tests: `test_bug86_every_half_verdict.py`.
+
+### Printed keywords wired after the BUG-75 refusal (MEC-176 milestone, PARSER_VERSION 1069, +207)
+
+Twelve keywords refused by BUG-75 now run in the engine and left `KEYWORDS_WITHOUT_BEHAVIOUR`, each tested on
+real cards (`test_mec176_keywords.py`): echo (RULE 702.30, upkeep pay-or-sacrifice via the existing
+sacrifice-unless-pay choice, `GameObject.control_since_turn`; dash costs "Discard a card" / "Sacrifice two lands"
+only), soulshift (702.46), bloodthirst N and X (702.54), printed sunburst (702.44), graft (702.58), unleash
+(702.98, can't block while it has a +1/+1 counter, `combat.keyword_bars_blocking`), extort (702.101; Crypt Ghast
+uses the keyword spec), champion (702.72, `ChampionEffect` on the linked-exile return), amplify (702.38,
+`effects/amplify_entry.py`), ingest (702.115), provoke (702.39), increment (702.191) and gravestorm (702.69),
+plus decayed tokens and grants (702.147). Graft and increment recheck their intervening "if" on resolution
+(RULE 603.4, `ConditionalEffect`; new condition `cast_mana_exceeds_source_stat`). Extort, decayed, provoke,
+ingest and increment are grantable; unleash, sunburst and gravestorm only work printed. Echo sees control
+changes made by `control.gain_control` only (an Aura's layer-2 change is a documented gap).
+
+### Cast and zone keyword support and mana production (MEC-176–179, parser 1070)
+
+- **MEC-176:** Printed Ripple reveals in order, offers same-name casts during resolution, then orders the remaining cards on the library bottom. Epic locks spellcasting and creates copies on the controller's upkeeps. Offering uses the sacrificed permanent's mana symbols to reduce the spell's cost. Conspire taps two color-matching creatures as an optional cost and uses the shared copy trigger. Conspire grants remain open. Offering is exposed as its own cast option, with an affordable hybrid reduction selected by the engine.
+- **MEC-177:** Printed Rebound, Overload, Sneak, Squad, Prototype, Awaken, Assist, Cipher, Casualty, Harmonize, Spectacle, Freerunning, Web-slinging, Impending, Prowl, Aura swap and Transfigure use the shared cast, entry, payment, copy and targeting paths. Squad's dash costs support discarding and exiling cards. Alternative casts retain the chosen variant through resolution and check the selected costs and targets again at payment.
+- **MEC-178:** Disturb casts the transformed face from the graveyard and substitutes exile for its graveyard destination. Craft selects materials across battlefield and graveyard and links their exile visits to the returned transformed permanent. Umbra armor participates in destroy-replacement ordering. Reinforce discards from hand, Recover offers payment when a creature dies, and Aftermath casts the back half from the graveyard and exiles it on leaving the stack. Companion setup moved to MEC-144 for outside-the-game designation and deck validation.
+- **MEC-179:** Distinct-color mana offers two different colored pips. Storage lands pay the announced X in counters and offer legal color splits. Cast-potential evaluation accounts for the shared counter supply and payment restrictions. The Add-clause parity checks cover both shapes.
+- **Regression tests:** `test_mec176_keywords.py`, `test_mec177_cast_keywords.py`, `test_mec178_keyword_behaviour.py`, `test_bug85_add_clause_claims.py` and `test_bug86_every_half_verdict.py`.
 
 ### Zone-aware keyword grants (ENG-67, PARSER_VERSION 1013, +6)
 
@@ -1050,7 +1187,59 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Files:** `parser/oracle/catalogue/{static_rows/static_conditions.py,count_phrase.py}`, `parser/oracle/segmenter/{conditions,effect_body,where_x,trigger_heads,line_rows_abilities,cost_line_patterns,line_rows_costs}.py`, `parser/oracle/spec.py`, `game/{static_conditions,effect_conditions,condition_query,continuous}.py`, `game/effects/core.py`, cost sites in `game/engine/{activation,casting}_mixin.py`, `game/rules/{damage_death,copies}_mixin.py`, `models/game/game_object.py`; tests `tests/test_par283_condition_vocabulary.py` (~90, real-engine for Blot Out the Sky, Built to Last, Falkenrath Aristocrat, Hellish Sideswipe, Boomerang Basics, twelve Traps via `can_cast`, ...).
 - **Validation:** version-masked full-pool diffs per milestone: v924–925 +71 (10 shape-only), v926 +13, v927 +5, v928 +15, v929 +4 (Battle of Wits, Near-Death Experience, Queen Marchesa, Jerren); 0 lost throughout. Re-scan at v929: `P1-A Bedingungen` 609 / 581 / 210 (from 707 / 674 / 278). Complete suite including `--full-cache` at close: 24,040 passed, 4 skipped.
 
-### Library inspection and search (PAR-292 M1–M24, PARSER_VERSION 1027–1054, +185, in progress)
+### Player-scoped actions (PAR-291 M1–M5, PARSER_VERSION 1071–1075, +45, 0 regressed)
+
+- **M1 (v1071, +14):** "<player>'s life total becomes <amount>" is one row (`life_loss._SET_LIFE_TOTAL_RE`) for
+  your / target player's / target opponent's / each player's / each opponent's total; amounts are a number, a
+  fraction of the starting life total (rounded down or up), the highest / lowest life total among all players
+  (measured once, RULE 608.2c) or a per-player count ("the number of creatures they control"). `SetLifeEffect`
+  was generalised (`selector`, operand `amount`, `measure_per_player`, `round_up`), still applied as the
+  resulting gain or loss (RULE 119.5). "Each player / opponent discards their hand" plus the wheel's "draws
+  cards equal to the greatest number discarded this way" generalises the hand-authored Windfall bind. Cards:
+  Biorhythm, Repay in Kind, Arbiter of Knollridge, Blessed Wind, Magister Sphinx, The Endstone, Vraska Relic
+  Seeker, Sire of Insanity, Myojin of Night's Reach, Mindslicer, Jace's Archivist and more. Awaken the
+  Erstwhile's false claim (a "creates that many" read as an event amount, count 0) was withdrawn. Tests:
+  `test_par291_set_life_total.py`.
+- **M2 (v1072, +7):** non-sacrifice edicts over the affected player's own permanents: `edicts._own_pool_pick`
+  reads "<each player | each opponent | target player | target opponent | that player> exiles / returns a <pool>
+  they control [to its owner's hand]" on the shared `edict_pool` vocabulary. `SacrificeEffect.action` gained
+  `return_to_hand`; `_pick_and_act_on_own` lets each affected player pick from their own permanents in APNAP
+  order, and "can't be sacrificed" does not stop an exile or a bounce (RULE 701.17a). Shared fixes: the "unless
+  they pay" punisher takes the bounce and a life payment; `EachPlayerPayOrEffect`'s `event_player` scope now
+  resolves "that player" under a step or damage head (`targeting.trigger_player_antecedent`; before, an upkeep
+  "that player ... unless they pay" asked nobody). Cards: Curfew, Debt to the Kami, Doomfall, Early Winter,
+  Sunken Hope, Blizzard Specter, Blood Clock. Mass graveyard returns were sized at two cards per shared piece
+  and went to `singletons.md`. Tests: `test_par291_own_pool_picks.py`.
+- **M3 (v1073, +12):** "<each player | each opponent | target player | target opponent> exiles the top N cards of
+  their library" is the existing library-exile slice with a player subject, so the cast / play riders attach as
+  before (Fathom Feeder, Thought Harvester, Dimensional Infiltrator, Knacksaw Clique, Ornate Kanzashi, Sifa Grent,
+  Doom Reigns Supreme). "<player> [reveals their hand and] discards all <class> cards": `DiscardEffect.hand_criteria`
+  is a `card_query` criteria discarded without a choice (`discard_matching`; new `min_color_count` key for
+  "multicolored"), and `reveal_hand` makes the whole hand public through `reveal_card` first (RULE 701.16; Amnesia,
+  Trapfinder's Trick, Shatter Assumptions). `keep_types` choices read after the pool and "a land of each basic land
+  type" (Cataclysm, Global Ruin). Player-scoped token creation already had its scope; its open cards need token data
+  or where-X token sizes and went to `singletons.md`. Tests: `test_par291_m3_player_scoped.py`.
+- **M4 (v1074, +8):** tempting offers (`catalogue/tempting_offer.py`): "<X>. Each opponent may <X>. For each opponent
+  who does, <X>." asks every opponent in turn order as the acting player (`optional.acting="chooser"`), marks each
+  acceptance with `OFFER_ACCEPTED`, then repeats the payoff once per acceptor (RULE 101.4, 608.2c); the offer must
+  be the controller's sentence with pronouns turned third-person, or the parser refuses. `for_each` can carry the
+  previous clause's referent (Tempt with Reflections). Cards: Tempt with Glory, Immortality, Reflections, Tempting
+  Contract. "you and that player each draw ..." under a damage head folds into two draws (Black Widow Intel Expert,
+  Diviner Spirit, Sergeant John Benton, Xyris). Tests: `test_par291_m4_tempting_offer.py`.
+- **M5 (v1075, +4):** `DigUntilEffect` gained `digger: "each_opponent"` (`RulesEngine._dig_each_opponent`): each
+  opponent digs their own library in turn order (RULE 101.4) and owns what they exile; a `total_mana_value` stop sums
+  that instruction's own exiles (a land adds 0, RULE 202.3); `track_exiled_with` links the source to every exiled card
+  (RULE 607.2a). Two cast riders: "any number of spells from among those nonland cards" during resolution and "until
+  end of turn you may cast cards exiled this way", both cast by the controller and going to the owner's graveyard.
+  Cards: Fevered Suspicion, Dream Harvest, Tasha's Hideous Laughter, Krang & Shredder. Tests:
+  `test_par291_m5_dig_each_opponent.py`.
+- **Close:** no player-scoped shape of three or more solo cards with one shared body is left (v1075 sweep of "each
+  player / each opponent / target player / that player <verb>": the largest groups are hand-reveal riders that all
+  differ). Residue is in `singletons.md` ("Player-scoped residue", M2–M5 and close); the "if you would lose the game,
+  instead" life sets went to PAR-294, the x/x "where x is" token shape (34 solo) to PAR-297, and the older "target
+  opponent sacrifices" row's missing opponent restriction to BUG-88.
+
+### Library inspection and search (PAR-292 M1–M29, PARSER_VERSION 1027–1080, +247, 0 regressed)
 
 - **What (search):** dynamic mana-value bounds through `bind` + `$n` and any-number searches (M1); a hand reveal or discard naming the search (`pick_then_search_specs`, M2); "basic land or <subtype>" and the reveal-split / mana-value-destination tails (M3–M4); "if <cond>, instead search" as one `if_else` (M5); riders on the found card as the search's `then_specs` (M6); searches by each player, a target player or "its controller" (M7); one search of independent slots (`criteria_each`, M8); found cards exiled, two qualities on one card, "different names / powers" (`distinct_keys`), "exactly two" (M9, M17); "shuffle then put on top in any order" (M10); Cranial-Extraction sweeps by a name taken from an earlier pick (`same_name_search` `from_previous`, M16); Intuition-style opponent splits on the regular search (`opponent_split`, M17); searches of a target opponent's library with "Then that player shuffles" and a measured count (M24).
 - **What (inspection):** the "look at / reveal the top N, take some, rest to the bottom" dig with numeric per-card bounds and the player-ordered `library_bottom_order` (M11); exile-and-cast picks (M12); "shuffle ... into library" by owner (M13); reveal-until digs by another player, hits under the ability controller (M14–M15); "that many cards" bound to the trigger payload (M18); free casts from among the looked-at cards and X-bounded criteria (`look_top_cast_free`, M19); exile-until with a free cast and the uncast rest to the bottom (M20); exile-top-N cast pools with a cap and a bottom tail (`cast_window_exiled_pool`, M23).
@@ -1062,6 +1251,54 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **BUG-83 (an empty sweep still shuffles):** a same-name sweep whose hand pick finds nothing still ends with "Then that player shuffles" (RULE 608.2c, 701.24a). Lobotomy against an empty or all-basic hand and Reap Intellect with X = 0 skipped it because the whole tail lived in the pick's `then_specs`. `reveal_hand_choose_discard` carries `shuffle_if_none` (and `shuffle_condition` for a gated sweep: Pick the Brain shuffles only with delirium, checked with the same `condition_holds` the sweep uses); on every path that skips `then_specs` the revealed player's library is shuffled (directly for X = 0, otherwise a `shuffle` spec with `player_id` in `else_specs`). The `shuffle` registry entry takes `player_id`. Parser 1060; IR diff: Lobotomy, Pick the Brain, Reap Intellect, Shimian Specter changed (flags only), 0 lost. Tests: `test_bug83_empty_sweep_shuffles.py`.
 - **BUG-84 (reveal-until amount, ordered bottom):** Goblin Machinist's "Put the revealed cards on the bottom of your library in any order" is the player's own ordering too (RULE 401.4): `pump_stats._reveal_until_amount` emits `reveal_until` with `rest_destination: library_bottom_order` for "any order" ("a random order" unchanged). `reveal_until_matching` already opened the shared `_order_library_bottom` choice, so no engine change; the +X/+0 body resumes after the answer and reads the hit, also after a clone. Parser 1059; IR diff: only Goblin Machinist changed, 0 lost. Tests: `test_bug84_reveal_until_ordered_bottom.py`.
 - **BUG-81 (look / reveal never exile):** cards that are only looked at or revealed are no longer staged in exile (RULE 701.20a, 406.1). `_request_impulsive_look` keeps its looked-at cards in the library until each really moves; `dig_until(reveal=True)` reveals in place through `_reveal_top_until` (one REVEAL event per card, no EXILE), casts a hit "from among them" from the library (RULE 601.2a, `_request_resolution_play(zone="library")`), and exiles only what the text exiles ("Exile that card", Demonic Consultation's rest). The rest handlers (`_hand_remaining`, `_graveyard_remaining`, `_bottom_remaining`, BUG-80's `_order_remaining_to_bottom`) take the origin zone. Exile-verb digs, cascade and discover are unchanged and still fire EXILE (Laelia, the Blade Reforged triggers on them, not on looks). Parser 1058 sets `reveal: true` on reveal-verb `dig_until` rows; six hand-authored digs set it too. IR diff over 25,598 MODELED cards: 43 changed (only the flag), 0 lost. Not done: cascade fires one EXILE per card, not one batch; `dig_until` random bottoms use the global RNG. Tests: `test_bug81_look_reveal_no_exile.py`.
+- **M25 (v1076, +34):** hand cards to the library after a draw ("then put N cards from your hand on top / on the
+  bottom of your library"): Brainstorm's `put_hand_cards_on_top` gained a `position`, the owner chooses the order
+  (RULE 401.4), and the move is an "if you do" antecedent (Cavalier of Gales, Riverwise Augur, Conch Horn, Fire
+  Prophecy, Enter the Infinite and more). "Reveal any number of <quality> cards in your hand" takes a
+  `parse_object_phrase` filter and feeds the existing "for each card revealed this way" count (the Seer cycle, the
+  Scent cycle, Rofellos's Gift); a reveal inside a mana ability fails closed (Metalworker, RULE 605.3: no choice
+  during payment yet). Bare "shuffle your library" shuffles the controller's library (Soothsaying, Mind's Desire,
+  Myr Mindservant and more). Shared fix: "you don't control <objects>" is the negation of the positive control
+  condition (Dire Tactics, Ego Drain, Takenuma Bleeder, Errand-Rider of Gondor), and `control_legendary_subtype`
+  now matches card-type nouns ("legendary creature"). Tests: `test_par292_m25_hand_to_library.py`.
+- **M26 (v1077, +7):** looking at another player's top card: the `inspect_cards` look lead takes target player's /
+  target opponent's / each player's library and "you may look" (a yes/no `look_gate` that shows nothing until
+  accepted), and "[you may] put that card into their graveyard / on the bottom of that player's library" moves it
+  to its owner's zone (RULE 400.3). A look stays private to the looker (RULE 701.20, never `public_card_knowledge`).
+  "Look at the top card of <that / each player's> library, then exile it face down" feeds a play window over
+  exactly those face-down cards (`face_down_pool`), visible to the exiler only (RULE 406.3). "That player" under a
+  "you cast" head is refused (Blightwing Bandit's would have exiled your own card). Cards: Eye Spy, Lurking
+  Informant, Draugr Thought-Thief, Precognition, Case the Joint, Extract Power, Rev. Tests:
+  `test_par292_m26_peek_other_library.py`.
+- **M27 (v1078, +9):** owner-scoped multi-object moves: "shuffle / put ~ and <objects> into / on top of their
+  owners' libraries[, then those players shuffle]" (`library_owner_moves.py`, `return_to_library` with `with_source`)
+  over a target, a combat group read before anything moves, or "up to N target cards from a single graveyard".
+  `RulesEngine.shuffle_objects_into_libraries` puts each object into its owner's library and shuffles each affected
+  library once (RULE 400.3, 701.24); a source that already left is not moved (RULE 400.7). Graveyard picks take "any
+  number of" and the untargeted own form and shuffle once after the last pick (Quandrix Command included). Shared
+  fix: a source-moving body is no longer distributed over a group or re-read onto another noun. Cards: Floodpits
+  Drowner, Gomazoa, Serene Remembrance, Void Stalker, Vortex Elemental, Elixir of Immortality, Loaming Shaman,
+  Stream of Thought, Witness the Future. Tests: `test_par292_m27_owner_scoped_moves.py`.
+- **M28 (v1079, +3):** multi-zone searches ("search your graveyard, hand, and/or library for <criteria>. If you
+  search your library this way, shuffle"): the player names the zones to search (`search_zones` choice; zones that
+  cannot matter are not offered, one candidate means no prompt), only those are searched, and the shuffle and
+  `LIBRARY_SEARCHED` follow the library actually searched; a search of public zones only may not decline a find
+  (RULE 701.23a/b/d, 701.24a). Before, a graveyard-only find still shuffled. The same zone choice now applies to the
+  existing "library and/or graveyard" searches with the conditional tail. `card_query` gained `no_abilities`; name
+  searches take any zone union and "that spell" from a cast trigger. Cards: Agency Outfitter, Fang-Druid Summoner,
+  Mishra Artificer Prodigy. Tests: `test_par292_m28_multi_zone_search.py`.
+- **M29 (v1080, +9):** "from among them" picks after a dig. One card per class slot ("a <A> card and/or a <B>
+  card ... from among them") is `pick_slots`, the generalised `distinct_card_types`: a card stands for every slot it
+  meets and the distinct-assignment check decides (Harper Recruiter, Kaalia Zenith Seeker, Sludge Titan through its
+  mill). "Reveal up to N <class> cards from among them, then put those cards on top" splits the top placement into
+  its own step with the existing top/bottom ordering (RULE 401.4; Fertile Thicket, Planar Atlas, Munda Ambush
+  Leader). "Put any number of <class> cards from among them ..., then shuffle" (Ajani Outland Chaperone, Famished
+  Worldsire, Through the Forest Gate). Tests: `test_par292_m29_from_among_picks.py`.
+- **Close (v1080 re-measure, `find_fragments --axes --slots`, Commander-legal: pool 32,643, covered 26,366):** no
+  library shape with three or more solo cards is left; the largest shared templates have two (each-player revealed
+  top card, "target player shuffles", "you mill that many" before a pick, "exile the top X" plus a cast window).
+  Residue is in `singletons.md` "Library residue"; piles stay on PAR-298, outside-the-game cards on MEC-144, prowl
+  on PAR-299. Known: `test_continuations.py` fails when run alone (BUG-89, pre-existing).
 - **Process note:** milestones M19–M24 drifted toward whole-card leftovers (one to three cards each); the v1054 re-measure showed every split-off tail ("then shuffle", "put the rest on the bottom") open only because of its front sentence. The ticket was re-scoped to generic shapes; single cards moved to `singletons.md` ("Library residue (PAR-292 re-scope)").
 - **Validation:** per milestone a full IR dump of every MODELED card against HEAD (0 changed except the M11 38-card `library_bottom_order` correction), the fast suite and, every five milestones, `--full-cache` (green at 1038, 1043, 1049, 1054: 27,360 passed, 4 skipped). Coverage at v1054: 26,990 / 35,444; Commander-legal 26,418 / 32,595.
 - **Files:** `game/effects/{library,name_reference,exile_control,piles,registry}.py`, `game/rules/search_mixin.py`, `game/name_reference.py`, `game/player_counts.py`; `parser/oracle/catalogue/{dig,casting_window,name_reference,count_phrase,history_phrase}.py`, `catalogue/effect_rows/{search_control_attach,reveal_until_other,revealed_piles,separated_piles,party,draw_discard_cast,tokens_animate_misc}.py`, `segmenter/{effect_body,where_x,trigger_heads}.py`; tests `tests/test_par292_*.py`.
@@ -1078,7 +1315,7 @@ Only bookkeeping restores bypass it (undo, replay import, `edit_*`). Countered N
 - **Why:** restrictions were the second-largest P2 operation family (618 sentences / 588 cards / 342 solo at v1007; 507 / 485 / 245 at v1009).
 - **Engine fixes on the way:** `_can_attack` passed a hard-coded "player" defender kind, so "can't attack you" also barred attacks on that player's planeswalkers; neither wording bars a battle (RULE 508.1a, 310.8d).
 - **Corrected:** untargeted group "can't block this turn" marked only the creatures on the battlefield at resolution, but a rule-modifying effect binds later entrants too (RULE 611.2c). The two closed-table rows are retired in favour of the floating static, correcting Aragorn, King of Gondor, Barrage of Boulders, Cosmotronic Wave, Demoralize, Destructive Tampering, Falter, Fire of Orthanc, Hazardous Blast, Hero of Oxid Ridge, Magmatic Chasm, Mournwillow, Ruthless Invasion, Seismic Elemental, Seismic Stomp, Stoneshock Giant, Sundering Eruption, Tectonic Rift and Temur Charm.
-- **Fail-closed:** a "that player" after a targeted player (Ember Gale); a mana-ability line still claims any trailing sentence (BUG-73, filed in M1 review: Codie, Vociferous Codex is MODELED only through it).
+- **Fail-closed:** a "that player" after a targeted player (Ember Gale); a mana-ability line claimed any trailing sentence (BUG-73, filed in M1 review, since fixed).
 - **Open:** 14 rows in `singletons.md` ("Restriction residue (PAR-290 close)"); target-protection bars stay with the protection family and "activate only" riders with the effect rows their bodies need.
 - **Files:** `game/{combat,continuous,isa}.py`, `game/effects/{registry,player_windows}.py`, `game/engine/{combat_mixin,lands_mixin,legal_actions_mixin}.py`, `game/rules/stack_interaction_mixin.py`; `parser/oracle/catalogue/static_rows/{rows_restrictions,rows_combat,object_scope,static_conditions}.py`, `catalogue/effect_rows/{player_restrictions,counters_blocking,pump_keywords}.py`, `catalogue/fight_sequences.py`, `segmenter/line_rows_cast_only.py`, `spec.py`; tests `tests/test_par290_{restrictions,m2_restrictions}.py` (185).
 - **Validation:** version-masked full-pool spec diffs: v1008 +67 (+7 authored now MODELED), v1009 +28 with 18 changed (each executed with a late entrant and the cleanup expiry); 0 lost. More than 60 claimed cards executed on a real engine with near misses, toggled conditions and the source leaving; each wiring was disabled in turn to show its tests fail. `--full-cache` on the closing tree: 26,158 passed / 4 skipped (plus the two updated fight-sequence assertions). Authoritative v1009 coverage: 26,548 / 35,444 (74.9%); Commander-legal 25,982 / 32,595 (79.7%).
@@ -2025,6 +2262,27 @@ when rerun outside the sandbox. Commander-legal coverage: +14, no regressions.
 
 - **What:** `DealDamageEffect(divided=True)` splits a total {X} pool evenly across the chosen targets, with an optional doubling threshold (`double_at`) — Shatterskull Smas…
 - **Files:** `game/effects/core.py`
+
+### Target frames honour every parsed bound (BUG-87, BUG-88)
+
+A `TargetFrame` applies a spec's colour, mana-value or quality filter only when its `apply_*` flag is on,
+so a frame without the flag offered an unbounded target while the card stayed MODELED (Annex Sentry's "mana
+value 3 or less" was ignored). A full-cache sweep of every `TargetSpec` the binder builds for covered cards,
+back halves included, found five such frames; each now sets the flag (shared filter machinery, no new
+path): `artifact_or_creature_you_dont_control` (mana value), `creature_you_dont_control` (colour),
+`artifact_or_creature`, `artifact_you_control`, `artifact_you_dont_control` (nontoken / token / card-type
+filter). Ten cards play correctly now (Annex Sentry, Slithery Stalker, Tidebinder Mage, The Measure of a Man,
+The Mighty Thor Jane Foster, Quicksmith Rebel, Quicksmith Spy, Tawnos Solemn Survivor, The Blackstaff of
+Waterdeep, Hyperion Blacksmith); no verdict changed. `targeting.unhonoured_qualifiers` names a dropped bound
+and the full-cache test `test_bug87_frame_bounds.py` fails when any covered card binds one, so a new frame
+or parser bound cannot reintroduce the gap.
+- **BUG-88 (v1081, 43 cards corrected, 0 verdicts changed):** five rows read "target opponent" but emitted an
+  unrestricted `player` target, so the caster could target themselves (RULE 102.3, 115.1): the sacrifice edicts
+  (`edicts._target_player_edict`, `_sacrifice_greatest_power`; shared `_edict_target_kind`), "target opponent draws",
+  "target opponent exiles N cards from their hand" and "exchange life totals with target opponent" now go through
+  `resolve_target_kind`. The binder already honoured `opponent`. Cards include Tribute to Hunger, Cruel Edict, Blot
+  Out, Archon of Cruelty, Thought-Knot Seer, Mindmelter and Mirror Universe. A full-cache guard checks that no MODELED
+  "target opponent" clause emits a player target. Tests: `test_bug88_target_opponent_edicts.py`.
 
 ### "Target creature with power/toughness/keyword" targeting filter
 
@@ -5692,6 +5950,11 @@ The look count also accepts an `effect_amounts` operand measured at resolution.
 
 - **What:** `game/continuations.py` — a registry of choice handlers, plus
 - **Files:** `game/continuations.py`, `game/rules_engine.py`,
+- **BUG-89 (test isolation):** `TestRegistryTotality` scans all of `game/` for `open_choice` kinds but imported
+  none of it, so `fabricate_choice` / `modular_choice` (registered in the lazily imported `keyword_mechanics.py`)
+  looked unanswerable when `test_continuations.py` ran alone. The check now imports every `mtg_analyzer.game` module
+  first (`pkgutil.walk_packages`, the same set it scans). Test-only: a live game cannot open those kinds without
+  having imported the module that also registers their handlers.
 
 ### Structure-aware suspension: the iteration frame (ENG-35, `14_` S1)
 

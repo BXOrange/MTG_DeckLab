@@ -408,50 +408,79 @@ class GainLifeEffect(GameEffect):
 
 
 class SetLifeEffect(GameEffect):
-    """RULE 118.5 / 119.6: "`<player>`'s life total becomes N." (Sorin
-    Markov's −3, Magister Sphinx, Repay in Kind-adjacent) — modelled purely
-    as the resulting gain or loss: current > N loses ``current - N``,
-    current < N gains ``N - current`` (RULE 118.4 — "becomes" is a one-shot
-    set, not a lock). ``target_kind`` picks the player the same way
-    `GainLifeEffect` does; default targets a player.
+    """RULE 118.5 / 119.5: "`<player>`'s life total becomes N." (Sorin Markov's -3, Magister Sphinx, Repay in Kind,
+    Biorhythm) -- modelled purely as the resulting gain or loss: current > N loses ``current - N``, current < N
+    gains ``N - current`` (RULE 119.5 -- "becomes" is a one-shot set, not a lock). ``target_kind`` picks the player the
+    same way `GainLifeEffect` does; default targets a player. ``selector="each_player"`` / ``"each_opponent"``
+    (RULE 101.4: APNAP order) sets every matching player's total instead.
+
+    ``amount`` is a number or an `effect_amounts` operand. A plain operand is measured once, before any total changes
+    (RULE 608.2c: "the highest life total among all players" is the same for everyone); ``measure_per_player`` measures
+    it for each affected player in turn ("the number of creatures they control", RULE 109.5).
     """
 
     def __init__(
         self,
-        amount: int = 0,
+        amount: Union[int, dict] = 0,
         target_kind: Optional[str] = "player",
         source: Optional["GameObject"] = None,
         only_reduce: bool = False,
         optional: bool = False,
         fraction_of_starting: Optional[int] = None,
+        selector: Optional[str] = None,
+        measure_per_player: bool = False,
+        round_up: bool = False,
     ) -> None:
         super().__init__(source)
-        self.amount = int(amount)
-        #: "up to one target player" (RULE 601.2c): the target may be declined.
+        self.amount = amount if isinstance(amount, dict) else int(amount)
+        #: "up to one target player" (RULE 601.2c): the target may be declined. A mass ``selector`` names no target.
+        self.selector = selector if selector in _LOSE_LIFE_SELECTORS else None
+        if self.selector is not None:
+            target_kind = None
         self.target_spec = TargetSpec(kind=target_kind, optional=optional) if target_kind is not None else None
         #: RULE 119.5: the life total becomes this fraction of the player's own starting life total, rounded down
-        #: (Torgaar, Famine Incarnate: ``2`` for "half their starting life total").
+        #: (Torgaar, Famine Incarnate: ``2`` for "half their starting life total"); ``1`` is "your starting life
+        #: total" itself (Exquisite Archangel). ``round_up`` is The Endstone's "rounded up".
         self.fraction_of_starting = fraction_of_starting
+        self.round_up = bool(round_up)
+        self.measure_per_player = bool(measure_per_player)
         #: "If your life total is greater than N, it becomes N." (You
-        #: Compleat Me, MEC-54) — the conditional half-set: never raises a
+        #: Compleat Me, MEC-54) -- the conditional half-set: never raises a
         #: lower total, only clamps a higher one down.
         self.only_reduce = bool(only_reduce)
 
     def target_polarity(self) -> Optional[str]:
         return None  # can help or hurt depending on the target's current life
 
-    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
-        player = self._resolve_target_or_controller(context, targets)
-        if player is None:
-            return
-        current = int(getattr(player, "life", 0))
-        amount = self.amount
+    def _new_total(self, player: Any, shared: int, context: GameContext) -> int:
         if self.fraction_of_starting:
-            amount = int(getattr(player, "starting_life", 0)) // int(self.fraction_of_starting)
-        if current > amount:
-            context.lose_life(player, current - amount)
-        elif current < amount and not self.only_reduce:
-            context.gain_life(player, amount - current)
+            starting = int(getattr(player, "starting_life", 0))
+            divisor = int(self.fraction_of_starting)
+            return -(-starting // divisor) if self.round_up else starting // divisor
+        if self.measure_per_player and isinstance(self.amount, dict):
+            from ..effect_amounts import amount_of
+
+            return amount_of({**self.amount, "of": "target"}, context, self.source, [player])
+        return shared
+
+    def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.selector is not None:
+            controller_id = getattr(self.source, "controller_id", None)
+            affected = [
+                p for p in context.state.living_players()
+                if not (self.selector == "each_opponent" and p.id == controller_id)
+            ]
+        else:
+            player = self._resolve_target_or_controller(context, targets)
+            affected = [player] if player is not None else []
+        shared = self._measured(self.amount, context, targets) if not self.measure_per_player else 0
+        for player in affected:
+            amount = self._new_total(player, shared, context)
+            current = int(getattr(player, "life", 0))
+            if current > amount:
+                context.lose_life(player, current - amount)
+            elif current < amount and not self.only_reduce:
+                context.gain_life(player, amount - current)
 
 
 class SetMaxLifeTotalEffect(GameEffect):
@@ -2174,6 +2203,10 @@ class LoseAllPlayerCountersEffect(GameEffect):
 POOL_FRACTION_DIVISORS = (2, 3)
 
 
+#: The actions a `SacrificeEffect` pick can take: a player acts on a permanent they control that they choose.
+OWN_POOL_PICK_ACTIONS: tuple[str, ...] = ("sacrifice", "exile", "return_to_hand")
+
+
 class SacrificeEffect(GameEffect):
     """A player sacrifices up to ``count`` permanents matching ``what``
     (RULE 701.17) — untargeted; a real RULE 601.2c-style choice via
@@ -2266,7 +2299,9 @@ class SacrificeEffect(GameEffect):
         self.greatest = "power" if greatest_power and not greatest else (greatest if greatest in ("power", "mana_value") else None)
         #: ``"exile"`` — "target opponent **exiles** a creature or planeswalker they control with the greatest
         #: mana value" (Blot Out, End of the Hunt): the same pick, a different action on it.
-        self.action = action if action in ("sacrifice", "exile") else "sacrifice"
+        #: PAR-291 M2: ``"return_to_hand"`` -- "each player returns a creature they control to its owner's hand" (Curfew):
+        #: the same per-player pick of their own permanent, a different action on it (RULE 400.7 hand move).
+        self.action = action if action in OWN_POOL_PICK_ACTIONS else "sacrifice"
         #: An int, or the ``"all_but_one"`` sentinel (`RulesEngine.sacrifice`
         #: resolves it against the live candidate count at apply-time).
         self.count = count
@@ -2402,9 +2437,33 @@ class SacrificeEffect(GameEffect):
                 )
                 return
 
+    def _pick_and_act_on_own(self, context: GameContext, player: "Player") -> None:
+        """"<player> exiles / returns to its owner's hand `<pool>` they control": that player picks which of their
+        own matching permanents (RULE 701.21-style, the affected player chooses), nothing when they control none.
+        Unlike a sacrifice, an exile or a bounce is not stopped by "can't be sacrificed" (RULE 701.17a)."""
+        from ..combat import matches_object_filter
+        from ..rules.damage_death_mixin import _matches_permanent_type  # function-scoped: rules<->effects cycle
+
+        pool = [
+            o for o in context.state.permanents_controlled_by(player.id)
+            if _matches_permanent_type(o, self.what)
+            and (not self.object_filter or matches_object_filter(o, self.object_filter, state=context.state))
+            and not (self.exclude_source and o is self.source)
+        ]
+        count = self.count if isinstance(self.count, int) else 1
+        if not pool or count < 1:
+            return
+        context.engine._request_choose_objects(
+            player, pool, self.action, count=min(count, len(pool)), source=self.source,
+            prompt="Wähle eine eigene bleibende Karte",
+        )
+
     def _sacrifice_one(self, context: GameContext, player: "Player") -> None:
         if self.chooser == "opponent" and self._extreme_stat is None:
             context.engine._request_opponent_sacrifice(player, self.what, self.count)
+            return
+        if self._extreme_stat is None and self.action != "sacrifice":
+            self._pick_and_act_on_own(context, player)
             return
         if self._extreme_stat is None:
             count = self.count
@@ -3120,6 +3179,13 @@ class EachPlayerPayOrEffect(GameEffect):
             # -- the controller): one asked player instead of a sweep.
             asked = (_event_player(context, key="player_id") if self.scope == "event_player"
                      else _controller_of(self.source, context))
+            if asked is None and self.scope == "event_player":
+                # PAR-291 M2 / RULE 102.1: a step head ("at the beginning of each player's upkeep, that player ...",
+                # Blood Clock) or a damage head names its player through the shared antecedent, not ``player_id``.
+                from ..targeting import trigger_player_antecedent  # function-scoped: targeting<->effects cycle
+
+                antecedent = trigger_player_antecedent(context.state, context.trigger_event)
+                asked = context.state.player_by_id(antecedent) if antecedent is not None else None
             if asked is None:
                 return
             only_ids = [asked.id]

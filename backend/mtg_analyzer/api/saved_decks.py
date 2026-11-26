@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx2 as httpx
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from mtg_analyzer.i18n import api_error, localize_validation, request_lang
 from mtg_analyzer.api.auth import AuthContext, current_account
 from mtg_analyzer.api.cards import coverage_for
-from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader
+from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader, get_scryfall
 from mtg_analyzer.api.viewer import Viewer, viewer
 from mtg_analyzer.api.schemas import SaveDeckRequest
 from mtg_analyzer.game.card_registry import registry_signature
@@ -37,6 +38,8 @@ def _coverage_cache_key() -> str:
     return f"{PARSER_VERSION}+cat{registry_signature()}"
 from mtg_analyzer.services.archetype_database import default_archetype_database
 from mtg_analyzer.services.deck_database import SCOPE_GLOBAL, DeckDatabase
+from mtg_analyzer.services.deck_printings import PRINTING_ID_PREFIX, printing_images
+from mtg_analyzer.services.scryfall_client import ScryfallIntegration, ScryfallNotFoundError, card_from_scryfall_data
 from mtg_analyzer.services.deck_validation import apply_legality, compute_deck_identity
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
@@ -128,6 +131,18 @@ def save_deck(
     # changing, even though it doesn't touch `color_identity`/`commanders`/
     # `unmodeled_coverage` (none of those read `is_cube`).
     validation_stale = text_changed or (existing is not None and existing.is_cube != is_cube)
+    printings = existing.card_printings if existing else {}
+    if request.card_printings is not None:
+        parsed = parse_deck_sections(request.commander_text, request.mainboard_text, request.sideboard_text)
+        names = {entry.name.lower() for entry in [*parsed.all_cards, *parsed.sideboard]}
+        printings = {}
+        for name, printing_id in request.card_printings.items():
+            key = name.lower()
+            if key not in names:
+                continue
+            if not database.get_printing_images(printing_id, key):
+                raise api_error(422, "invalid_deck_printing", name=name)
+            printings[key] = printing_id
     deck = Deck(
         id=existing.id if existing else None,
         name=request.name,
@@ -154,6 +169,7 @@ def save_deck(
         archetypes=_clean_archetypes(
             request.archetypes if request.archetypes is not None else (existing.archetypes if existing else None)
         ),
+        card_printings=printings,
         favorite_cards=(
             request.favorite_cards if request.favorite_cards is not None else (existing.favorite_cards if existing else None)
         ),
@@ -165,7 +181,7 @@ def save_deck(
             None if text_changed else (existing.unmodeled_coverage_version if existing else None)
         ),
     )
-    if not database.save_private(deck, owner):
+    if not database.save_private(deck, owner, update_printings=request.card_printings is not None):
         raise deck_not_found(deck.id)
     deck.scope, deck.owner = "private", owner
     return deck_view(deck)
@@ -184,6 +200,43 @@ def list_decks(
         deck_view(_ensure_identity(deck, database, loader))
         for deck in database.list_readable(who.player_uuid)
     ]
+
+
+@router.get("/printings/options")
+def get_printing_options(
+    card: str = Query(min_length=1, max_length=200),
+    database: DeckDatabase = Depends(get_deck_database),
+    scryfall: ScryfallIntegration = Depends(get_scryfall),
+) -> dict[str, object]:
+    try:
+        printings = scryfall.fetch_printings(card)
+    except ScryfallNotFoundError:
+        return {"printings": []}
+    except httpx.HTTPError as exc:
+        raise api_error(502, "deck_printings_unavailable") from exc
+
+    options = []
+    images = []
+    canonical_images = {}
+    for printing in printings:
+        printed = card_from_scryfall_data(printing)
+        if not printed.image_uri_normal:
+            continue
+        printing_id = PRINTING_ID_PREFIX + printed.id
+        image_urls = printing_images(printed)
+        images.append((printing_id, image_urls))
+        if printed.name.lower() != card.lower():
+            canonical_images.setdefault(printed.name, []).append((printing_id, image_urls))
+        options.append({
+            "id": printing_id,
+            "edition": printing["set_name"],
+            "collectorNumber": printing["collector_number"],
+            "preview": printed.image_uri_small or printed.image_uri_normal,
+        })
+    database.save_printing_options(card, images)
+    for name, entries in canonical_images.items():
+        database.save_printing_options(name, entries)
+    return {"printings": options}
 
 
 @router.get("/{deck_id}")

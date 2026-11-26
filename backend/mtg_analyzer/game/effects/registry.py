@@ -62,10 +62,21 @@ from . import counter_delayed_mana  # noqa: F401
 from . import copy_paid_exile  # noqa: F401
 from . import copy_exiled_x_times  # noqa: F401
 from . import divided_retaliation  # noqa: F401
-from . import devour_entry  # noqa: F401
+from . import amplify_entry, devour_entry  # noqa: F401
 from ._runtime import install, register
 
 install(globals())
+
+def _choose_objects_count(raw):
+    """A `choose_objects` ``count``: "all", a number, or a still-unbound `bind` sentinel ("$n", Rofellos's Gift's
+    "for each card revealed this way"). The sentinel is substituted before the effect runs; the copy built earlier
+    only reads its target requirements, which do not depend on the count, so it counts as one."""
+    if raw == "all":
+        return "all"
+    if isinstance(raw, str) and raw.startswith("$"):
+        return 1
+    return int(raw or 1)
+
 
 EffectRegistry.register("random_nonland_control", lambda p: RandomNonlandControlEffect())
 EffectRegistry.register("reveal_matching_spell_value", lambda p: RevealMatchingSpellValueEffect())
@@ -477,6 +488,7 @@ EffectRegistry.register(
         criteria=p.get("criteria"),
         else_effects=p.get("else_effects"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
+        pick_slots=p.get("pick_slots"),
         placed_effects=p.get("placed_effects"),
         reveal=bool(p.get("reveal", False)),
         entry_counters=p.get("entry_counters"), entry_specs=p.get("entry_specs"),
@@ -501,7 +513,8 @@ EffectRegistry.register(
         then_draw_discarded=bool(p.get("then_draw_discarded", False)),
         filter=p.get("filter"),
         unless_discard=p.get("unless_discard"), player_id=p.get("player_id"),
-        hand_fraction=p.get("hand_fraction"),
+        hand_fraction=p.get("hand_fraction"), hand_criteria=p.get("hand_criteria"),
+        reveal_hand=bool(p.get("reveal_hand", False)),
     ),
 )
 EffectRegistry.register(
@@ -579,6 +592,11 @@ EffectRegistry.register(
     lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player")),
 )
 EffectRegistry.register(
+    # "put N cards from your hand on the top / bottom of your library [in any order]" (Riverwise Augur, Sawtooth Loon)
+    "put_hand_cards_on_library",
+    lambda p: PutHandCardsOnTopEffect(count=p.get("count", 1), player=p.get("player"), position=p.get("position", "top")),
+)
+EffectRegistry.register(
     "put_hand_card_on_bottom_then_draw",  # "you may put a card from your hand on the bottom of your library. If you do, draw a card." (Volcanic Spite)
     lambda p: PutHandCardOnBottomThenDrawEffect(player=p.get("player")),
 )
@@ -629,7 +647,7 @@ EffectRegistry.register(
     # "Reveal any number of `<color>` cards in your hand." (Ivy Seer, Scent
     # of Ivy, PAR-80) — see `RevealAnyNumberHandCardsEffect`.
     "reveal_any_number_hand_cards",
-    lambda p: RevealAnyNumberHandCardsEffect(colors=p.get("colors")),
+    lambda p: RevealAnyNumberHandCardsEffect(colors=p.get("colors"), card_filter=p.get("card_filter")),
 )
 EffectRegistry.register(
     # RULE 701.20 — reveal a library's top card, stash it as
@@ -702,11 +720,14 @@ EffectRegistry.register(
     # RULE 118.5/119.6: "<player>'s life total becomes N." — see `SetLifeEffect`.
     "set_life",
     lambda p: SetLifeEffect(
-        amount=int(p.get("amount", 0) or 0),
+        amount=p.get("amount", 0) if isinstance(p.get("amount"), dict) else int(p.get("amount", 0) or 0),
         target_kind=p.get("target_kind", "player"),
         only_reduce=bool(p.get("only_reduce", False)),
         optional=bool(p.get("optional", False)),
         fraction_of_starting=p.get("fraction_of_starting"),
+        selector=p.get("selector"),
+        measure_per_player=bool(p.get("measure_per_player", False)),
+        round_up=bool(p.get("round_up", False)),
     ),
 )
 EffectRegistry.register(
@@ -1655,6 +1676,7 @@ EffectRegistry.register(
     "shuffle_graveyard_into_library",
     lambda p: ShuffleGraveyardIntoLibraryEffect(
         owner_of_source=bool(p.get("owner_of_source", False)), target_kind=p.get("target_kind"),
+        with_source=bool(p.get("with_source", False)),
     ),
 )
 EffectRegistry.register(
@@ -1662,7 +1684,8 @@ EffectRegistry.register(
     # into their library." (Quandrix Command mode 4)
     "shuffle_target_graveyard_cards_into_library",
     lambda p: ShuffleTargetGraveyardCardsIntoLibraryEffect(
-        count_max=int(p.get("count_max", 3) or 3),
+        count_max=None if p.get("any_number") else int(p.get("count_max", 3) or 3),
+        own=bool(p.get("own", False)),
     ),
 )
 EffectRegistry.register(
@@ -1929,6 +1952,8 @@ EffectRegistry.register(
         depth=p.get("depth", 1),
         group=p.get("group"),
         creature_filter=p.get("creature_filter"),
+        with_source=bool(p.get("with_source", False)),
+        same_graveyard=bool(p.get("same_graveyard", False)),
     ),
 )
 EffectRegistry.register("put_hand_on_bottom", lambda p: PutHandOnBottomEffect())
@@ -2178,6 +2203,7 @@ EffectRegistry.register(
     lambda p: ReflexiveTriggerEffect(
         then_trigger=list(p.get("then_trigger", [])), then_trigger_condition=p.get("then_trigger_condition"),
         then_trigger_modes=p.get("then_trigger_modes"), carry_referent=p.get("carry_referent"),
+        record_excess=bool(p.get("record_excess", False)),
     ),
 )
 EffectRegistry.register(
@@ -2663,6 +2689,8 @@ EffectRegistry.register(
         hit_rider=p.get("hit_rider"),
         uncast_hit=str(p.get("uncast_hit", "library_bottom")),
         reveal=bool(p.get("reveal", False)),
+        total_mana_value=p.get("total_mana_value"),
+        track_exiled_with=bool(p.get("track_exiled_with", False)),
     ),
 )
 EffectRegistry.register(
@@ -2868,6 +2896,7 @@ EffectRegistry.register(
         permanent_filter=p.get("permanent_filter"),
         then_that_many=p.get("then_that_many"),
         distinct_card_types=bool(p.get("distinct_card_types", False)),
+        pick_slots=p.get("pick_slots"),
         pool_zone=p.get("pool_zone", "battlefield"),
         minimum_card_types=int(p.get("minimum_card_types", 0)),
         pool_zones=p.get("pool_zones"),
@@ -2875,7 +2904,7 @@ EffectRegistry.register(
         pool_player_selector=p.get("pool_player_selector", "chooser"),
         action=str(p.get("action", "sacrifice")),
         what=str(p.get("what", "permanent")),
-        count="all" if p.get("count") == "all" else int(p.get("count", 1) or 1),
+        count=_choose_objects_count(p.get("count")),
         optional=bool(p.get("optional", False)),
         exclude_self=bool(p.get("exclude_self", False)),
         prompt=str(p.get("prompt", "")),
@@ -2889,6 +2918,7 @@ EffectRegistry.register(
         saddlers_only=bool(p.get("saddlers_only", False)),
         reference=p.get("reference"),
         all_or_nothing=bool(p.get("all_or_nothing", False)),
+        record_referent=bool(p.get("record_referent", False)),
     ),
 )
 EffectRegistry.register(
@@ -3864,6 +3894,7 @@ EffectRegistry.register(
         opponent_split=p.get("opponent_split"),
         exact_count=bool(p.get("exact_count", False)),
         searched_by_controller=bool(p.get("searched_by_controller", False)),
+        choose_zones=bool(p.get("choose_zones", False)),
     ),
 )
 EffectRegistry.register(
@@ -3917,6 +3948,7 @@ EffectRegistry.register(
         resolution_local=bool(p.get("resolution_local", False)), any_number=bool(p.get("any_number", False)),
         exile_instead=bool(p.get("exile_instead", False)), from_previous=bool(p.get("from_previous", False)),
         max_casts=p.get("max_casts"), rest_to_bottom=bool(p.get("rest_to_bottom", False)),
+        face_down_pool=bool(p.get("face_down_pool", False)),
     ),
 )
 EffectRegistry.register(
@@ -3927,7 +3959,9 @@ EffectRegistry.register(
     "exile_opponents_graveyards_impulsive_cast",  # Mnemonic Betrayal
     lambda p: GraveyardImpulsiveCastEffect(mana_wildcard=p.get("mana_wildcard", "type")),
 )
-EffectRegistry.register("shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id")))
+EffectRegistry.register(
+    "shuffle", lambda p: ShuffleLibraryEffect(player_id=p.get("player_id"), of_controller=bool(p.get("of_controller", False))),
+)
 EffectRegistry.register(
     # RULE 701.20 — "shuffle your hand and graveyard into your library". The
     # wheel family's first sentence; the "then draws N cards" tail is a
@@ -4076,7 +4110,10 @@ EffectRegistry.register(
     # Abzan Devotee/Aurora Eidolon &c) — the hand-destination sibling of
     # `return_self_from_graveyard` right above.
     "return_self_from_graveyard_to_hand",
-    lambda p: ReturnSelfFromGraveyardToHandEffect(),
+    lambda p: ReturnSelfFromGraveyardToHandEffect(
+        exact_visit=bool(p.get("exact_visit")),
+        destination="exile" if p.get("exile_instead") else "hand",
+    ),
 )
 EffectRegistry.register(
     # "Put this card from your graveyard on top of your library." (PAR-162 — Champion of Stray Souls, Gate Colossus).

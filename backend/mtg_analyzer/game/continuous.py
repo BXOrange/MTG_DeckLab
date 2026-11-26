@@ -1350,6 +1350,11 @@ def count_selector(
         # board count. ``source`` required; a fixture without one gets 0,
         # the same safe fallback `exiled_with_count` above takes.
         return int(getattr(source, "x_paid", 0) or 0)
+    if selector == "cost_counters_removed":  # `cost_referents.ANNOUNCED_REMOVAL_SELECTOR`
+        # MEC-172 / RULE 601.2b + 602.2b: "...the number of +1/+1 counters removed this way" in a *target* bound
+        # (Simic Manipulator). The activation announces how many counters its cost removes (X) before targets are
+        # chosen, and exactly that many come off, so the announced X on the ability's source is the amount.
+        return int(getattr(source, "x_paid", 0) or 0)
     if selector == "devoured_creatures":
         return len(getattr(source, "devoured_creature_visits", ()))
     if selector == "source_kicker_count":
@@ -3320,7 +3325,8 @@ def _build_grant_effect(spec: dict, obj: Optional["GameObject"] = None, grantor:
 #: when the creature enters gives it the ability in time (RULE 603.6a, the recompute before the ETB trigger scan).
 #: ENG-66: evolve / training / exploit used to be granted as bare slugs whose trigger was never built.
 GRANTED_TRIGGERED_FLAG_KEYWORDS: frozenset[str] = frozenset(
-    {"exalted", "battle_cry", "prowess", "mentor", "flanking", "evolve", "training", "exploit"}
+    {"exalted", "battle_cry", "prowess", "mentor", "flanking", "evolve", "training", "exploit", "extort",
+     "decayed", "provoke", "ingest", "increment"}
 )
 
 
@@ -5278,8 +5284,14 @@ def graveyard_redirect_active(state: "GameState", obj: Any) -> bool:
     whose-*graveyard*-scoped, so it always passes ``scope="any"``
     alongside its own ``colors`` list.
     """
+    # RULE 113.6h / 614.1: a self-only graveyard replacement works on its source in any zone.
+    if not getattr(obj, "loses_all_abilities", False) and any(
+        getattr(ability, "layer", None) == "graveyard_redirect" and ability.params.get("scope") == "self"
+        for ability in getattr(obj, "static_effects", ())
+    ):
+        return True
     for ability in _battlefield_static_abilities(state):
-        if ability.layer != "graveyard_redirect":
+        if ability.layer != "graveyard_redirect" or ability.params.get("scope") == "self":
             continue
         colors = ability.params.get("colors")
         if colors and not (set(getattr(obj, "colors", None) or ()) & set(colors)):

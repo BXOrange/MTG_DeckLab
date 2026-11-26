@@ -5,12 +5,15 @@ Reference: docs/implementation-state/Done_Backend.md "HTTP API foundation".
 
 from __future__ import annotations
 
+import httpx2 as httpx
 from fastapi import APIRouter, Depends
 
 from mtg_analyzer.i18n import localize_parsed_deck, request_lang
-
-from mtg_analyzer.api.dependencies import get_lazy_card_loader
+from mtg_analyzer.api.dependencies import get_deck_database, get_lazy_card_loader, get_scryfall
 from mtg_analyzer.api.schemas import DeckSubmission
+from mtg_analyzer.services.deck_database import DeckDatabase
+from mtg_analyzer.services.deck_printings import import_deck_printings
+from mtg_analyzer.services.scryfall_client import ScryfallIntegration
 from mtg_analyzer.services.deck_validation import validate_deck_sections
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 
@@ -21,6 +24,8 @@ router = APIRouter(prefix="/api", tags=["decks"])
 def submit_deck(
     submission: DeckSubmission,
     loader: LazyCardLoader = Depends(get_lazy_card_loader),
+    database: DeckDatabase = Depends(get_deck_database),
+    scryfall: ScryfallIntegration = Depends(get_scryfall),
     lang: str = Depends(request_lang),
 ) -> dict[str, object]:
     parsed = validate_deck_sections(
@@ -30,4 +35,14 @@ def submit_deck(
         loader,
         submission.is_cube,
     )
-    return localize_parsed_deck(parsed.to_dict(), lang)
+    result = parsed.to_dict()
+    if submission.resolve_printings and parsed.printing_hints:
+        codes = list(dict.fromkeys(parsed.printing_hints.values()))
+        try:
+            data = scryfall.fetch_printings_by_code(codes)
+        except httpx.HTTPError:
+            data = []
+        printings, missing = import_deck_printings(parsed.printing_hints, data, database)
+        result["cardPrintings"] = printings
+        result["unresolvedPrintings"] = missing
+    return localize_parsed_deck(result, lang)

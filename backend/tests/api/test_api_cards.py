@@ -14,7 +14,7 @@ from mtg_analyzer.services.card_database import CardDatabase
 from mtg_analyzer.services.deck_database import DeckDatabase
 from mtg_analyzer.services.lazy_card_loader import LazyCardLoader
 from mtg_analyzer.services.scryfall_client import ScryfallIntegration
-from tests.support.auth import TEST_PLAYER_UUID
+from tests.support.auth import TEST_PLAYER_UUID, account_header
 
 FIRE_BOLT = {
     "id": "5f6b0b5f-0000-4000-8000-000000000000",
@@ -150,6 +150,26 @@ class TestListCards:
         assert response.status_code == 200
         body = response.json()
         assert [c["name"] for c in body] == ["Firebolt"]
+
+    def test_browse_deck_scope_uses_the_requesting_account(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [LIGHTNING_BOLT, FIRE_BOLT], "not_found": []})
+
+        loader, _ = _override_loader(handler)
+        loader.load_cards(["Lightning Bolt", "Firebolt"])
+        other_uuid = "other-browse-player"
+        with DeckDatabase() as decks:
+            decks.save_private(Deck(mainboard_text="1 Firebolt"), TEST_PLAYER_UUID)
+            decks.save_private(Deck(mainboard_text="1 Lightning Bolt"), other_uuid)
+            app.dependency_overrides[get_deck_database] = lambda: decks
+
+            client = TestClient(app)
+            own = client.get("/api/cards/browse", params={"scope": "decks"})
+            other = client.get("/api/cards/browse", params={"scope": "decks"},
+                               headers=account_header("Other", other_uuid))
+            assert own.status_code == other.status_code == 200
+            assert [card["name"] for card in own.json()["cards"]] == ["Firebolt"]
+            assert [card["name"] for card in other.json()["cards"]] == ["Lightning Bolt"]
 
     def test_scope_decks_with_no_saved_decks_returns_empty_list(self):
         def handler(request: httpx.Request) -> httpx.Response:

@@ -166,9 +166,13 @@ class SearchLibraryEffect(GameEffect):
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
         searched_by_controller: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         super().__init__(source)
         self.reveal = bool(reveal)
+        #: "search your graveyard, hand, and/or library for ..." (PAR-292 M28): ``zones`` are the zones the player may
+        #: pick among, and only the library actually searched is shuffled (`RulesEngine._request_search`).
+        self.choose_zones = bool(choose_zones)
         #: "Choose target permanent an opponent controls. Search THAT PLAYER's library for a card with the same name and
         #: put it onto the battlefield under your control." (Mimeofacture, RULE 701.19a / 401.2): with
         #: ``player="previous_target_controller"`` the library (and its shuffle) is the chosen permanent's controller's,
@@ -381,6 +385,7 @@ class SearchLibraryEffect(GameEffect):
             distinct_keys=self.distinct_keys or None,
             opponent_split=self._resolved_split(targets),
             exact_count=self.exact_count,
+            choose_zones=self.choose_zones,
         )
 
     def _resolved_split(self, targets: Optional[list[Any]]) -> Optional[dict[str, Any]]:
@@ -640,8 +645,12 @@ class CastWindowFromExiledPoolEffect(GameEffect):
         linked: bool = False, own_only: bool = False, only_lands: bool = False, source: Optional["GameObject"] = None,
         duration: Optional[str] = None, condition: Optional[dict] = None, exile_instead: bool = False,
         from_previous: bool = False, max_casts: Optional[int] = None, rest_to_bottom: bool = False,
+        face_down_pool: bool = False,
     ) -> None:
         super().__init__(source)
+        #: PAR-292 M26 (Rev, Extract Power): the preceding clause exiled these cards face down (RULE 406.3), so they are
+        #: exactly the pool the window names; any other exile skips face-down cards.
+        self.face_down_pool = bool(face_down_pool)
         self.duration, self.condition = duration, condition
         #: "cast up to two sorcery spells from among them": the casts one resolution offers (RULE 608.2g); ``None`` is
         #: unlimited under ``any_number``.
@@ -690,7 +699,7 @@ class CastWindowFromExiledPoolEffect(GameEffect):
                   if self.pool_zone == "graveyard" else context.latest_exiled_visits)
         for obj, visit in visits:
             if (obj is not None and obj.zone.value == self.pool_zone and obj.zone_incarnation == visit
-                    and not obj.face_down_in_exile
+                    and (self.face_down_pool or not obj.face_down_in_exile)
                     and not any(obj is seen for seen in pool)):
                 pool.append(obj)
         return pool
@@ -873,15 +882,22 @@ class GraveyardImpulsiveCastEffect(GameEffect):
 class ShuffleLibraryEffect(GameEffect):
     """Shuffle the controller's (or a target player's) library (RULE 701.20)."""
 
-    def __init__(self, player: Any = None, source: Optional["GameObject"] = None, player_id: Optional[str] = None) -> None:
+    def __init__(
+        self, player: Any = None, source: Optional["GameObject"] = None, player_id: Optional[str] = None,
+        of_controller: bool = False,
+    ) -> None:
         super().__init__(source)
         self.player = player
         #: A fixed player named by id (BUG-83's "that player shuffles" after a pick that found nothing).
         self.player_id = player_id
+        #: "Shuffle your library": the controller of the resolving ability, which is not the active player on an
+        #: opponent's turn (RULE 701.24a).
+        self.of_controller = bool(of_controller)
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
         named = context.state.player_by_id(self.player_id) if self.player_id else None
-        player = named or self.player or (targets[0] if targets else None) or context.active_player
+        yours = _controller_of(self.source, context) if self.of_controller else None
+        player = named or self.player or yours or (targets[0] if targets else None) or context.active_player
         context.shuffle_library(player)
 
 
@@ -2330,8 +2346,15 @@ class DigUntilEffect(GameEffect):
         hit_rider: Optional[str] = None,
         uncast_hit: str = "library_bottom",
         reveal: bool = False,
+        total_mana_value: Optional[int] = None,
+        track_exiled_with: bool = False,
     ) -> None:
         super().__init__(source)
+        #: "... until they have exiled cards with total mana value N or greater" (Dream Harvest, Tasha's Hideous
+        #: Laughter): the stop condition of the ``each_opponent`` dig is a running sum, not a card predicate.
+        self.total_mana_value = int(total_mana_value) if total_mana_value is not None else None
+        #: "exiled with ~" (RULE 607.2a): the source is linked to every card this dig exiles (Krang & Shredder).
+        self.track_exiled_with = bool(track_exiled_with)
         #: RULE 701.20a vs 406.1: "reveal cards ... until you reveal" leaves the cards in the library, "exile cards
         #: ... until you exile" exiles them (`RulesEngine.dig_until`).
         self.reveal = bool(reveal)
@@ -2361,6 +2384,18 @@ class DigUntilEffect(GameEffect):
         return _event_player(context, key="target_id") or _event_player(context, key="player_id")
 
     def apply(self, context: GameContext, targets: Optional[list[Any]] = None) -> None:
+        if self.digger == "each_opponent":
+            # "Each opponent exiles cards from the top of their library until ..." (Fevered Suspicion, Dream Harvest):
+            # every opponent digs their own library in turn order, the controller casts from the combined pool.
+            controller = _controller_of(self.source, context)
+            if controller is not None:
+                pools = (context.engine.DIG_POOL_RESOLUTION, context.engine.DIG_POOL_WINDOW)
+                context.engine._dig_each_opponent(
+                    controller, criteria=self.criteria, total_mana_value=self.total_mana_value,
+                    pool_destination=self.hit_destination if self.hit_destination in pools else None,
+                    source=self.source if self.track_exiled_with else None,
+                )
+            return
         if self.digger == "facing":
             player = targets[0] if targets else None
         elif self.digger == "previous_target_controller":

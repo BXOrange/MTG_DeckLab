@@ -1691,6 +1691,39 @@ def _first_draw_look_two_replacement(params: dict[str, Any]) -> ReplacementEffec
     return effect
 
 
+class UmbraArmorReplacement(ReplacementEffect):
+    """RULE 702.89a: the Aura takes the destruction in place of the enchanted permanent."""
+
+    def __init__(self, source):
+        super().__init__(
+            EventType.DESTROY, self._replace, self._matches, source, f"{source.name}: Umbra armor",
+        )
+
+    def _matches(self, event, context):
+        return self.source.attached_to == event.get("target_id")
+
+    def _replace(self, event, context):
+        victim = context.state.find_object(event.get("target_id"))
+        if victim is not None:
+            context.engine.heal(victim)
+            victim.dealt_deathtouch_damage = False
+            context.engine.destroy(self.source)
+        return None
+
+
+class ShieldCounterDestroyReplacement(ReplacementEffect):
+    """RULE 122.1c: a shield counter can replace destruction by an effect."""
+
+    def __init__(self, source):
+        super().__init__(
+            EventType.DESTROY, self._replace, source=source, description=f"{source.name}: Shield counter",
+        )
+
+    def _replace(self, event, context):
+        context.engine.add_counters(self.source, -1, "shield")
+        return None
+
+
 class RegenerateSelfReplacement(ReplacementEffect):
     """RULE 701.19b: a standing regeneration replacement is never consumed."""
 
@@ -1699,7 +1732,8 @@ class RegenerateSelfReplacement(ReplacementEffect):
                          condition=self._matches)
 
     def _matches(self, event, context):
-        return self.source is not None and event.get('target_id') == self.source.instance_id
+        return (event.get('can_be_regenerated', True) and self.source is not None
+                and event.get('target_id') == self.source.instance_id)
 
     def _replace(self, event, context):
         victim = context.state.find_object(event.get('target_id'))

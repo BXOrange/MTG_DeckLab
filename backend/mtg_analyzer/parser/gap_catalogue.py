@@ -12,7 +12,7 @@ from itertools import combinations
 from .composition_diagnostics import CompositionProbe
 from .oracle import PARSER_VERSION, abstract_clause, parse_oracle
 from .oracle.gate import (
-    _flip_halves, _room_halves, _is_spell, _split_triggered_modal_block, _parse_mode_body,
+    _flip_halves, _room_halves, castable_back_half, _is_spell, _split_triggered_modal_block, _parse_mode_body,
 )
 from .oracle.catalogue.modal import split_modal_block
 from .oracle.normalize import normalize
@@ -121,18 +121,21 @@ def _phrase(text):
     return abstract_clause(text.strip().rstrip('.').strip())
 
 
-def build_catalogue(cards, covered=lambda card: False):
+def build_catalogue(cards, covered=lambda card: False, verdict=None):
+    """``verdict`` is the card-level `ParseResult` source: pass `card_registry.card_coverage` (BUG-86) so an unbound back half of a
+    split / Adventure / MDFC / transform card is catalogued too; the default reads the front only."""
     catalogue = GapCatalogue()
     provenance = ParserProvenance(version=PARSER_VERSION, source='gap-catalogue')
     probe = CompositionProbe(provenance)
     for card in cards:
-        result = parse_oracle(card)
+        result = (verdict or parse_oracle)(card)
         if result.modeled or result.never_supported or covered(card):
             continue
         name = card.name
         authoritative = Counter(result.unclaimed)
         catalogue.expected_unresolved[name] += len(result.unclaimed)
-        faces = _room_halves(card) or _flip_halves(card) or [card]
+        back = castable_back_half(card)
+        faces = _room_halves(card) or _flip_halves(card) or [card, *([back] if back is not None else [])]
         recorded = 0
         for face_index, face in enumerate(faces):
             failed = Counter(parse_oracle(face).unclaimed)

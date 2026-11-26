@@ -392,9 +392,9 @@ class GameContext:
 
     def discard_matching(
         self, player: "Player", mana_value: Optional[int] = None,
-        cause: Optional["GameObject"] = None,
+        cause: Optional["GameObject"] = None, criteria: Optional[dict] = None,
     ) -> None:
-        self.engine.discard_matching(player, mana_value=mana_value, cause=cause)
+        self.engine.discard_matching(player, mana_value=mana_value, cause=cause, criteria=criteria)
 
     def look_at_hand(self, player: "Player", owner: "Player", source: Optional["GameObject"] = None) -> None:
         self.engine.look_at_hand(player, owner, source=source)
@@ -417,8 +417,8 @@ class GameContext:
             track_exiled_with=track_exiled_with,
         )
 
-    def put_hand_cards_on_top(self, player: "Player", count: int = 1) -> None:
-        self.engine.put_hand_cards_on_top(player, count)
+    def put_hand_cards_on_top(self, player: "Player", count: int = 1, position: str = "top") -> None:
+        self.engine.put_hand_cards_on_top(player, count, position)
 
     def put_hand_card_on_bottom_then_draw(self, player: "Player") -> None:
         self.engine.put_hand_card_on_bottom_then_draw(player)
@@ -778,6 +778,7 @@ class GameContext:
         distinct_keys: Optional[list[str]] = None,
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         self.engine._request_search(
             player, criteria, destination, count, optional,
@@ -799,6 +800,7 @@ class GameContext:
             distinct_keys=distinct_keys,
             opponent_split=opponent_split,
             exact_count=exact_count,
+            choose_zones=choose_zones,
         )
 
     def _request_intuition(
@@ -828,8 +830,10 @@ class GameContext:
         else_specs: Optional[list[dict[str, Any]]] = None,
         then_that_many: Optional[dict[str, Any]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         minimum_card_types: int = 0,
         all_or_nothing: bool = False,
+        record_referent: bool = False,
     ) -> None:
         """Open the general "which of these objects?" choice — see
         `RulesEngine._request_choose_objects`."""
@@ -838,8 +842,9 @@ class GameContext:
             prompt=prompt, source=source, then_specs=then_specs,
             then_specs_if_commander=then_specs_if_commander,
             else_specs=else_specs, then_that_many=then_that_many,
-            distinct_card_types=distinct_card_types,
+            distinct_card_types=distinct_card_types, pick_slots=pick_slots,
             minimum_card_types=minimum_card_types, all_or_nothing=all_or_nothing,
+            record_referent=record_referent,
         )
 
     def impulsive_look(
@@ -980,6 +985,9 @@ class GameContext:
 
     def shuffle_into_library(self, target: "GameObject") -> None:
         self.engine.shuffle_into_library(target)
+
+    def shuffle_objects_into_libraries(self, targets: list["GameObject"]) -> None:
+        self.engine.shuffle_objects_into_libraries(targets)
 
     def return_from_graveyard(
         self,
@@ -2128,6 +2136,10 @@ class TriggeredAbility(GameEffect):
 
     #: RULE 603.12 / 707.9a: the printed ability whose resolution created this reflexive trigger (``None`` otherwise).
     parent_ability: Optional[Any] = None
+    #: RULE 608.2h + 603.12 (MEC-171): the referents the antecedent recorded, snapshotted when the reflexive trigger was
+    #: created (`cost_referents.snapshot_activation_stamps`); bound onto the source while the trigger resolves, and
+    #: readable while its targets are announced (MEC-172's "power less than or equal to the tapped creature's power").
+    cost_stamps: Optional[dict[str, Any]] = None
 
 
     def __init__(

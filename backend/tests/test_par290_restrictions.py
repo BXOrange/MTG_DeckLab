@@ -68,7 +68,7 @@ def _can_attack(eng, attacker, defender_id, kind="player"):
     "Blazing Archon", "Reverence", "Form of the Dragon", "Teferi's Moat", "Queen Mother Ramonda", "Vow of Flight",
     "Vow of Duty", "Vow of Lightning", "Vow of Malice", "Vow of Torment", "Vow of Wildness", "Demotion",
     "Gelid Shackles", "Detainment Spell", "Stupefying Touch", "Viper's Kiss", "Encrust", "Hold for Questioning",
-    "Stuck in Summoner's Sanctum", "Grid Monitor", "Steel Golem", "Nikya of the Old Ways", "Codie, Vociferous Codex",
+    "Stuck in Summoner's Sanctum", "Grid Monitor", "Steel Golem", "Nikya of the Old Ways",
     "Aether Storm", "Platinum Angel", "Gaea's Herald", "Leyline of Lifeforce", "Root Sliver", "Sphinx of the Final Word",
     "Melira's Keepers", "Tatterkite", "Blightbeetle", "Territorial Dispute", "Aggressive Mining", "Solfatara",
     "Turf Wound", "Pardic Miner", "Cease-Fire", "Teleport", "Necrologia", "Seedtime", "Lure of Prey",
@@ -240,18 +240,15 @@ def test_grid_monitor_stops_only_its_controller_casting_creature_spells():
     assert _castable(eng, mine)
 
 
-def test_nikya_stops_noncreature_spells_and_codie_stops_permanent_spells():
+def test_nikya_stops_noncreature_spells():
     eng = _engine()
     nikya = _real(eng, "Nikya of the Old Ways", "p1")
     creature = _hand_spell(eng, "A Creature", "Creature — Bear")
     sorcery = _hand_spell(eng, "A Sorcery", "Sorcery")
     assert _castable(eng, creature) and not _castable(eng, sorcery)
     _leave(eng, nikya)
-    codie = _real(eng, "Codie, Vociferous Codex", "p1")
-    artifact = _hand_spell(eng, "An Artifact", "Artifact")
-    assert not _castable(eng, creature) and not _castable(eng, artifact)
-    assert _castable(eng, sorcery)  # not a permanent spell
-    assert codie in eng.state.battlefield
+    # BUG-73: Codie's own mana line carries next-cast riders the builder never executes, so the card is UNMODELED and
+    # its permanent-spell prohibition no longer binds; Nikya's half above is the covered behaviour.
 
 
 def test_aether_storm_stops_every_players_creature_spells():

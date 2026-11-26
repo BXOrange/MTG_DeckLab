@@ -59,6 +59,7 @@ _LEGACY_SAMPLES: dict[str, list[object]] = {
     "tribute_paid": [True, False],  # PAR-190, RULE 702.104b
     "madness_cost_paid": [True, False],  # PAR-139, RULE 702.35
     "blitz_cost_paid": [True, False],  # RULE 702.152
+    "prowl_cost_paid": [True, False],  # RULE 702.76
     "surge_cost_paid": [True, False],  # RULE 702.117
     "teamwork_paid": [True],
     "additional_cost_paid": [True, False],
@@ -185,11 +186,21 @@ class TestVocabularyIsClosed:
 
         # New cards may emit structured conditions directly, without adding
         # an unnecessary legacy spelling just to satisfy this vocabulary audit.
-        conditions = [condition for _, _, condition in _translated()]
+        from mtg_analyzer.game.binding.core import _IMPENDING_ACTIVE
+
+        conditions = [_IMPENDING_ACTIVE, *(condition for _, _, condition in _translated())]
+        from mtg_analyzer.parser.oracle.segmenter.late import segment_line
+        from mtg_analyzer.parser.oracle.spec import ParserProvenance
+        sneak = segment_line(
+            "when ~ enters, if his sneak cost was paid, creatures you control get +2/+0 until end of turn.",
+            allow_spell_effect=False, provenance=ParserProvenance(version="1"),
+        )
+        conditions.append(sneak.spec.trigger["active_if"])
         from mtg_analyzer.parser.oracle.catalogue.static_handlers import static_condition
         conditions.extend(static_condition(phrase) for phrase in (
             "~'s emerge cost was paid",
             "it hasn't dealt damage yet",
+            "its prowl cost was paid",
         ))
         conditions.extend(effect.condition
                           for abilities in (_ultimate_magic_meteor(), _lifestream_s_blessing())
@@ -260,6 +271,7 @@ class TestTheCollapseIsReal:
             "tribute_paid",  # PAR-190, RULE 702.104b
             "blitz_cost_paid",  # RULE 702.152
             "surge_cost_paid",  # RULE 702.117
+            "prowl_cost_paid",  # RULE 702.76
             # RULE 701.60c's `is_suspected` flag read off two more referents,
             # plus RULE 602.2b's sacrificed-cost-specific flag — always part of
             # the same collapse, just missing their own `_LEGACY_SAMPLES` rows

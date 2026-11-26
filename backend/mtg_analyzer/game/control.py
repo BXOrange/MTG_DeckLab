@@ -25,6 +25,9 @@ def gain_control(state, obj, controller_id, *, duration="permanent", window=None
         obj._control_base = None
     if changed and hasattr(obj, "summoning_sick"):
         obj.summoning_sick = True  # RULE 302.6
+    if changed:
+        obj.control_since_turn = state.internal_turn.number  # RULE 702.30a: echo is owed again
+        obj.echo_settled_turn = None
     return True
 
 

@@ -242,7 +242,7 @@ class TestBacklogSizes:
         # Reviewed November singleton adapters: cost selection, Devour entry
         # sacrifices and trigger damage division all use existing choice frames.
         reviewed = {
-            "alternative_payment", "devour_entry", "divided_damage_then_retaliate",
+            "alternative_payment", "amplify_entry", "devour_entry", "divided_damage_then_retaliate",
             # PAR-320: reviewed adapters over existing choose_objects, optional,
             # pay_cost_then and choose_number_resolve frames. All pending state
             # remains in those serialized frames; no new answer protocol.
@@ -312,7 +312,9 @@ class TestBacklogSizes:
         # MEC-146 adds the variable-payment continuation shared by all four resources.
         # PAR-292 M22 adds `separate_piles`, the pile split over objects in a public zone: the same split/take choice frames
         # as the revealed-pile adapter (one reviewed continuation, 123 -> 124).
-        assert n <= 124, f"continuation types grew to {n}"
+        # MEC-176 adds `amplify_entry`, Devour's sibling: the same hand-pick choose_objects frame, then the entry counters
+        # (124 -> 125).
+        assert n <= 125, f"continuation types grew to {n}"
 
     def test_fusion_backlog_does_not_grow(self) -> None:
         # ENG-37 deletes these outright.

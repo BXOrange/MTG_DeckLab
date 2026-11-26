@@ -364,6 +364,10 @@ def test_professor_onyxs_ultimate_runs_seven_rounds():
     for _ in range(3):
         assert state.pending_choice["kind"] == "pay_cost_then"
         engine.resolve_pending_choice("pay")
+        if state.pending_choice is not None:
+            # MEC-171 / RULE 701.8: which card is discarded is the payer's pick (forced once one card is left).
+            assert state.pending_choice["kind"] == "choose_objects"
+            engine.resolve_pending_choice(state.pending_choice["options"][0]["id"])
     assert state.pending_choice is None
 
     # Three discards, then four rounds of 3 life with an empty hand.

@@ -53,7 +53,13 @@ class InspectCardsEffect(GameEffect):
             context.revealed_card = objects[0]
         # RULE 701.20: looking/revealing changes no zone or library order.
         # Acknowledgement also makes a stand-alone look observable to its player.
-        if objects:
+        if objects and self.params.get('optional_look'):
+            # "You may look at ...": the yes/no comes before anything is shown (RULE 701.20, 608.2d).
+            context.engine.open_choice({'kind': 'inspection', 'player_id': player.id, 'mode': 'look_gate',
+                                        'prompt': 'Karte ansehen?', 'inspection': frame,
+                                        'options': [{'id': 'look', 'label': 'Ansehen'},
+                                                    {'id': 'decline', 'label': 'Nicht ansehen'}]})
+        elif objects:
             _offer(context.engine, frame, objects, 'ack', player.id)
         else:
             _run(context.engine, frame)
@@ -224,6 +230,12 @@ def _resume_inspection(rules, choice, answer):
         raise ValueError('Choose an offered inspection option')
     frame = choice['inspection']
     mode = choice['mode']
+    if mode == 'look_gate':
+        if answer in (None, 'decline'):
+            return
+        # The gate is passed: show the card exactly as an unconditional look would.
+        _offer(rules, frame, _objects(rules, frame['rest']), 'ack', frame['controller'])
+        return
     if mode == 'opponent':
         frame['chooser'] = answer
     elif mode == 'choose':

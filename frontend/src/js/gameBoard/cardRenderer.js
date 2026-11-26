@@ -2,10 +2,10 @@
 // A factory over `ctx` like choices.js: the renderers read live board state (view, drafts, overlays, image assets)
 // through the board's getter/setter context.
 
-import { GENERIC_TOKEN_KEY, cardImageUrl } from '../api.js';
+import { GENERIC_TOKEN_KEY, cardImageUrl, isDeckPrintingId } from '../api.js';
 import { cardActionButtons } from './cardActions.js';
 import { effectSummaryHtml, unavailableCardActionsHtml } from './cardForms.js';
-import { escapeAttr, escapeHtml } from './html.js';
+import { escapeAttr, escapeHtml, printingHoverAttr } from './html.js';
 import { exileCastableInfo, keywordAbbrev } from './cardHints.js';
 import { getShowOpponentHand } from '../settings.js';
 import { getState } from '../state.js';
@@ -169,7 +169,7 @@ export function createCardRenderer(ctx) {
     const dragAttrs = draggable ? ` draggable="true" data-draggable-card="true"` : '';
     return `
       <div class="gf-card-slot" data-instance-id="${escapeAttr(o.instance_id)}"${menu ? ` data-card-menu="${menuId}"` : ''}>
-        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}" title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
+        <div class="${classes.join(' ')}"${dragAttrs} data-hover-card="${escapeHtml(o.name)}"${printingHoverAttr(o.card_id)} title="${escapeHtml(o.name)}${pt}${o.tapped ? escapeAttr(t('bd.tile.tapped')) : ''}"><span class="gf-card-art">${inner}${summoningSickBadge}${targetOverlay}</span>${flipButton}${attackBadge}${loyaltyBadge}${battleBadge}${counterBadge}${keywordBadge}${compactPt}${adventureBadge}${preparedBadge}${preparedCopyBadge}${faceDownBadge}${roomBadge}${effectsSummary}</div>
         ${buttons}${menu}
       </div>`;
   }
@@ -382,6 +382,9 @@ export function createCardRenderer(ctx) {
     if (o.face_down) return ctx.assetsSleeveImageUrl || null;
     const showBack = showsBackFace(o);
     const isToken = o.is_token || (o.card_id || '').startsWith('token:');
+    if (!isToken && isDeckPrintingId(o.card_id)) {
+      return cardImageUrl(o.card_id, 'small', showBack ? 'back' : 'front');
+    }
     // Tokens first try an exact-id match: the same token *name* is reprinted
     // at different stat lines across Magic's history (several "Shapeshifter"
     // tokens exist as a 1/1, a 2/2, …), so a same-named-but-different-P/T
@@ -449,7 +452,7 @@ export function createCardRenderer(ctx) {
       <div data-stack-id="${escapeAttr(item.stack_id)}" class="gf-card-slot gf-stack-item${isTop ? ' is-top' : ''}${opts.ghost ? ' gf-rail-stack-ghost' : ''}"${!opts.ghost && visual?.instance_id != null ? ` data-stack-instance-id="${escapeAttr(visual.instance_id)}"` : ''}>
         <span class="gf-stack-badge gf-stack-badge--${badge.cls}">${badge.icon} ${escapeHtml(badge.label)}</span>
         ${imageUrl
-          ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}" title="${escapeAttr(displayName)}"` : ''}>
+          ? `<div class="card has-image gf-stack-art"${displayName ? ` data-hover-card="${escapeAttr(displayName)}"${printingHoverAttr(visual?.card_id)} title="${escapeAttr(displayName)}"` : ''}>
           <img src="${imageUrl}" alt="${escapeAttr(displayName)}" loading="lazy" />
           ${isAbility ? `<div class="gf-stack-ability-overlay">${renderOracleText(actionText)}</div>` : ''}
         </div>`

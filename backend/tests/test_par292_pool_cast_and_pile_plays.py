@@ -255,9 +255,17 @@ def _accept_may(eng):
     eng.resolve_pending_choice("do")
 
 
+def _name_zone(eng, zone):
+    """RULE 701.23a / PAR-292 M28: a search over several zones first asks which of them to look through."""
+    assert eng.state.pending_choice["kind"] == "search_zones"
+    eng.resolve_pending_choice(zone.value)
+
+
 def _pick_found(eng, wanted):
     if eng.state.pending_choice and eng.state.pending_choice["kind"] == "trigger_target":
         _accept_may(eng)
+    if eng.state.pending_choice and eng.state.pending_choice["kind"] == "search_zones":
+        _name_zone(eng, wanted.zone)
     choice = eng.state.pending_choice
     assert choice is not None and choice["player_id"] == "p1"
     eng.resolve_pending_choice(str(wanted.instance_id))
@@ -288,6 +296,7 @@ def test_runed_crown_attaches_a_found_rune_to_the_equipment():
     plain = card(eng, "Pacifism", zone=Zone.HAND)  # an Aura, but not a rune
     crown = put_on_battlefield(eng, "Runed Crown")
     _accept_may(eng)
+    _name_zone(eng, Zone.GRAVEYARD)
     options = [o for o in eng.state.pending_choice["options"] if "instance_id" in o]
     assert [o["instance_id"] for o in options] == [rune.instance_id]
     _pick_found(eng, rune)

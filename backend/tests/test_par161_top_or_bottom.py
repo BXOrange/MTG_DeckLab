@@ -52,7 +52,8 @@ def test_trailing_clause_runs_after_the_choice_vanish_from_sight_surveils():
 
 def test_token_clause_is_not_lost_revenge_of_the_drowned():
     engine = game()
-    spell = card(engine, "Revenge of the Drowned", zone=Zone.HAND)
+    # a decayed token is refused (BUG-75: no decayed behaviour), so the spell is bound without the keyword
+    spell = card(engine, "Revenge of the Drowned", zone=Zone.HAND, drop_text=(" with decayed",))
     victim = filler(engine, "Victim", power=2, toughness=2, player=OWNER)
     cast(engine, spell, targets=[victim])
     _choice(engine, OWNER)

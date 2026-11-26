@@ -237,6 +237,10 @@ def _operation(text: str, operand: ObjectPhrase, start: int, end: int, reading: 
             # second slot (RULE 115.1d). Rewriting a pronoun/"this creature" operand into one would hand over an
             # arbitrary creature instead of the referent (Drooling Ogre's "that player gains control of this creature").
             continue
+        if spec.params.get('with_source') and (operand.kind != 'target' or operand.count != 1 or noun != operand.noun):
+            # PAR-292 M27 (RULE 701.24a): "shuffle ~ and <operand> into their owners' libraries" moves the source once,
+            # together with the operand, so it cannot run once per member of a group or a plural pick.
+            continue
         kind = resolve_target_kind(phrase)
         # Exactly one target slot. A fight, attachment, divided damage or a fused
         # sequence may have other operands and must retain its own composition.

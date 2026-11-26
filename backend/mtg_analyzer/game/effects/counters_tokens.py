@@ -439,7 +439,9 @@ class AddCountersEffect(GameEffect):
             from ..continuous import group_selector_objects  # avoid the continuous↔effects cycle
 
             if amount > 0:
-                controller_id = getattr(self.source, "controller_id", None)
+                # RULE 109.5: a body run as another player ("each opponent may put a counter on each creature they
+                # control") reads "you control" as that player.
+                controller_id = context.acting_player_id or getattr(self.source, "controller_id", None)
                 members = list(group_selector_objects(context.state, controller_id, self.group, src=self.source))
                 if self.group_other:
                     members = [o for o in members if o is not self.source]
@@ -621,6 +623,14 @@ class AmassEffect(GameEffect):
             context.created_objects.append(army)
         if army is not None:
             context.add_counters(army, count, "+1/+1", source=self.source)
+            # RULE 608.2h + 603.12 (MEC-172): the Army as it now is, kept as last-known information for a "When you do"
+            # payoff whose *target bound* reads it ("power less than or equal to the amassed Army's power", Grishnakh) --
+            # the reflexive trigger carries it (`enqueue_reflexive_trigger`), so it is readable while targets are announced.
+            from .. import cost_referents  # function-scoped: cost_referents imports `continuous`, which imports this package
+
+            context.recompute()
+            cost_referents.forget_referents(self.source, "amassed")
+            cost_referents.store_referents(self.source, "amassed", [cost_referents.referent_record(army)])
 
 
 class PayLifeEqualToOpponentsCombatDamagedDrawThatManyEffect(GameEffect):
@@ -4784,7 +4794,8 @@ class ChooseEnterCounterReplacement(GameEffect):
                  escape_only: bool = False) -> None:
         super().__init__(None)
         self.options = [
-            {"kind": str(o["kind"]), "count": max(1, int(o.get("count", 1)))}
+            # A zero-count option is the "no counter" answer of an optional entry counter (RULE 702.98a Unleash).
+            {"kind": str(o["kind"]), "count": max(0, int(o.get("count", 1)))}
             for o in (options or [])
         ]
         self.description = description

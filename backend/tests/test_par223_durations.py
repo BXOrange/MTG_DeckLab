@@ -1,4 +1,5 @@
 """PAR-223: continuous lifetimes compose with subjects and survive clone/undo."""
+from tests.support.cards import strip_inert_keywords
 import pytest
 
 from mtg_analyzer.game import durations
@@ -24,7 +25,7 @@ def run(eng, source, text, targets=(), previous=()):
 
 @pytest.mark.parametrize('name', ['Aegis Angel', 'Kyodai, Soul of Kamigawa', 'Endoskeleton',
     "Ashnod's Battle Gear", 'Flowstone Armor', 'Spirit Shield', "Tawnos's Weaponry", 'Zelyon Sword',
-    'Thran Weaponry', 'Erhnam Djinn', 'Xenic Poltergeist', 'Quicksmith Spy', 'Quicksmith Rebel',
+    'Erhnam Djinn', 'Xenic Poltergeist', 'Quicksmith Spy', 'Quicksmith Rebel',
     'Galvanic Relay', 'Immovable Rod'])
 def test_real_card_is_modeled(name):
     result = parse_oracle(DB.get_card(name))
@@ -100,7 +101,7 @@ def test_source_control_and_presence_are_distinct_and_an_ended_window_cannot_sta
 
 def test_group_is_fixed_at_resolution_and_survives_clone():
     eng = game()
-    source = board(eng, DB.get_card('Thran Weaponry'))
+    source = board(eng, strip_inert_keywords(DB.get_card('Thran Weaponry')))  # BUG-75: Echo has no engine behaviour
     victim = board(eng, creature('Recipient', power=2, toughness=2))
     source.tapped = True
     source.activated_abilities[0].effects[0].apply(eng.rules.context)

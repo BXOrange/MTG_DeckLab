@@ -1628,6 +1628,8 @@ class CombatMixin:
             # "~ can't block." / "enchanted creature can't block [or
             # attack]." — a synthetic layer-6 flag, same family as above.
             and not combat.has(blocker, "cant_block")
+            # RULE 702.147a / 702.98a: decayed, and unleash with a +1/+1 counter, can't block.
+            and not combat.keyword_bars_blocking(blocker)
             # RULE 701.60b: a suspected creature can't block.
             and not combat.is_suspected(blocker)
             # RULE 701.35b: a detained permanent can't block.

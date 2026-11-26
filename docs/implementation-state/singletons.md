@@ -518,6 +518,34 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Rootweaver Druid | split control of the found cards |  |
 | Scholarship Sponsor | count from a land-count difference |  |
 | Settle the Wreckage | "that many" from exiled attackers |  |
+| Hazoret's Undying Fury | "exile the top 4 cards" with no "of your library" after the shuffle, plus "lands you control don't untap during your next untap step" | PAR-292 M25; the shuffle lead and cast pool parse |
+| Random Encounter | "put each creature card milled this way onto the battlefield" with a haste and end-step return of those cards | PAR-292 M25; the shuffle-then-mill lead parses |
+| Unexpected Results | "reveal the top card. If it's a nonland card, you may cast it free. If it's a land card, you may put it onto the battlefield and return ~ to hand" | PAR-292 M25 |
+| Metalworker | "{T}: Reveal any number of artifact cards in your hand. Add {C}{C} for each card revealed this way." is a mana ability (RULE 605.1a) whose reveal must be answered during payment; the quality and count parse, fail-closed in `gate._reveal_mana_ability_ok` | PAR-292 M25; needs an interactive choice inside mana payment |
+| Sacellum Godspeaker | "reveal any number of creature cards with power 5 or greater from your hand" ("from", not "in") plus a mana ability | PAR-292 M25; the quality parses, only the preposition is open |
+| Arsenal Thresher | "as ~ enters, you may reveal any number of other artifact cards from your hand. ~ enters with a +1/+1 counter for each card revealed this way" (replacement) | PAR-292 M25 |
+| Kamahl's Summons | "each player may reveal any number of creature cards from their hand. Then each player creates a 2/2 Bear for each card they revealed" | PAR-292 M25; per-player reveal |
+| Into the Fire | "put any number of cards from your hand on the bottom of your library, then draw that many cards plus 1" (modal) | PAR-292 M25 |
+| Blightwing Bandit | "look at the top card of that player's library, then exile it face down" under "whenever you cast your first spell during each opponent's turn": "that player" is the active player (an opponent), not the caster; the rest parses (M26 face-down window) | PAR-292 M26; needs an `active_player` operand for "that player" under a spell-cast head |
+| Wand of Denial | "look at the top card of target player's library. If it's a nonland card, you may pay 2 life. If you do, put it into that player's graveyard" (pay-life rider on the look) | PAR-292 M26 |
+| S.N.E.A.K. Dispatcher | "if it has an agents of s.n.e.a.k. watermark, you may reveal it and put it into your hand. Otherwise, put it on your choice of the top or bottom of its owner's library" | PAR-292 M26 |
+| Klaw, Master of Sound | "mana of any type can be spent to cast a spell this way" as its own sentence after the play window, plus "whenever you play a card from exile" | PAR-292 M26 |
+| Elixir | "shuffle all nonland cards from your graveyard into your library. You gain life equal to the number of cards shuffled into your library this way." (a class filter on the whole graveyard plus a "shuffled this way" count) | PAR-292 M27 |
+| Campfire | "put all commanders you own from the command zone and from your graveyard into your hand" (the shuffle sentence parses) | PAR-292 M27 |
+| Time Spiral | "you untap up to six lands" (the hand-and-graveyard shuffle and draw parse) | PAR-292 M27 |
+| Diminishing Returns | "you exile the top ten cards of your library. Then each player draws up to seven cards" (the shuffle parses) | PAR-292 M27 |
+| Glimpse of Tomorrow | "shuffle all permanents you own into your library, then reveal that many cards ... put all non-Aura permanent cards revealed this way onto the battlefield, then do the same for Aura cards" (needs a count from the shuffled set and a two-pass entry) | PAR-292 M27 |
+| Etrata, the Silencer | "that player loses the game if they own three or more exiled cards with hit counters on them" (the owner shuffle parses) | PAR-292 M27 |
+| Fblthp, Impossibly Lost | trigger head "when one or more of your opponents are dealt combat damage during your turn" (the owner shuffle and the library-empty win parse) | PAR-292 M27 |
+| Inferno Hellion | "at the beginning of each end step, if ~ attacked or blocked this turn" (the owner shuffle parses) | PAR-292 M27 |
+| Mirror-Mad Phantasm | "if that player does, they reveal cards from the top of that library until a card named ~ is revealed; the player puts that card onto the battlefield and all other cards revealed this way into their graveyard" | PAR-292 M27 |
+| Riftsweeper | "choose target face-up exiled card. Its owner shuffles it into their library" (a face-up exile target kind) | PAR-292 M27 |
+| This Is How It Ends | "faces a villainous choice: they lose 5 life, or they shuffle another creature they own into their library" | PAR-292 M27 |
+| Arachnus Spinner | "put it onto the battlefield attached to target creature" after a multi-zone search (the found card is attached to the ability's own target, which is gone once the search choice resumes) | PAR-292 M28; the zone search, the shuffle tail and the cost parse |
+| Say Its Name | cost "exile this card and two other cards named ~ from your graveyard" (the source plus N other same-named cards, only Calim shares "from your graveyard") | PAR-292 M28; the multi-zone search and the sorcery-speed restriction parse |
+| The Five Doctors | "if this spell was kicked, put those cards onto the battlefield instead of putting them into your hand" after an "up to five Doctor cards" search | PAR-292 M28; the library-and-graveyard search itself parses |
+| The Hunger Tide Rises | chapter IV: "sacrifice any number of creatures. Search ... for a creature card with mana value less than or equal to the number of creatures sacrificed this way" (a count from an unbounded sacrifice) | PAR-292 M28; the search parses |
+| Vision Quest | "put it onto the battlefield with X additional +1/+1 counters on it. If X is 4 or greater, it gains haste until end of turn" with the bound "mana value X or less" | PAR-292 M28; the search parses |
 | Turtle Tracks | "any number of target players" |  |
 | Oath of Lieges | "target player who controls more lands" chosen at resolution |  |
 | Restorative Technique | "gains 2 life, then searches" (subject carried across a clause) |  |
@@ -594,7 +622,175 @@ Intake from the PAR-292 re-scope: single cards and pairs whose own clause blocks
 | Stream of Thought / Tamiyo, Seasoned Scholar | untargeted "shuffle up to N cards from your graveyard" pick | pair |
 | Plunge into Darkness / Karn, Living Legacy | "pay any amount, then look at that many" | pair |
 | Genesis Hydra / Knickknack Ouphe | announced X read under a cast / enters trigger | pair |
+| Glacial Revelation | "snow permanent cards" (a supertype word with "permanent"; the criteria vocabulary refuses an AND of a type OR-list) | PAR-292 M29 |
+| Michelangelo's Technique / Smelting Vat | "up to two ... cards with total mana value 6 or less" / "less than or equal to the sacrificed artifact's mana value": a total mana value cap on a dig pick (the choose-objects budget exists, the dig has no such bound) | PAR-292 M29; a pair |
+| Rip, Spawn Hunter | "any number of creature and/or Vehicle cards with different powers" (a pairwise-distinct pick) | PAR-292 M29 |
+| Eivor, Wolf-Kissed / Nashi, Searcher in the Dark / Rampant Frogantua | "you mill that many cards" (a mill count from the combat damage dealt) before a "from among them" pick (Eivor's Saga card and/or land card, Nashi's legendary and/or enchantment cards plus an "if you put no cards into your hand this way" counter, Frogantua's lands); the one-card-per-slot pick itself parses (Sludge Titan) | PAR-292 M29; Frogantua also prints a life-lost pump |
+| Gilgamesh, Master-at-Arms | "when you put 1 or more Equipment onto the battlefield this way, attach one of them to target creature you control" after an any-number pick | PAR-292 M29 |
+| Xenagos, the Reveler | "-6: exile the top 7 cards of your library. You may put any number of creature and/or land cards from among them onto the battlefield." (an exile dig, not a look) plus its mana ability | PAR-292 M29 |
+| Doubling Chant / Clarion Ultimatum / Dire-Strain Rampage / From the Ashes / Wave of Vitriol | per-permanent search loops ("for each <permanent>, search ... same name" and one search per destroyed permanent, then "each player who searched their library this way shuffles"); Krenko's Buzzcrusher is the same loop | PAR-292 close; one loop primitive, unmeasured per card, no shape with 3 solo cards in the v1080 scan |
+| Stomping Slabs / Sanity Grinding / Petals of Insight | reveal-then-bottom-all with no pick (the whole revealed pile goes to the bottom) | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Jodah, Archmage Eternal / Possibility Storm / Tibalt's Trickery / Unpredictable Cyclone / Guff Rewrites History | dig hits relative to a spell (a hit measured against the spell that triggered or was cast) | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Fludge / The Gunky Runner and the other gunk cards | "shuffle N <name> cards into their library" | PAR-292 close; unmeasured per card (not re-checked at v1080) |
+| Field of Dreams / Wizened Snitches / Lantern of Insight / Yet Another Aether Vortex | static "players play with the top card of their libraries revealed" (the "your library" form is `activation_clauses`; the each-player form has no row); Lantern also prints "target player shuffles" | PAR-292 M29 re-measure: 2 solo (Field, Snitches) |
+| Boggart Forager / Soldier of Fortune / Lantern of Insight | "target player shuffles [their library]" as an effect (the shuffle primitive and its target exist; M25 built only the controller's own form) | PAR-292 M29 re-measure: 2 solo (Forager, Soldier); with the static above Lantern is a third |
 
+### Mana-ability rider residue (BUG-73 close, PARSER_VERSION 1061)
+
+Cards that lost MODELED because a sentence after their `Add` clause is one `game/mana_abilities.py` does not execute (`parser/oracle/mana_riders.py` is the gate). Shared shapes with five or more cards are tracked as tickets in `BACKLOG.md`, not here; the rows below are the one-offs and the pairs/triples. Re-run the BUG-73 verdict diff before hand-authoring: a shared rider primitive may now reach them.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Foraging Wickermaw | "`{1}`: Add one mana of any color. ~ becomes that color until end of turn." | the produced colour feeds a recolour |
+| Black Tulip | "You can't activate this ability until you've begun your sixth turn of the game." | game-turn activation gate |
+| Mana Cache | "Any player may activate this ability but only during their turn before the end step." | activator is not the controller |
+| Rainbow Vale / Witch Engine | "an opponent gains control of ~ at the beginning of the next end step" / "Target opponent gains control of ~" | control change inside a mana ability (the second targets, so is not a mana ability) |
+| Rubble Rouser / Shaun & Rebecca, Agents | "When you do, ~ deals N damage to each opponent." / "When you do, mill N cards." | reflexive trigger after a mana payment |
+| Temur Elevator | "If you don't have the city's blessing, you lose N life." | blessing-gated life loss |
+| Truss, Chief Engineer | "This effect can't reduce a number below N or a number word below N." | rider of a counter-reduction ability |
+| Under-Construction Skyscraper / Vexing Puzzlebox | "Scry N." / "Roll a dN." | effect after the Add clause |
+| Undiscovered Paradise | "During your next untap step, as you untap your permanents, return ~ to its owner's hand." | untap-step return |
+| Mishra's Toy Workshop | "Spend this mana only on spells and abilities that put tokens onto the battlefield. Use toys to represent the tokens." | token-source restriction |
+| Farrelite Priest / Initiates of the Ebon Hand | "If this ability has been activated N or more times this turn, sacrifice ~ at the beginning of the next end step." | pair: per-turn activation counter |
+| Diamond Lion / Lion's Eye Diamond / Grinning Ignus | "Activate only as an instant." / "Activate only as a sorcery." | RULE 602.5d/602.5e on a mana ability; the cost has no sorcery-speed flag for mana abilities |
+| Cavern of Souls / Delighted Halfling / Boseiju, Who Shelters All | "... and that spell can't be countered" / "that spell can't be countered" | triple: a spend-payoff that marks the cast spell uncounterable |
+| Ether / Magus Lucea Kane / Sunken Palace | "When you next cast ... copy that spell. You may choose new targets for the copy." | triple: next-cast copy rider (RULE 707.10) |
+| Sole Performer / Mox Lotus / Mons's Goblin Waiters | the Add clause prints a symbol the mana pool cannot hold (`{T}{T}`, `{∞}`, `{HR}`) | BUG-85 close |
+| Axebane Guardian | "X mana in any combination ..., where X is the number of creatures you control with defender" | the builder's count subjects do not read the "with defender" filter |
+| Squandered Resources | "Add one mana of any type the sacrificed land could produce" | cost-linked referent |
+| Codie, Vociferous Codex | "When you next cast a spell this turn, exile cards from the top ... until an instant or sorcery with lesser mana value ..." | next-cast dig rider |
+| Sorcerer Class / A-Sorcerer Class | "Spend this mana only to cast an instant or sorcery spell or to gain a class level." | MEC-174: paying a Class level-up cost is a special action the restriction predicates have no hook for (pair) |
+| Adarkar Unicorn / Snowfall | "Spend this mana only to pay cumulative upkeep costs." | MEC-174: cumulative upkeep payments (RULE 702.24) take no restriction predicate (pair) |
+| Freya Crescent / Ronin, Shadow Stalker | "... cast an Equipment spell or activate an equip ability(ies)" | MEC-174: the ability half names a keyword ability, but the activation predicate sees only the source (pair) |
+| Karfell Harbinger / Niko Defies Destiny / Unblinking Observer / Qarsi Deceiver / Tin Street Gossip / Overgrown Zealot | "... foretell / pay a disturb cost / pay a morph cost / turn permanents face up" | MEC-174: special-action costs with no restriction hook beyond Creeping Peeper's `allow_face_up` |
+| Echoing Cavern / Eclipsed Realms / ______ | "... spells of the chosen type[s]" | MEC-174: the chosen-type resolution (`chosen_type_spell`) reads one creature spell only |
+| Jegantha, the Wellspring / The Rebellious Intelligence | "This mana can't be spent to pay generic mana costs." | MEC-174: a per-pip ban, needs `ManaPool` payment support, not a lot-level predicate (pair, plus Jegantha's companion line) |
+| Heartwood Crafter // Soul Tether / Karolina Dean, Runaway / Vhal, Candlekeep Researcher | "This mana can't be spent to cast spells from your hand." | MEC-174: the negative twin of `spell_from_zone` (`not_zone` is a ban, this is a ban of one zone); triple, each also blocked elsewhere |
+| Altar of the Lost / Corrupted Crossroads / Meeting of the Five / Titans' Nest / Watermarket / Secret Base / Jasmine Boreal of the Seven / Second City / Volshe Tideturner / Thieving Varmint / The Mystical Archive / The Charitable Drafter / Ice Cauldron / Chandra's Embercat / Brotherhood Headquarters / Cultivator Drone / Eldrazi Temple / Quinjet Technician / Mishra's Toy Workshop | one-off spell or ability characteristics in the "Spend this mana only ..." clause (devoid, exactly three colors, watermark, no abilities, second spell this turn, kicked, not from the starting deck, not owned, last card exiled with this artifact, power-up abilities, token-making abilities, compound subtype+type) | MEC-174: no shared shape; each needs its own spell/ability predicate |
+
+### Mana-ability rider residue (MEC-175 close, PARSER_VERSION 1068)
+
+The shared shapes are built (`ManaAbility.instead` / `gain_life` / `draw_cards` / `delayed_draw_cards` / `sacrifice_when_no_counters`, the wider "Activate only if" reader `mana_riders.mana_condition_dict`, and the spend / next-cast payoffs life, scry, draw, haste, X draw). What is left misses one unshared piece.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Incubation Druid | "If this creature has a +1/+1 counter on it, add three mana of that type instead." | the replacement names the first clause's chosen type ("of that type"), not a fixed production |
+| Altar of the Pantheon | "If you control a God, a Demigod, or a legendary enchantment, you gain 1 life." | `static_condition` reads "a legendary enchantment" as the creature-only `control_legendary_subtype`; a legendary-permanent-of-type count is the missing condition |
+| Brood Astronomer | "If you control a Planet with twelve or more charge counters on it, add three mana of any one color instead." | a counter threshold on a permanent subtype, an Alchemy spellbook card besides |
+| Undermountain Adventurer | "If you've completed a dungeon, add 6 {G} instead." | the replacement prints a count before the symbol ("6 {G}"), outside the clause grammar |
+| A-Town | "If you're in a city that starts with an A, instead add one mana of any color." | Alchemy only |
+| Urza's Fun House | "Activate only once and only if you control an Urza's Mine, ..." | `{∞}` mana, plus an unreadable internet-visit ability |
+| Manaforge Cinder / Lavinia, Foil to Conspiracy | "Activate no more than three times each turn." / "Activate only during an opponent's turn." | activation caps the cost grammar has no flag for (pair) |
+| The Secret Lair / Under-Construction Skyscraper | "Scry 1." after the Add clause | an immediate scry rider; the Lair also says a secret word |
+| Grove of the Burnwillows / Cryptolith Fragment | "Each opponent gains 1 life." / "Each player loses 1 life." | a life effect aimed at other players (pair) |
+| Pyromancer's Goggles / Forger's Foundry / Andrios, Roaming Explorer / Boseiju, Who Shelters All / Second City | spend payoffs that copy, exile, reset base P/T, make an uncounterable spell or create a token | each needs its own post-cast effect |
+
+### Reflexive-referent residue (MEC-171, PARSER_VERSION 1065)
+
+Cards whose "When you do" payoff reads what the earlier instruction moved, and that still miss one unshared piece. The recorded referent itself (`cost_referents`, snapshotted onto the reflexive trigger) is built; Argentum Masticore, Nihiloor and Grishnákh wait for MEC-172's target bound, not for a new record.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Surtland Flinger | `if the sacrificed creature was a giant, ~ deals twice that much damage instead.` | "twice that much ... instead" replacement over a bound amount; no second card in the cache has the shape |
+| Bolg of the North | `~ deals damage equal to that creature's power to another target creature. if excess damage was dealt this way, amass goblins x, where x is that excess damage.` | excess-damage amount of the reflexive hit feeding an amass |
+| Stet, Draconic Proofreader | `~ deals 4 damage to any target whose name begins with the same letter as the exiled card.` | target filter on the first letter of the recorded card's name |
+| Bullseye, Death Dealer | `you may sacrifice an artifact or discard a nonland card. when you do, ...` | an either-or antecedent (one cost of two kinds) in a `pay_cost_then`; Anthropede ("discard a card or pay {2}") and Nimble Hobbit ("sacrifice a Food or pay {2}{W}") share it, so a three-card `pay_cost_then` alternative cost is the ticket to write if it is wanted |
+
+### Target-bound residue (MEC-172, PARSER_VERSION 1066)
+
+The bound itself (`max_mana_value {"count_selector"}` / `stat_count_bound` over a recorded referent) is built; these cards miss a different piece.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Mandate of Abaddon, Fell the Mighty | `destroy all creatures with power less than that creature's power.` / `...greater than target creature's power.` | a *group* filter compared with an announced target's stat (a `group` selector whose `stat_count_bound` reads that target); `GROUP_REFERENCES` only knows `trigger_subject`, and Mandate's "choose target creature you control" pre-sentence is its own shape. Two cards |
+| Nihiloor | `for each opponent, tap up to one untapped creature you control. ... creature's power` | per-opponent scoping of a tap `record_referent` plus "for as long as you control ~" steal and a second attack trigger; no shared piece beyond the bound |
+| Saruman of Many Colors | `when one or more cards are milled this way, exile target ... with mana value less than or equal to that spell's mana value ... copy the exiled card` | "milled this way" reflexive trigger, the cast spell as referent, and copy-and-cast of the exiled card |
+| Annex Sentry | `artifact_or_creature_you_dont_control` target frame ignores `max_mana_value` | a one-line `TargetFrame(apply_max_mana_value=True)` check, found by the MEC-172 frame sweep; unrelated to referents |
+
+### Player-scoped residue (PAR-291 M2 sizing)
+
+Sized with `parser_probe blocked` at v1071: "each player returns / exiles / puts ... from their graveyard / hand" has 10 solo cards and no shared piece larger than two.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Living End, Scrap Mastery | `each player exiles all <type> cards from their graveyard, then sacrifices all <type>s they control, then puts all cards they exiled this way onto the battlefield.` | per-player mass exile into a per-player pool, a mass sacrifice, then a return of that pool under owners' control; needs an "exiled this way" per-player pool (the mass-exile row has none) |
+| Memory Jar, Magus of the Jar | `each player exiles all cards from their hand face down and draws 7 cards. At the beginning of the next end step, each player discards their hand and returns to their hand each card they exiled this way.` | per-player face-down hand exile pool plus a delayed return |
+| Balthor the Defiled | `each player returns all black and all red creature cards from their graveyard to the battlefield.` | a colour union on the mass return (`ReturnFromGraveyardEffect` mass path ignores `colors`); the only colour-qualified mass return open |
+| Bloodbond March | `each player returns all cards with the same name as that spell from their graveyard to the battlefield.` | spell-relative name filter on the mass return |
+| Patriarch's Bidding | `each player returns all creature cards of a type chosen this way from their graveyard to the battlefield.` | per-player creature-type choices (union) feeding a mass return |
+| Bringer of the Last Gift | `each player returns all creature cards from their graveyard that weren't put there this way to the battlefield.` | "put there this way" exclusion set after a mass sacrifice |
+| All Hallow's Eve | `put it into your graveyard and each player returns all creature cards from their graveyard to the battlefield.` | the mass return itself is claimed; the open part is the self-move of the exiled source from exile |
+| Sadistic Augermage | `when ~ dies, each player puts a card from their hand on top of their library.` | per-player hand-to-library pick (PAR-292's hand-to-library action, scoped to each player) |
+| Overburden, Confounding Conundrum | `that player returns a land they control to its owner's hand.` | the bounce itself is claimed; the head names the player of a land / creature entering (`ENTERS_BATTLEFIELD` is not in the edict's "that player" event list) |
+| Strategic Betrayal | `target opponent exiles a creature they control and their graveyard.` | an exile edict plus the same player's whole graveyard in one sentence |
+| Discovery // Dispersal | `each opponent returns a nonland permanent they control with the greatest mana value among permanents they control to its owner's hand, then discards a card.` | the "greatest mana value" bounce over a nonland pool plus a chained discard |
+| Umbilicus | `that player may pay 2 life. If they don't, they return a permanent they control to its owner's hand.` | the may-pay-else form of the punisher (Blood Clock's sibling) |
+
+### Player-scoped residue (PAR-291 M3 sizing)
+
+Sized with `parser_probe blocked` at v1072 after the M3 rows landed: player-scoped token creation, "exiles the top card of their library" with riders, "chooses ... then sacrifices the rest" and "discards all <class> cards" have no shape of three or more solo cards left; every row below is a one-off or a pair.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Balefang the Unslayable, Hansk Slayer Zealot, Davvol's Birthdaymobile, The Sentry Golden Guardian | `target opponent creates a [tapped] <named token>` | the creator scope exists (`create_token` `creators: target`); the tokens (Baneslayer Angel, Walker, Carnival of Souls, The Void) are not curated in `data/tokens.json`, so `NAMED_TOKEN_WORDS` cannot claim them (a blank synthesized token would drop its abilities); four distinct tokens, authored or added one by one |
+| Eiganjo Uprising | `each opponent creates x minus 1 2/2 white samurai creature tokens with vigilance.` | "x minus 1" token count under a player scope |
+| Death by Dragons | `each player other than target player creates a 5/5 red dragon creature token with flying.` | "each player other than target player" scope |
+| Inscription of Insight, Phantasmal Sphere, Dovescape, Pure Reflection | `<player> creates an x/x <token>, where x is ...` | the x/x token with a where-x power is open even for "you create" (no creator scope involved); a PAR ticket on its own, 4 cards plus the "you" form |
+| Pursued Whale, Relic Robber, Kibo Uktabi Prince, Rite of the Raging Storm | `<player> creates a token with "<quoted ability>"` | the quoted-ability tail of a player-scoped token |
+| Pyxis of Pandemonium, Rocco Street Chef, Timesifter, Triple Triad, Crabomination, Xander's Pact | `each player / opponent exiles the top card ... ` plus a per-player "exiled this way" play / cast rider | the exile row is claimed; each rider is different (face-down turn up, play "the card they exiled this way", greatest mana value takes a turn, cast with life payment) |
+| Mind Extraction, Crosis the Purger, Persecute Artist, Tsabo's Decree, Void, Rare-B-Gone | `reveals their hand and discards all <class> cards` where the class is a referent (a sacrificed creature's colors, a chosen color / artist / type / number) or a rarity | the row takes printed classes only; each referent is a different antecedent |
+| Stick Together | `each player chooses a party from among creatures they control, then sacrifices the rest.` | party slots (one each of Cleric, Rogue, Warrior, Wizard, a creature fills one slot, RULE 700.8) are not the per-type keepers of `keep_types` |
+| Destined Confrontation, Balancing Act, Mythos of Snapdax | `each player chooses any number of creatures with total power 4 or less ...` / `a number of permanents ... equal to the fewest ...` / `... if {B}{R} was spent, you choose` | a total-power cap, a fewest-count measure, and a cost-conditional chooser |
+
+### Player-scoped residue (PAR-291 M4 sizing)
+
+Sized with `parser_probe blocked` at v1073, then rebuilt at v1074 (tempting offer, shared damage draw). No player-scoped shape of three or more solo cards is left: every row below is a one- or two-card shape, or its bodies are distinct one-offs.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Master of Ceremonies, Seize the Spotlight | `each opponent chooses money, friends, or secrets. For each player who chose money, you and that player each create a Treasure token ...` / `each opponent chooses fame or fortune. For each player who chose fame, gain control ...` | a per-opponent named choice, then per-choice payoffs counted over the choosers (2 cards, distinct payoffs) |
+| Maître Tree | `each opponent may also create a token from the menu. For each opponent who does, you create a token of the same type.` | the offer shape is claimed (`tempting_offer`); open is the menu (modal token choice) |
+| Tempt with Discovery, Tempt with Mayhem | `For each opponent who searches a library this way ...` / `You copy that spell once plus an additional time for each opponent who copied the spell this way.` | Discovery is hand-authored; Mayhem counts copies of a spell (amount "plus one per acceptor") |
+| Khorvath's Fury, Pir's Whim, Regna's Sanction, Virtus's Maneuver, Zndrsplt's Judgment | `for each player, choose friend or foe. Each friend <X>. Each foe <Y>.` | the friend / foe head is one shape (5 cards) but only Pir's Whim has both bodies claimed today ("each player puts a counter on each creature they control", "each player returns a creature card from their graveyard to their hand", "each player creates a token that's a copy of a creature they control", "taps the rest", "discards all then draws that many plus 1" are all open as plain `each player` rows); promote the bodies first |
+| Cait Cage Brawler, The River Warlock | `you and defending player each draw a card, then discard a card. <conditional on the discarded mana values>` | the shared draw / discard is claimable, the greatest-mana-value-among-both-discards rider is not (2 cards) |
+| Yume, Chronicler of Valor | `when you cast that spell, if another player spent mana to cast it, you and that player each draw a card.` | "that player" is the assisting player (no referent row) |
+| Battle at the Helvault, Vault 13: Dweller's Journey | `for each player, exile up to 1 target ... that player controls until this saga leaves the battlefield.` | per-player target rounds are claimed; the saga-lifetime exile ("until this saga leaves") is not (2 cards) |
+| Demonic Junker, Unexplained Absence, Krenko's Buzzcrusher, Guff Rewrites History, Vaevictis Asmadi, Ghouls' Night Out, Winnowing | `for each player, destroy / exile up to 1 ... that player controls.` plus a per-player rider | each rider is different ("if a creature you controlled was destroyed this way", "its controller cloaks the top card", "for each land destroyed this way its controller may search", ...) |
+| Incite Rebellion | `for each player, ~ deals damage to that player and each creature that player controls equal to the number of creatures they control.` | per-player damage amount measured per player |
+| Lim-Dul's Hex | `for each player, ~ deals 1 damage to that player unless they pay {B} or {3}.` | an OR of two costs in the mass "unless" row |
+| Elminster's Simulacrum | `For each opponent, you create a token that's a copy of up to one target creature that player controls.` | per-opponent copy target round |
+| Overburden, Confounding Conundrum, Discovery // Dispersal, Umbilicus | the M2 sizing rows (entering-permanent "that player", greatest-mana-value bounce, may-pay-else) | still one card each |
+| Nature's Wrath | `whenever a player puts an island or blue permanent onto the battlefield, that player sacrifices an island or blue permanent of their choice.` | the only open cross-dimension "<land type> or <color> permanent" pool at v1074 (orchestrator sizing) |
+
+### Player-scoped residue (PAR-291 M5 sizing)
+
+The "each opponent exiles cards from the top of their library until ..." family was built at v1075 (Fevered Suspicion, Dream Harvest, Tasha's Hideous Laughter, Krang & Shredder). What is left of it is one-off riders. Friend / foe was re-sized: the head (a per-player choice by the controller, then two filtered per-player loops) would unlock Pir's Whim alone; every other friend / foe body, and even Pir's foe body ("each player sacrifices an artifact or enchantment of their choice"), is an open plain `each player` row, so the head costs engine work for one card until the nine bodies exist.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Bismuth Mindrender | `that player exiles cards from the top of their library until they exile a nonland card. You may cast that card by paying life equal to the spell's mana value rather than paying its mana cost.` | the dig is the claimed `event_player` row; the cast rider needs a per-card life-for-mana alternative cost inside the resolution play (the existing `pay_life_equal_mv` is a standing static grant) |
+| Black Widow, Super Spy | `... until they exile a nonland card. You may put a +1/+1 counter on Black Widow. If you don't, you may cast the exiled nonland card until end of turn and mana of any type can be spent to cast that spell.` | an optional counter, an "if you don't" branch and a mana-type wildcard cast window (one card) |
+| Wand of Wonder | `Roll a d20. Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. You may cast up to X instant and/or sorcery spells ...` | die-result table sets X (1 / 2 / 3), a "shuffles the rest" tail and the "instant and/or sorcery" cast cap; the dig itself is `dig_each_opponent` plus the predicate "an instant or sorcery" |
+| Umbris, Fear Manifest | `~ gets +1/+1 for each card your opponents own in exile.` | the trigger body ("target opponent exiles ... until they exile a land card") has no row for a bare land hit; the static counts opponent-owned exile cards |
+| Guff Rewrites History, Seek Bolas's Counsel | `Each player who controlled one of those permanents exiles cards ... until they exile a nonland card, then puts the rest on the bottom ... Each player may cast the nonland card they exiled.` / `For each opponent, exile cards from the top of their library until you exile a nonland card. You may cast those cards ...` | per-player casts of their own digs after a shuffle-away; a random mode among six with an emblem, a planeswalk and a mass destroy |
+| Khorvath's Fury, Pir's Whim, Regna's Sanction, Virtus's Maneuver, Zndrsplt's Judgment | `for each player, choose friend or foe. Each friend <X>. Each foe <Y>.` | the nine bodies: wheel plus one / damage equal to hand size (Khorvath); land search tapped / sacrifice an artifact or enchantment (Pir); counters on each creature they control / choose one untapped creature, tap the rest (Regna); return a creature card from graveyard / sacrifice a creature (Virtus); copy a creature they control / return a creature they control to hand (Zndrsplt): all open as plain `each player` rows; promote the bodies as a PAR ticket before the head |
+
+### Player-scoped residue (PAR-291 close)
+
+The residue PAR-291 carried that the M2..M5 sizing sections do not list. Raging River is in PAR-298, Worldfire in
+PAR-303, Dark Deal above, and the "if you would lose the game, instead" life sets in PAR-294.
+
+| Card | Gap | Notes |
+| --- | --- | --- |
+| Stand or Fall, Butcher Orgg | multi-player scopes (piles per defending player, damage divided among several players' creatures) | each scope is its own choice structure |
+| Cait Cage Brawler, The River Warlock | `you and defending player each draw a card, then discard a card` plus a greatest-mana-value rider | also listed in the M4 section; "defending player" has no shared-draw row |
+| Master of Cruelties | `that player's life total becomes 1` on an attack trigger | needs a defending-player selector for the life-set row |
+| Invincible Hymn, Touch of the Eternal | `... life total becomes that number` after a count sentence | the amount is the previous sentence's count |
+| Long Rest, Elderscale Wurm | conditional life sets ("if ... ", "as long as ... life total can't be reduced below 7") | condition / floor, not the set itself |
+| Sway of the Stars, Once More with Feeling, Oketra's Last Mercy | a life set after unclaimed sentences (shuffles, restarts, land skips) | the set claims; the other sentences do not |
+| Awaken the Erstwhile | `each player discards all the cards in their hand, then creates that many 2/2 black Zombie tokens` | per-player "that many" from their own discard |
+| Flux | `each player discards any number of cards, then draws that many cards` | "any number" chooser discard per player |
+| Collision of Realms | `each player shuffles a creature they control into their library. each player who shuffled ... reveals cards until ...` | per-player dig keyed to the shuffled card |
 ### Unsupported Rooms (reference only; not actionable queue entries)
 
 These explain the remaining Room coverage denominator and must not be treated as implementation work: `Crude Abattoir // Unsavory Kitchen`, `Solitary Study // Endless Corridor`. Both return `NEVER_SUPPORTED` because their Alchemy halves are a permanent non-goal.

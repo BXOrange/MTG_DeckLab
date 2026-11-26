@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from mtg_analyzer.services.deck_printings import PRINTING_ID_PREFIX, PrintingLookup, with_printing
 from mtg_analyzer.game import continuous
 from mtg_analyzer.game.binding.core import bind_from_catalogue
 from mtg_analyzer.game.game_engine import GameEngine
@@ -219,6 +220,7 @@ def build_object(
     owner_id: str,
     cards_by_name: dict[str, Card],
     controller_id: Optional[str] = None,
+    lookup_printing: PrintingLookup | None = None,
 ) -> Optional[GameObject]:
     """Rebuild one `GameObject` from an instance descriptor, binding its
     card text to live abilities (bind-on-load, like `build_goldfish_engine`).
@@ -233,6 +235,11 @@ def build_object(
         card = cards_by_name.get(inst.get("name", ""))
     if card is None:
         return None
+
+    printing_id = inst.get("card_id")
+    if not is_token and lookup_printing and isinstance(printing_id, str) and printing_id.startswith(PRINTING_ID_PREFIX):
+        if images := lookup_printing(printing_id, card.name):
+            card = with_printing(card, printing_id, images)
 
     obj = GameObject(
         card,
@@ -306,7 +313,8 @@ def phase_for_step(step: str, default: str = "precombat_main") -> str:
 
 
 def build_replay_engine(
-    descriptor: dict[str, Any], loader: "LazyCardLoader"
+    descriptor: dict[str, Any], loader: "LazyCardLoader",
+    lookup_printing: PrintingLookup | None = None,
 ) -> GameEngine:
     """Build a live `GameEngine` from a replay descriptor.
 
@@ -337,7 +345,7 @@ def build_replay_engine(
         }
         for name in ZONE_NAMES:
             for inst in (pd.get("zones") or {}).get(name, []):
-                obj = build_object(inst, owner_id=player.id, cards_by_name=cards_by_name)
+                obj = build_object(inst, owner_id=player.id, cards_by_name=cards_by_name, lookup_printing=lookup_printing)
                 if obj is not None:
                     remember(inst, obj)
                     player.add_to_zone(obj, Zone(name))
@@ -353,6 +361,7 @@ def build_replay_engine(
             owner_id=inst.get("owner_id", players[0].id),
             cards_by_name=cards_by_name,
             controller_id=inst.get("controller_id"),
+            lookup_printing=lookup_printing,
         )
         if obj is not None:
             remember(inst, obj)

@@ -118,6 +118,18 @@ _BASIC_LAND_TYPE_WORDS: frozenset[str] = frozenset(
 )
 
 
+#: `_request_search` arguments that are not part of the serialisable request a zone prompt carries (the objects are
+#: re-resolved from their ids when the prompt is answered; ``zones`` is replaced by the answer).
+_ZONE_REQUEST_EXCLUDED: frozenset[str] = frozenset({"self", "player", "chooser", "source", "zones", "choose_zones"})
+#: RULE 701.23b: a hidden zone may be searched without finding a match, a public one may not. The library is hidden
+#: from everyone, the hand from the opponents; the others (graveyard, face-up exile) are open information.
+_HIDDEN_SEARCH_ZONES: frozenset[str] = frozenset({"library", "hand"})
+#: German zone names for the zone prompt (the UI language).
+_ZONE_LABELS: dict[str, str] = {"library": "Bibliothek", "graveyard": "Friedhof", "hand": "Hand", "exile": "Exil"}
+#: The separator joining zones inside one option id of the zone prompt.
+_ZONE_JOIN = "+"
+
+
 def _land_types_of(card: Card) -> frozenset[str]:
     """The basic land type word(s) printed on ``card``'s type line."""
     type_line = (card.type_line or "").lower()
@@ -230,6 +242,7 @@ class SearchMixin:
                                  allowed_spell_types: Optional[list[str]] = None,
                                  bottom_player_id: Optional[str] = None,
                                  bottom_visits: Optional[dict[str, int]] = None,
+                                 bottom_in_chosen_order: bool = False,
                                  noncreature_only: bool = False,
                                  copy_for_player_id: Optional[str] = None,
                                  draw_if_no_cast_player_id: Optional[str] = None,
@@ -242,8 +255,10 @@ class SearchMixin:
         cards = [obj for obj in cards if obj.zone.value in zones]
         if not cards:
             if bottom_remaining:
-                self._bottom_remaining(self.state.player_by_id(bottom_player_id or player.id),
-                                       bottom_remaining, zone=zone, visits=bottom_visits)
+                self._finish_resolution_play_bottom(
+                    self.state.player_by_id(bottom_player_id or player.id), bottom_remaining, zone,
+                    bottom_visits, bottom_in_chosen_order,
+                )
             if owner_life_loss:
                 for loss in owner_life_losses or []:
                     self.lose_life(self.state.player_by_id(loss["owner_id"]), loss["amount"])
@@ -264,6 +279,7 @@ class SearchMixin:
                                for obj in cards},
             "bottom_remaining": list(bottom_remaining or []),
             "bottom_player_id": bottom_player_id,
+            "bottom_in_chosen_order": bottom_in_chosen_order,
             "bottom_visits": dict(bottom_visits) if bottom_visits is not None else None,
             "instance_ids": [obj.instance_id for obj in cards],
             "zone_incarnations": {str(obj.instance_id): obj.zone_incarnation for obj in cards},
@@ -334,9 +350,11 @@ class SearchMixin:
         # ``keep_bottom``: a repeated offer carries the bottom-of-library step to its last round (RULE 608.2c: "then put
         # the rest on the bottom" follows the whole casting sequence, not its first cast).
         if not cancelled and not keep_bottom and choice.get("bottom_remaining"):
-            self._bottom_remaining(self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
-                                   choice["bottom_remaining"], zone=choice.get("zone", "exile"),
-                                   visits=choice.get("bottom_visits"))
+            self._finish_resolution_play_bottom(
+                self.state.player_by_id(choice.get("bottom_player_id") or choice["player_id"]),
+                choice["bottom_remaining"], choice.get("zone", "exile"), choice.get("bottom_visits"),
+                choice.get("bottom_in_chosen_order", False),
+            )
         if not cancelled:
             if played_id is not None and choice.get("copy_for_player_id"):
                 # RULE 707.10: copy the spell actually cast, after all
@@ -1272,6 +1290,7 @@ class SearchMixin:
         distinct_keys: Optional[list[str]] = None,
         opponent_split: Optional[dict[str, Any]] = None,
         exact_count: bool = False,
+        choose_zones: bool = False,
     ) -> None:
         """Open a "search your library" choice on the game state (a tutor).
 
@@ -1368,6 +1387,12 @@ class SearchMixin:
         ``chosen_destination`` and the rest to ``rest_destination``, and the library is shuffled once. The chooser's
         pick is the existing `intuition_choose` choice (`_resume_intuition_choose`).
 
+        ``choose_zones`` ("search your graveyard, hand, and/or library", PAR-292 M28): ``zones`` is the set the player
+        may pick from rather than the set searched. The player first says which of them to search (`search_zones`
+        choice); only the chosen zones are looked through, and the library is shuffled, and `LIBRARY_SEARCHED` fired,
+        only when it was one of them (RULE 701.23a/b/d: a card found in the graveyard does not mean the library was
+        searched; "if you search your library this way, shuffle").
+
         ``criteria_each`` (Conflux's "search your library for a white card, a blue card, ..., and a green
         card"; Krosan Verge, Gem of Becoming, Axgard Armory's "and/or") is one search made of independent
         slots, each its own criteria: the player is asked slot by slot for at most one card matching that
@@ -1398,6 +1423,12 @@ class SearchMixin:
         if self.is_search_prohibited_for(chooser or player):
             return
         zones = list(zones) if zones else ["library"]
+        if choose_zones and len(zones) > 1:
+            # Captured before anything below rebinds a parameter: the zone prompt re-enters this method with them.
+            request = {name: value for name, value in locals().items() if name not in _ZONE_REQUEST_EXCLUDED}
+            zones = self._ask_search_zones(player, zones, criteria, criteria_each, chooser, source, request)
+            if zones is None:
+                return
         if "library" in zones:
             self.state.fire_event(
                 GameEvent(EventType.LIBRARY_SEARCHED, player_id=player.id)
@@ -1671,6 +1702,68 @@ class SearchMixin:
             else:
                 self._move_to_graveyard(obj)  # RULE 614.1; flags a commander (RULE 903.9a)
         self.shuffle_library(searcher)
+
+    def _ask_search_zones(
+        self, player: Player, zones: list[str], criteria: Any, criteria_each: Optional[list[Any]],
+        chooser: Optional[Player], source: Optional[GameObject], request: dict[str, Any],
+    ) -> Optional[list[str]]:
+        """RULE 701.23a: "search your graveyard, hand, and/or library" lets the player pick which of the named zones to
+        look through. Returns the zones to search when the choice is trivial (at most one zone is worth naming), else
+        opens the `search_zones` prompt and returns None (the search continues when it is answered).
+
+        A zone is worth naming when searching it can matter: the library and the hand are hidden (RULE 701.23b), so
+        looking through them is always possible, even with no match, and it is what makes "if you search your library
+        this way, shuffle" happen; a public zone (graveyard, exile) only when it holds a card the search could find.
+        An empty zone is never offered."""
+        searcher = chooser or player
+        slots = list(criteria_each) if criteria_each else [criteria]
+        offered: list[str] = []
+        for zone in zones:
+            pool = self._search_zone_objects(player, [zone], searcher)
+            if not pool:
+                continue
+            if zone in _HIDDEN_SEARCH_ZONES or any(card_query.matches(o.card, slot) for o in pool for slot in slots):
+                offered.append(zone)
+        if len(offered) <= 1:
+            return offered or zones
+        options: list[dict[str, Any]] = []
+        # Every non-empty combination, fewest zones first (the library-only and graveyard-only picks before "both").
+        for mask in sorted(range(1, 1 << len(offered)), key=lambda m: (bin(m).count("1"), m)):
+            picked = [z for i, z in enumerate(offered) if mask >> i & 1]
+            options.append({"id": _ZONE_JOIN.join(picked), "label": " + ".join(_ZONE_LABELS[z] for z in picked)})
+        self.open_choice({
+            "kind": "search_zones",
+            "player_id": searcher.id,
+            "library_owner_id": player.id,
+            "prompt": "Welche Zonen durchsuchen? (" + ", ".join(_ZONE_LABELS[z] for z in offered) + ")",
+            "options": options,
+            "request": request,
+            "source_id": getattr(source, "instance_id", None),
+            "optional": False,
+        })
+        return None
+
+    @continuations.choice("search_zones", answer=continuations.ANSWER_STR, rule="701.23")
+    def _resume_search_zones(self, choice: dict[str, Any], answer: str) -> None:
+        """Answer the zone prompt: search exactly the named zones (RULE 701.23a). A "you may" in the card's text is
+        its own earlier choice, so the prompt itself always names at least one zone."""
+        if answer not in {o["id"] for o in choice["options"]}:
+            self.open_choice(choice)  # the refused answer leaves the prompt pending
+            raise ValueError(f"{answer!r} is not a zone choice")
+        zones = answer.split(_ZONE_JOIN)
+        request = dict(choice["request"])
+        if not (set(zones) & _HIDDEN_SEARCH_ZONES) and not request.get("exact_count"):
+            # RULE 701.23b: only a hidden zone lets the searcher miss a card that is there; a public zone must be
+            # searched honestly, so a find is no longer optional once the player named only public zones.
+            request["optional"] = False
+        owner = self.state.player_by_id(choice["library_owner_id"])
+        searcher = self.state.player_by_id(choice["player_id"])
+        source_id = choice.get("source_id")
+        self._request_search(
+            owner, **request, zones=zones, choose_zones=False,
+            chooser=searcher if searcher is not owner else None,
+            source=self.state.find_object(source_id) if source_id is not None else None,
+        )
 
     def _search_zone_objects(self, player: Player, zones: list[str], searcher: Optional[Player] = None) -> list[GameObject]:
         """The combined pool of cards a (possibly multi-zone) search draws
@@ -2884,18 +2977,76 @@ class SearchMixin:
         exiled: list[GameObject] = []
         matched: Optional[GameObject] = None
         while player.library:
-            obj = player.library.pop()  # top of deck
-            obj.zone = Zone.EXILE
-            player.exile.append(obj)
+            obj = self._exile_library_top(player)
             exiled.append(obj)
-            self.state.fire_event(
-                GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
-            )
             is_land = exclude_lands and obj.card.is_land
             if not is_land and card_query.matches(obj.card, criteria):
                 matched = obj
                 break
         return matched, exiled
+
+    def _exile_library_top(self, player: Player) -> GameObject:
+        """RULE 701.13a: exile the top card of ``player``'s library (the caller checked it is not empty)."""
+        obj = player.library.pop()  # top of deck
+        obj.zone = Zone.EXILE
+        player.exile.append(obj)
+        self.state.fire_event(
+            GameEvent(EventType.EXILE, player_id=player.id, object=obj.name, from_zone="library")
+        )
+        return obj
+
+    def _exile_top_until_total_mana_value(self, player: Player, total: int) -> list[GameObject]:
+        """Exile cards from the top of ``player``'s library until the cards exiled this way have total mana value
+        ``total`` or greater (RULE 701.13a), or the library runs out. A land has mana value 0 (RULE 202.3), so it adds
+        nothing but is exiled all the same; the running sum is this one instruction's own (the cards already in exile
+        do not count)."""
+        exiled: list[GameObject] = []
+        running = 0
+        while player.library and running < total:
+            obj = self._exile_library_top(player)
+            exiled.append(obj)
+            running += obj.mana_value
+        return exiled
+
+    #: `_dig_each_opponent` pool shapes: the cards the controller may cast afterwards ("any number of spells from among
+    #: those cards", during this resolution) or for the rest of the turn ("until end of turn, you may cast cards exiled
+    #: this way").
+    DIG_POOL_RESOLUTION = "cast_pool_resolution"
+    DIG_POOL_WINDOW = "cast_pool_window"
+
+    def _dig_each_opponent(
+        self, controller: Player, *, criteria: Any = None, total_mana_value: Optional[int] = None,
+        pool_destination: Optional[str] = None, source: Optional[GameObject] = None,
+    ) -> list[GameObject]:
+        """"Each opponent exiles cards from the top of their library until <they exile a <card> | the cards exiled this
+        way have total mana value N or greater>" (RULE 701.13a), in turn order from the active player (RULE 101.4).
+
+        Every opponent digs their own library and owns what they exile (RULE 108.3, 400.3); ``source`` is linked to
+        every exiled card ("exiled with ~", RULE 607.2a). The cards the controller may cast afterwards are the hits (a
+        card-quality stop) or every card exiled (a total-mana-value stop); a land can never be cast, and the cards
+        nobody casts stay exiled. The controller, not the owner, casts them (RULE 601.2, 601.3e) and a cast card goes
+        to its owner's graveyard. Returns the pool."""
+        pool: list[GameObject] = []
+        for opponent in self.state.living_players_apnap():
+            if opponent.id == controller.id:
+                continue
+            if total_mana_value is not None:
+                exiled = self._exile_top_until_total_mana_value(opponent, total_mana_value)
+                pool.extend(exiled)
+            else:
+                hit, exiled = self._exile_top_until(opponent, criteria or {}, exclude_lands=False)
+                if hit is not None:
+                    pool.append(hit)
+            if source is not None:
+                for obj in exiled:
+                    self.state.track_exiled_with(source, obj)
+        castable = [obj for obj in pool if not obj.card.is_land and obj.zone == Zone.EXILE]
+        if pool_destination == self.DIG_POOL_RESOLUTION:
+            self._request_resolution_play(controller, castable, repeat=True, only_spells=True, zone="exile")
+        elif pool_destination == self.DIG_POOL_WINDOW:
+            for obj in castable:
+                self.grant_free_cast_window_from_exile(obj, caster=controller)
+        return pool
 
     def _reveal_top_until(
         self, player: Player, criteria: Any, exclude_lands: bool = False
@@ -3586,6 +3737,34 @@ class SearchMixin:
                 player.library.append(obj)
         self._order_library_bottom(player, [o.instance_id for o in remaining])
 
+    def _finish_resolution_play_bottom(self, player, instance_ids, zone, visits, chosen_order):
+        if not chosen_order:
+            self._bottom_remaining(player, instance_ids, zone=zone, visits=visits)
+            return
+        origin = Zone(zone)
+        remaining = self._staged(player, instance_ids, origin)
+        current_ids = [obj.instance_id for obj in remaining
+                       if visits is None or visits.get(str(obj.instance_id)) == obj.zone_incarnation]
+        self._order_remaining_to_bottom(player, current_ids, origin=origin)
+
+    @continuations.choice("ripple_reveal", answer=continuations.ANSWER_STR, rule="702.60a")
+    def _resume_ripple_reveal(self, choice, answer):
+        if answer != "reveal":
+            return
+        player = self.state.player_by_id(choice["player_id"])
+        revealed = list(reversed(player.library[-choice["count"]:]))
+        for obj in revealed:
+            self.state.fire_event(GameEvent(
+                EventType.REVEAL, player_id=player.id, object=obj.name, instance_id=obj.instance_id,
+                from_zone="library",
+            ))
+        self._request_resolution_play(
+            player, [obj for obj in revealed if obj.name == choice["spell_name"]],
+            zone="library", only_spells=True, repeat=True, bottom_in_chosen_order=True,
+            bottom_remaining=[obj.instance_id for obj in revealed],
+            bottom_visits={str(obj.instance_id): obj.zone_incarnation for obj in revealed},
+        )
+
     def _bottom_remaining(self, player: Player, exiled_ids: list[int], *, zone: str = "exile",
                           visits: Optional[dict[str, int]] = None) -> None:
         """Put every still-exiled card from this effect on the bottom of the
@@ -3837,6 +4016,7 @@ class SearchMixin:
         criteria: Optional[dict[str, Any]] = None,
         else_specs: Optional[list[dict]] = None,
         distinct_card_types: bool = False,
+        pick_slots: Optional[list[dict[str, Any]]] = None,
         then_specs: Optional[list[dict]] = None,
         reveal: bool = False,
         entry_counters: Optional[dict[str, int]] = None,
@@ -3935,7 +4115,7 @@ class SearchMixin:
             rest_destination=rest_destination,
             decline_leaves_untouched=decline_leaves_untouched,
             else_specs=else_specs,
-            distinct_card_types=distinct_card_types,
+            distinct_card_types=distinct_card_types, pick_slots=pick_slots,
             then_specs=then_specs,
             entry_counters=entry_counters, entry_specs=entry_specs,
         )

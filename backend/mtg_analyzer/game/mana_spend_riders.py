@@ -23,14 +23,34 @@ def arm_next_cast_rider(state, source, rider):
     state.mana_next_cast_riders = pending
 
 
-def matches(rider, spell):
+def matches(rider, spell, state=None):
     return (not rider.get('creature') or spell.is_creature) and (
         not rider.get('artifact') or 'artifact' in spell.type_words) and (
         not rider.get('subtype') or continuous.has_subtype(spell, rider['subtype'])) and (
         not rider.get('exclude_subtype') or not continuous.has_subtype(spell, rider['exclude_subtype'])) and (
         not rider.get('multicolored') or len(spell.colors) > 1) and (
         not rider.get('commander') or (spell.is_commander and spell.owner_id == rider['controller_id'])) and (
-        not rider.get('legendary') or spell.is_legendary)
+        not rider.get('legendary') or spell.is_legendary) and (
+        # MEC-175: "a spell with mana value N or greater" (Gilanra) / "a spell with {X} in its mana cost" (Brass
+        # Infiniscope, RULE 107.3).
+        spell.mana_value >= rider.get('min_mana_value', 0)) and (
+        not rider.get('has_x') or '{X}' in (getattr(spell.card, 'mana_cost_string', '') or '').upper()) and (
+        not rider.get('shares_type_with_commander') or shares_type_with_commander(state, spell, rider['controller_id']))
+
+
+def shares_type_with_commander(state, spell, controller_id):
+    """MEC-175: "a creature spell that shares a creature type with your commander" (Path of Ancestry) -- some
+    commander the payer owns (any zone, RULE 903.3) has a creature type in common with the spell (RULE 205.3m)."""
+    if state is None:
+        return False
+    spell_types = continuous.derived_subtype_words(spell)
+    commanders = [obj for zone_objects in state.player_by_id(controller_id).zones.values() for obj in zone_objects]
+    commanders += [obj for obj in state.battlefield if obj.owner_id == controller_id]
+    return any(
+        getattr(obj, 'is_commander', False) and obj.owner_id == controller_id
+        and spell_types & continuous.derived_subtype_words(obj)
+        for obj in commanders
+    )
 
 
 def mark_entry(spell, rider, count):
@@ -55,6 +75,11 @@ class ManaRiderEffect(GameEffect):
                     and source.zone_incarnation == rider['source_incarnation']):
                 context.add_counters(source, count, rider.get('counter', '+1/+1'), source=self.source)
             return
+        if rider['kind'] in PLAYER_PAYOFF_KINDS:
+            # MEC-175 (RULE 106.6 / 603.7): the payoff goes to the player who spent the mana, whether or not the cast
+            # spell is still on the stack when the triggered ability resolves.
+            self._apply_player_payoff(context, count)
+            return
         spell = context.state.find_object(self.spell_id)
         if (spell is None or spell.zone != Zone.STACK
                 or spell.zone_incarnation != self.spell_incarnation):
@@ -67,6 +92,25 @@ class ManaRiderEffect(GameEffect):
                 grant_entry_keyword(context.state, spell, rider)
 
 
+    def _apply_player_payoff(self, context, count):
+        rider = self.rider
+        player = context.state.player_by_id(rider['controller_id'])
+        if rider['kind'] == 'life':
+            context.gain_life(player, count)
+        elif rider['kind'] == 'scry':
+            context.scry(player, count, source=self.source)
+        else:  # draw / draw_gain_half_x
+            context.draw(player, 1)
+            if rider['kind'] == 'draw_gain_half_x':
+                context.gain_life(player, count)
+
+
+#: RULE 107.3f: "half X, rounded down".
+HALF_X_DIVISOR = 2
+#: MEC-175: payoff kinds that act on the paying player, not on the cast spell.
+PLAYER_PAYOFF_KINDS = frozenset({'life', 'scry', 'draw', 'draw_gain_half_x'})
+
+
 def apply_cast_riders(rules, item, event):
     """Finish RULE 601.2i: apply replacement riders and queue delayed triggers."""
     spell = item.obj
@@ -76,16 +120,22 @@ def apply_cast_riders(rules, item, event):
     for rider in getattr(rules.state, 'mana_next_cast_riders', []):
         if rider['turn'] != rules.state.internal_turn.number:
             continue
-        if rider['controller_id'] == item.controller_id and matches(rider, spell):
+        if rider['controller_id'] == item.controller_id and matches(rider, spell, rules.state):
             riders.append(rider)
         else:
             pending.append(rider)
     rules.state.mana_next_cast_riders = pending
     for rider in riders:
-        if not matches(rider, spell):
+        if not matches(rider, spell, rules.state):
             continue
         source = rules.state.find_object(rider['source_id'])
-        if rider.get('triggered'):
+        if rider['kind'] == 'draw_gain_half_x':
+            rider = dict(rider, count=item.x // HALF_X_DIVISOR)  # RULE 107.3: the announced X, halved, rounded down
+        elif rider.get('triggered') and rider.get('count') == 'commander_casts':
+            rider = dict(rider, count=item.mana_rider_commander_cast_count)
+        if rider['kind'] == 'grant_keyword':
+            grant_entry_keyword(rules.state, spell, rider)  # RULE 611.2a: applied as the spell is cast
+        elif rider.get('triggered'):
             effect = ManaRiderEffect(rider, spell, source)
             ability = TriggeredAbility(EventType.SPELL_CAST, [effect],
                                        controller_id=rider['controller_id'], source=source,
@@ -109,13 +159,14 @@ def apply_cast_riders(rules, item, event):
 def grant_entry_keyword(state, spell, rider):
     # RULE 611.2b / 400.7c: the resolving delayed trigger grants a duration
     # now; its effect follows only this spell's ensuing permanent incarnation.
+    until_next_turn = rider.get('duration', 'until_next_turn') == 'until_next_turn'
     static = StaticAbility('ability', affects='objects',
                            params={'keywords': [rider['keyword']],
                                    'object_ids': [spell.instance_id],
                                    'object_incarnations': {spell.instance_id: spell.zone_incarnation + 1}},
-                           duration='your_next_turn',
+                           duration='your_next_turn' if until_next_turn else rider['duration'],
                            duration_data={'player_id': rider['controller_id'],
-                                          'turn': state.internal_turn.number})
+                                          'turn': state.internal_turn.number} if until_next_turn else {})
     static.timestamp = state.next_timestamp()
     state.floating_statics.append(static)
 

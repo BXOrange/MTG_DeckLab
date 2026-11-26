@@ -11,7 +11,12 @@ import { escapeHtml } from './html.js';
 const LOYALTY_COST_RE = /^\[([+-]?\d+)\]$/;
 
 export function faceHint(a) {
+  if (a.face === 'assist') return ' (Assist)';
   if (a.face === 'fuse') return t('bd.faceHint.fuse');
+  if (a.face === 'prototype' || a.face === 'overload') {
+    const keyword = a.face === 'prototype' ? 'Prototype' : 'Overload';
+    return a.cost_label ? ` (${keyword} — ${renderOracleText(a.cost_label)})` : ` (${keyword})`;
+  }
   // RULE 702.103: the Bestow cast is the same card name as the plain
   // creature cast, so it gets a short "(Bestow — <cost>)" suffix rather
   // than a redundant repeated name, the same treatment as Fuse above.
@@ -154,7 +159,7 @@ export function restrictionLabel(restriction) {
   if (kind === 'commander_spell') return t('bd.restrict.commanderSpell');
   if (kind === 'legendary_spell') return t('bd.restrict.legendarySpell');
   if (kind === 'instant_or_sorcery_spell') return t('bd.restrict.instantSorcery');
-  if (kind === 'type_spell' || kind === 'card_type_spell') {
+  if (kind === 'type_spell' || kind === 'card_type_spell' || kind === 'type_list_spell') {
     const types = (restriction.types || []).join('/');
     return restriction.allow_ability
       ? t('bd.restrict.typeSpellAbility', { types })

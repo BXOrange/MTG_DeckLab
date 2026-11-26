@@ -139,6 +139,7 @@ class StackItem:
         self.pending_cast_event: Optional[GameEvent] = None
         self.trigger_event = trigger_event
         self.x = x
+        self.omits_epic = False
         self.category = category or self._derive_category()
         self.source = source
         # RULE 610.3a/b: retain the source incarnation from triggering/activation.
@@ -241,7 +242,9 @@ class DelayedTrigger:
         condition: Optional[dict[str, Any]] = None,
         step_player_id: Optional[str] = None,
         max_turn: Optional[int] = None,
+        repeats: bool = False,
     ) -> None:
+        self.repeats = repeats
         self.step_player_id = step_player_id
         self.controller_id = controller_id
         self.step = step
@@ -859,6 +862,7 @@ class GameState:
         #: casting that has locked. Both cleared at cleanup.
         self.cast_lock_instance_ids: set[int] = set()
         self.no_more_spells_this_turn: set[str] = set()
+        self.epic_cast_prohibitions: set[str] = set()
 
         #: Delayed triggered abilities (RULE 603.7) a resolving spell/ability
         #: has set up to fire at a *future* step ("at the beginning of your
@@ -991,6 +995,9 @@ class GameState:
         self.turn_steps: list[Any] = []
         #: A resolving permanent retained through before-entry choices and undo.
         self.pending_permanent_entry: Optional[dict[str, Any]] = None
+        self.pending_cipher_source: Optional["GameObject"] = None
+        self.pending_harmonize_cast: Optional[dict[str, Any]] = None
+        self.pending_assist: Optional[dict[str, Any]] = None
         #: RULE 614.12 / 400.7: the permanent awaiting an "as ~ enters, choose ..." answer
         #: (``{"obj", "incarnation", "batch"}``). The rest of the entry pipeline -- which queued choice is open,
         #: where the entry continues afterwards -- is derived from this and the three entry records below, so
@@ -1540,6 +1547,7 @@ class GameState:
         # "As long as ~ entered the battlefield this turn" conditions (The
         # Wandering Emperor-shaped, `game/condition_query.py`).
         obj.turn_entered = self.internal_turn.number
+        obj.control_since_turn = self.internal_turn.number  # RULE 702.30a: echo reads the control history
         # RULE 110.2a: preserve the entry recipient independently of later
         # control changes and only for this battlefield visit.
         obj.entry_controller_id = obj.controller_id

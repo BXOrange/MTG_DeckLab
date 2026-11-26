@@ -99,6 +99,7 @@ class TestSerialization:
             "isCube",
             "archetypes",
             "favoriteCards",
+            "cardPrintings",
             "validationResult",
             "unmodeledCoverage",
             "unmodeledCoverageVersion",

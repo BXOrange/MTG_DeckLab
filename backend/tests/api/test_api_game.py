@@ -382,3 +382,67 @@ class TestMultiplayerStub:
         client = TestClient(app)
         response = client.post("/api/game/multiplayer")
         assert response.status_code == 501
+
+
+def test_selected_printing_is_deck_local_and_reaches_play_and_replay(monkeypatch):
+    from mtg_analyzer.api.dependencies import get_scryfall
+    from mtg_analyzer.api.game import resolve_seat_deck
+    from mtg_analyzer.services.replay import serialize_replay
+
+    class Printings:
+        def fetch_printings(self, name):
+            assert name == "Forest"
+            return [{
+                "id": "alternative-forest",
+                "name": name,
+                "type_line": "Basic Land — Forest",
+                "set_name": "Alternate Edition",
+                "collector_number": "1",
+                "image_uris": {
+                    "normal": "https://cards.scryfall.io/normal/alternative-forest.jpg",
+                    "small": "https://cards.scryfall.io/small/alternative-forest.jpg",
+                },
+            }]
+
+    manager, decks = _setup()
+    monkeypatch.setitem(app.dependency_overrides, get_scryfall, Printings)
+    try:
+        client = TestClient(app)
+        response = client.get("/api/decks/printings/options", params={"card": "Forest"})
+        assert response.status_code == 200
+        printing_id = response.json()["printings"][0]["id"]
+        draft = {**LEGAL_DECK, "cardPrintings": {"forest": printing_id}}
+        chosen = client.post("/api/decks/save", json=draft).json()
+        default = client.post("/api/decks/save", json=LEGAL_DECK).json()
+        assert chosen["cardPrintings"] == {"forest": printing_id}
+        assert default["cardPrintings"] == {}
+        assert decks.get_printing_images(printing_id)["front"]["normal"].endswith("alternative-forest.jpg")
+        assert client.post("/api/decks/save", json={
+            **LEGAL_DECK, "cardPrintings": {"test commander": printing_id},
+        }).status_code == 422
+
+        def start(deck):
+            response = client.post("/api/game/goldfish", json={"deckId": deck["id"], "shuffle": False})
+            assert response.status_code == 200
+            return response.json()
+
+        for deck, expected_id in [(chosen, printing_id), (default, "Forest")]:
+            game = start(deck)
+            assert {obj["card_id"] for obj in game["state"]["players"][0]["hand"]} == {expected_id}
+
+        loader = app.dependency_overrides[get_lazy_card_loader]()
+        library, _, errors = resolve_seat_deck(chosen["id"], decks, loader, TEST_PLAYER_UUID)
+        assert not errors
+        assert {card.id for card in library} == {printing_id}
+
+        game = start(chosen)
+        descriptor = serialize_replay(manager.get(game["session_id"]).engine.state)
+        replay = client.post("/api/game/replay", json={"replay": descriptor})
+        assert replay.status_code == 200
+        assert {obj["card_id"] for obj in replay.json()["state"]["players"][0]["hand"]} == {printing_id}
+
+        response = client.post("/api/decks/save", json={**chosen, "cardPrintings": {}})
+        assert response.json()["cardPrintings"] == {}
+        assert {obj["card_id"] for obj in start(chosen)["state"]["players"][0]["hand"]} == {"Forest"}
+    finally:
+        _teardown()

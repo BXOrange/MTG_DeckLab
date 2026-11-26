@@ -89,6 +89,11 @@ COMBAT_RELATION_TAILS: tuple[tuple["re.Pattern[str]", str], ...] = (
     (re.compile(r"\s+that blocked or (?:was|were) blocked this turn$"), "blocked_or_was_blocked_this_turn"),
     (re.compile(r"\s+that blocked ~ this turn$"), "blocked_source_this_turn"),
 )
+#: MEC-171 (RULE 608.2h): "... that shares a creature type with the exiled card" -- the object the ability's own earlier
+#: instruction moved (`game/cost_referents.py` kinds); read as `combat.matches_object_filter`'s
+#: ``shares_creature_type_with_referent``.
+_SHARES_TYPE_WITH_REFERENT = re.compile(
+    r"\s+that shares? a creature type with the (?P<kind>exiled|discarded|sacrificed|tapped) (?:card|creature|permanent)$")
 _SHARES_TYPE_WITH_IT = re.compile(r"\s+that shares? a creature type with (?:it|~)$")
 # One noun phrase can name two disjoint zones (Crackling Drake / Huskburster
 # Swarm). Each half keeps the same filter; summing is safe because an object
@@ -246,6 +251,10 @@ def parse_count_phrase(text: str) -> Optional[dict[str, Any]]:
     if modified is not None:
         extra["modified"] = True
         text = (text[: modified.start()] + text[modified.end():]).strip()
+    referent = _SHARES_TYPE_WITH_REFERENT.search(text)
+    if referent is not None:
+        extra["shares_creature_type_with_referent"] = referent.group("kind")
+        text = text[: referent.start()]
     if text.endswith(" other than ~"):
         extra["not_reference"] = True
         text = text[:-len(" other than ~")]
@@ -595,6 +604,11 @@ _NAMED_TERMS: dict[str, str] = {
     "the number of times ~ was kicked": "source_kicker_count",
     # RULE 702.108a: the colours of mana spent on the spell that is resolving (Radiant Flames' "where X is …").
     "the number of colors of mana spent to cast this spell": "converge",
+    # MEC-172: the permanent's own ETB ("...to cast ~", Sundering Archaic) reads the colours that paid for it likewise.
+    "the number of colors of mana spent to cast ~": "converge",
+    # MEC-172 (RULE 120.4a): the excess damage a spell just dealt, as the reflexive "When it deals excess damage this way"
+    # trigger carries it (`cost_referents.EXCESS_KIND`); `gate._cost_referents_ok` demands that trigger.
+    "that amount of excess damage": "cost_referent_excess_amount",
 }
 #: "the sacrificed creature's power" (Fling, Altar of Dementia, Ghoulcaller Gisa) — what the ability's own
 #: sacrifice (a cost, or "you may sacrifice a creature. When you do, …") stamped on its source
@@ -611,10 +625,10 @@ _SACRIFICED = re.compile(r"^the sacrificed (?:creature|permanent|artifact|land|e
 _REFERENT_NOUN = r"(?:card|creature|permanent|artifact|land)"
 _REFERENT_STAT = r"(?P<what>power|toughness|mana value)"
 _COST_REFERENT_POSSESSIVE = re.compile(
-    rf"^the (?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
+    rf"^the (?P<kind>discarded|exiled|revealed|tapped) {_REFERENT_NOUN}'?s {_REFERENT_STAT}$"
 )
 _COST_REFERENT_OF = re.compile(
-    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled|revealed) {_REFERENT_NOUN}"
+    rf"^the {_REFERENT_STAT} of the (?:(?P<kind>discarded|exiled|revealed|tapped) {_REFERENT_NOUN}"
     rf"|{_REFERENT_NOUN} (?:you )?(?P<kind_after>exiled|discarded|tapped)(?: this way)?"
     rf"|(?P<tapped>creature) tapped this way)$"
 )

@@ -105,12 +105,15 @@ def test_earthbend_zero_still_installs_the_return_before_state_based_death():
 
 
 def test_a_departed_bender_cannot_return_another_players_land():
+    from mtg_analyzer.game.control import gain_control
+
     engine = game(players=3)
     bender = filler(engine, "Bender", power=1, toughness=1)
     land = filler(engine, "Borrowed land", type_line="Land", player="p2")
-    land.controller_id = "p1"
+    gain_control(engine.state, land, "p1")
     engine.rules.earthbend(land, 4, source=bender)
     engine.rules.concede(engine.state.player_by_id("p1"))
+    assert land.zone == Zone.BATTLEFIELD and land.controller_id == "p2"
     engine.rules.destroy(land)
     engine.rules.put_triggers_on_stack()
     engine.resolve_until_stable()

@@ -392,7 +392,8 @@ def _resolution_visible_library_ids(state, perspective: Optional[str]) -> set[in
     """RULE 701.20e: only the looker, or everyone for a reveal, sees this pool."""
     pending = state.pending_choice or {}
     frame = pending.get("inspection") or {}
-    if not frame:
+    if not frame or pending.get("mode") == "look_gate":
+        # RULE 701.20: nothing has been looked at while "you may look" is still a yes/no.
         return set()
     visible = (frame.get("previous_selector", {}).get("zone_visits", [])
                if frame.get("reveal") or perspective == _physical_choice_decider(state, pending)
@@ -1085,7 +1086,7 @@ class GameSession:
                 decider = _physical_choice_decider(state, state.pending_choice)
                 # MEC-118 (RULE 601.2c): an opponent's pick is theirs alone -- the spell's controller, who holds
                 # priority, must not be able to answer it by posting the choice themselves.
-                payment_choice = choice.get("kind") == "amount_payment" or any(
+                payment_choice = choice.get("kind") in {"amount_payment", "assist_select"} or any(
                     frame.get("kind") == self.engine.rules.DEFERRED_AMOUNT_PAYMENT
                     for frame in state.deferred_effects
                 )
@@ -2880,7 +2881,7 @@ class GameSessionManager:
         return session
 
     def create_replay(
-        self, descriptor: dict[str, Any], loader: Any, owner: Optional[str] = None
+        self, descriptor: dict[str, Any], loader: Any, owner: Optional[str] = None, *, lookup_printing=None
     ) -> GameSession:
         """Build a Replay/puzzle session from a descriptor (blank or loaded).
 
@@ -2888,7 +2889,7 @@ class GameSessionManager:
         turn — the board is given. ``loader`` is stashed on the session so
         `edit_add_object` can resolve card names on demand.
         """
-        engine = replay.build_replay_engine(descriptor, loader)
+        engine = replay.build_replay_engine(descriptor, loader, lookup_printing)
         session = GameSession(engine, mode=REPLAY, require_setup=False)
         session._loader = loader
         session.owner = owner

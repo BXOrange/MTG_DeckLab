@@ -141,3 +141,29 @@ class TestGetCardImage:
         response = client.get(f"/api/cards/{CARD_ID}/image", params={"face": "side"})
 
         assert response.status_code == 400
+
+
+def test_deck_printing_image_uses_the_selected_face(tmp_path, monkeypatch):
+    from mtg_analyzer.api.dependencies import get_deck_database
+    from mtg_analyzer.services.deck_database import DeckDatabase
+    from mtg_analyzer.services.deck_printings import PRINTING_ID_PREFIX
+
+    def handler(request):
+        return httpx.Response(200, content=request.url.path.encode())
+
+    _override(tmp_path, handler)
+    try:
+        with DeckDatabase() as decks:
+            monkeypatch.setitem(app.dependency_overrides, get_deck_database, lambda: decks)
+            printing_id = PRINTING_ID_PREFIX + DFC_ID
+            decks.save_printing_options("Delver of Secrets", [(printing_id, {
+                "front": {"normal": "https://cards.scryfall.io/normal/selected-front.jpg"},
+                "back": {"normal": "https://cards.scryfall.io/normal/selected-back.jpg"},
+            })])
+            client = TestClient(app)
+            response = client.get(f"/api/cards/{printing_id}/image?face=back")
+            assert response.status_code == 200
+            assert response.content == b"/normal/selected-back.jpg"
+    finally:
+        app.dependency_overrides.pop(get_card_database, None)
+        app.dependency_overrides.pop(get_image_cache, None)
